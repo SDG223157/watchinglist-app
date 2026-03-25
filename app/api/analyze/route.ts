@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const yahooFinance = require("yahoo-finance2").default;
+const YahooFinance = require("yahoo-finance2").default;
+const yahooFinance = new YahooFinance();
 
 export const dynamic = "force-dynamic";
 

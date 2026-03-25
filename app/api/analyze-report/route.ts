@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const yahooFinance = require("yahoo-finance2").default;
+const YahooFinance = require("yahoo-finance2").default;
+const yahooFinance = new YahooFinance();
 
 const MODEL = "openai/gpt-4.1";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
