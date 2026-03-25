@@ -148,7 +148,7 @@ function timeText(created: string): string {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
-const PAGE_SIZES = [15, 30, 50, 100];
+const PAGE_SIZES = [10, 20, 50, 100];
 
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("extreme_score");
@@ -210,7 +210,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   return (
     <>
     <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border)" }}>
-      <table className="w-full text-sm">
+      <table className="w-full text-[15px]">
         <thead style={{ background: "var(--card)" }}>
           <tr>
             <SortHeader k="symbol">Symbol</SortHeader>
@@ -254,7 +254,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                 className="border-t transition-colors hover:bg-zinc-900/60"
                 style={{ borderColor: "var(--border)" }}
               >
-                <td className="px-3 py-3">
+                <td className="px-3 py-4">
                   <Link
                     href={`/stock/${encodeURIComponent(s.symbol)}`}
                     className="font-semibold font-mono hover:underline"
@@ -263,39 +263,39 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                     {s.symbol}
                   </Link>
                 </td>
-                <td className="px-3 py-3 max-w-48 truncate" style={{ color: "var(--muted)" }}>
+                <td className="px-3 py-4 max-w-48 truncate" style={{ color: "var(--muted)" }}>
                   {s.name}
                 </td>
-                <td className="px-3 py-3 text-right font-mono">{formatPrice(s.price)}</td>
-                <td className="px-3 py-3 text-right font-mono">{formatMcap(s.market_cap)}</td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-4 text-right font-mono">{formatPrice(s.price)}</td>
+                <td className="px-3 py-4 text-right font-mono">{formatMcap(s.market_cap)}</td>
+                <td className="px-3 py-4">
                   <WallPills g={s.green_walls || 0} y={s.yellow_walls || 0} r={s.red_walls || 0} />
                 </td>
-                <td className="px-3 py-3 min-w-28">
+                <td className="px-3 py-4 min-w-28">
                   <ExtremeBar score={s.extreme_score || 0} />
                 </td>
-                <td className="px-3 py-3 text-xs font-mono">{s.clock_position || "—"}</td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-4 text-sm font-mono">{s.clock_position || "—"}</td>
+                <td className="px-3 py-4">
                   <GeoLabel order={s.geometric_order || 0} />
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-4">
                   <SignalBadge signal={s.trend_signal || ""} />
                 </td>
                 {heatmapContext && (
                   <>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4">
                       <HeatmapMini row={hm?.sector ?? null} />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4">
                       <HeatmapMini row={hm?.industry ?? null} />
                     </td>
                   </>
                 )}
-                <td className="px-3 py-3 text-xs max-w-32 truncate">{s.action || "—"}</td>
-                <td className="px-3 py-3 text-right font-mono text-xs">
+                <td className="px-3 py-4 text-sm max-w-32 truncate">{s.action || "—"}</td>
+                <td className="px-3 py-4 text-right font-mono text-sm">
                   {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}
                 </td>
-                <td className="px-3 py-3 text-right text-xs" style={{ color: "var(--muted)" }}>
+                <td className="px-3 py-4 text-right text-sm" style={{ color: "var(--muted)" }}>
                   {timeText(s.created_at)}
                 </td>
               </tr>
