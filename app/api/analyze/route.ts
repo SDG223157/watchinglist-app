@@ -207,7 +207,8 @@ export async function POST(req: NextRequest) {
     const ebitdaMargin = pct(finData.ebitdaMargins);
     const de = finData.debtToEquity ?? null;
     const currentRatio = finData.currentRatio ?? null;
-    const divYield = quote.dividendYield ? +(quote.dividendYield * 100).toFixed(2) : null;
+    const divYieldRaw = quote.trailingAnnualDividendYield ?? null;
+    const divYield = divYieldRaw ? +(divYieldRaw * 100).toFixed(2) : null;
     const revenueRaw = finData.totalRevenue ?? null;
     const revenue = revenueRaw ? +(revenueRaw / 1e9).toFixed(2) : null;
     const fcfRaw = finData.freeCashflow ?? null;
