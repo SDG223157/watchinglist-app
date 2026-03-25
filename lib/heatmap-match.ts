@@ -40,6 +40,7 @@ function extractSectorName(stock: WatchlistStock): string | null {
 }
 
 function extractIndustryName(stock: WatchlistStock): string | null {
+  if (stock.industry) return stock.industry;
   const fromRank = extractName(stock.industry_rank);
   if (fromRank) return fromRank;
   if (!stock.sector) return null;

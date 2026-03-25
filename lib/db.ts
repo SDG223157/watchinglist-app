@@ -10,6 +10,7 @@ export interface WatchlistStock {
   name: string;
   market: string;
   sector: string;
+  industry: string;
   price: number;
   market_cap: number;
   pe_ratio: number;

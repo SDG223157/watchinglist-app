@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
     const sql = getDb();
     await sql`
       INSERT INTO watchlist_items (
-        symbol, name, market, sector, price, market_cap,
+        symbol, name, market, sector, industry, price, market_cap,
         pe_ratio, price_to_book, dividend_yield,
         eps, beta, high_52w, low_52w, distance_from_ath,
         geometric_order, geometric_details,
@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
         ${quote.shortName || quote.longName || symbol},
         ${quote.market || "us_market"},
         ${quote.sector || null},
+        ${quote.industry || null},
         ${quote.regularMarketPrice},
         ${mcapB},
         ${quote.trailingPE ?? null},
