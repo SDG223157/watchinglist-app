@@ -12,6 +12,7 @@ type SortKey =
   | "extreme_score"
   | "green_walls"
   | "geometric_order"
+  | "clock_position"
   | "trend_signal"
   | "pe_ratio";
 
@@ -153,7 +154,18 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
 
   const signalOrder: Record<string, number> = { Open: 2, Closed: 1 };
 
+  function clockNum(s: string | null | undefined): number {
+    if (!s) return -1;
+    const m = s.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : -1;
+  }
+
   const stocks = [...initial].sort((a, b) => {
+    if (sortKey === "clock_position") {
+      const av = clockNum(a.clock_position);
+      const bv = clockNum(b.clock_position);
+      return sortAsc ? av - bv : bv - av;
+    }
     if (sortKey === "trend_signal") {
       const av = signalOrder[a.trend_signal] ?? 0;
       const bv = signalOrder[b.trend_signal] ?? 0;
@@ -201,9 +213,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
             <SortHeader k="market_cap" className="text-right">MCap</SortHeader>
             <SortHeader k="green_walls">Walls</SortHeader>
             <SortHeader k="extreme_score">Extreme</SortHeader>
-            <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-              Clock
-            </th>
+            <SortHeader k="clock_position">Clock</SortHeader>
             <SortHeader k="geometric_order">Geo</SortHeader>
             <SortHeader k="trend_signal">TrendWise</SortHeader>
             {heatmapContext && (
