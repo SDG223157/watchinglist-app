@@ -158,6 +158,60 @@ export async function fetchHeatmapDate(universe: string): Promise<string | null>
   return (rows[0] as unknown as { d: string | null })?.d ?? null;
 }
 
+export interface PcaReport {
+  id: number;
+  universe: string;
+  period_weeks: number;
+  scope: string;
+  report_date: string;
+  report_markdown: string;
+  top_performers: { rank: number; ticker: string; sector: string; return: string }[];
+  bottom_performers: { rank: number; ticker: string; sector: string; return: string }[];
+  sector_rotation: { sector: string; winners: number; losers: number; net: number; signal: string }[];
+  key_metrics: Record<string, unknown>;
+  charts: Record<string, string>;
+  created_at: string;
+}
+
+export async function fetchLatestPcaReports(universe: string): Promise<PcaReport[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT * FROM pca_reports
+    WHERE universe = ${universe}
+      AND report_date = (
+        SELECT MAX(report_date) FROM pca_reports WHERE universe = ${universe}
+      )
+    ORDER BY scope, period_weeks
+  `;
+  return rows as unknown as PcaReport[];
+}
+
+export async function fetchPcaReportDates(universe: string): Promise<string[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT DISTINCT report_date::text as d
+    FROM pca_reports
+    WHERE universe = ${universe}
+    ORDER BY d DESC
+    LIMIT 20
+  `;
+  return rows.map((r: unknown) => (r as { d: string }).d);
+}
+
+export async function fetchPcaReportsByDate(
+  universe: string,
+  reportDate: string
+): Promise<PcaReport[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT * FROM pca_reports
+    WHERE universe = ${universe}
+      AND report_date = ${reportDate}::date
+    ORDER BY scope, period_weeks
+  `;
+  return rows as unknown as PcaReport[];
+}
+
 export async function fetchAllHeatmapLatest(): Promise<HeatmapRow[]> {
   const sql = getDb();
   const rows = await sql`
