@@ -176,7 +176,8 @@ export interface PcaReport {
 export async function fetchLatestPcaReports(universe: string): Promise<PcaReport[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT * FROM pca_reports
+    SELECT *, report_date::text as report_date, created_at::text as created_at
+    FROM pca_reports
     WHERE universe = ${universe}
       AND report_date = (
         SELECT MAX(report_date) FROM pca_reports WHERE universe = ${universe}
@@ -204,7 +205,8 @@ export async function fetchPcaReportsByDate(
 ): Promise<PcaReport[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT * FROM pca_reports
+    SELECT *, report_date::text as report_date, created_at::text as created_at
+    FROM pca_reports
     WHERE universe = ${universe}
       AND report_date = ${reportDate}::date
     ORDER BY scope, period_weeks
