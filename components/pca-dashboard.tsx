@@ -278,6 +278,51 @@ function ReportSection({ report }: { report: PcaReport }) {
   );
 }
 
+function RunPcaButton() {
+  const [running, setRunning] = useState(false);
+  const [status, setStatus] = useState("");
+
+  async function handleRun() {
+    setRunning(true);
+    setStatus("Fetching ~500 stocks… this takes 2-3 minutes");
+    try {
+      const res = await fetch("/api/run-pca", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ universe: "SP500" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatus(`Done — ${data.stocks} stocks, ${data.periods.join(" + ")}`);
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        setStatus(`Error: ${data.error}`);
+      }
+    } catch (e) {
+      setStatus(`Failed: ${e instanceof Error ? e.message : "unknown"}`);
+    }
+    setRunning(false);
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleRun}
+        disabled={running}
+        className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ background: "var(--green)", color: "#fff" }}
+      >
+        {running ? "Running…" : "▶ Run PCA (S&P 500)"}
+      </button>
+      {status && (
+        <span className="text-xs" style={{ color: "var(--muted)" }}>
+          {status}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function PcaDashboard({ spReports, chinaReports, spDates, chinaDates }: Props) {
   const [tab, setTab] = useState<Tab>(spReports.length > 0 ? "SP500" : "CHINA");
   const reports = tab === "SP500" ? spReports : chinaReports;
@@ -302,25 +347,25 @@ export function PcaDashboard({ spReports, chinaReports, spDates, chinaDates }: P
           </button>
         ))}
 
-        {dates.length > 0 && (
-          <span className="ml-auto text-xs" style={{ color: "var(--muted)" }}>
-            Latest: {dates[0]}
-            {dates.length > 1 && ` · ${dates.length} reports available`}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-3">
+          {dates.length > 0 && (
+            <span className="text-xs" style={{ color: "var(--muted)" }}>
+              Latest: {dates[0]}
+              {dates.length > 1 && ` · ${dates.length} reports`}
+            </span>
+          )}
+          <RunPcaButton />
+        </div>
       </div>
 
       {!hasData ? (
         <div
-          className="rounded-lg p-12 text-center"
+          className="rounded-lg p-12 text-center space-y-4"
           style={{ background: "var(--card)", border: "1px solid var(--border)" }}
         >
-          <p className="text-lg font-medium mb-2">No PCA data yet</p>
+          <p className="text-lg font-medium">No PCA data yet</p>
           <p className="text-sm" style={{ color: "var(--muted)" }}>
-            Run <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: "var(--border)" }}>
-              python3 scripts/pca_to_db.py --auto
-            </code>{" "}
-            to push PCA results from local analysis.
+            Click <strong>Run PCA</strong> above to fetch live S&amp;P 500 data, or run the full Python pipeline locally.
           </p>
         </div>
       ) : (
