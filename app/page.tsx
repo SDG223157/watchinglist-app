@@ -3,7 +3,7 @@ import { StatCards } from "@/components/stat-cards";
 import { WatchlistTable } from "@/components/watchlist-table";
 import { auth, signOut } from "@/auth";
 
-export const revalidate = 300; // revalidate every 5 minutes
+export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const stocks = await fetchAllLatest();

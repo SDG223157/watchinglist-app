@@ -3,7 +3,7 @@ import Link from "next/link";
 import Markdown from "react-markdown";
 import { fetchStock, fetchStockHistory } from "@/lib/db";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 function WallCard({
   label,
