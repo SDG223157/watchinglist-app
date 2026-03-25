@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { PcaReport } from "@/lib/db";
 
 interface Props {
@@ -157,44 +157,72 @@ function SectorRotationTable({
   );
 }
 
-function ChartGrid({ charts }: { charts: Record<string, string> }) {
-  if (!charts || Object.keys(charts).length === 0) return null;
-  const labels: Record<string, string> = {
-    scree_plot: "Variance Explained",
-    biplot_winners: "Winners Biplot (PC1 vs PC2)",
-    biplot_losers: "Losers Biplot (PC1 vs PC2)",
-    sector_heatmap_winners: "Sector × Factor (Winners)",
-    sector_heatmap_losers: "Sector × Factor (Losers)",
-    cumulative_returns: "Cumulative Returns by Sector",
-    biplot: "Full Universe Biplot",
-    factor_loadings: "Factor Loadings",
-    sector_scores: "Sector × PC Scores",
-    pc1_quintile: "PC1 Quintile Returns",
-  };
+const CHART_LABELS: Record<string, string> = {
+  scree_plot: "Variance Explained",
+  biplot_winners: "Winners Biplot (PC1 vs PC2)",
+  biplot_losers: "Losers Biplot (PC1 vs PC2)",
+  sector_heatmap_winners: "Sector × Factor (Winners)",
+  sector_heatmap_losers: "Sector × Factor (Losers)",
+  cumulative_returns: "Cumulative Returns by Sector",
+  biplot: "Full Universe Biplot",
+  factor_loadings: "Factor Loadings",
+  sector_scores: "Sector × PC Scores",
+  pc1_quintile: "PC1 Quintile Returns",
+};
+
+function LazyCharts({ reportId }: { reportId: number }) {
+  const [charts, setCharts] = useState<Record<string, string> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = useCallback(async () => {
+    if (charts) { setExpanded(true); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/pca-charts?id=${reportId}`);
+      const data = await res.json();
+      setCharts(data.charts || {});
+      setExpanded(true);
+    } catch { setCharts({}); }
+    setLoading(false);
+  }, [reportId, charts]);
 
   return (
     <div>
-      <h3 className="text-sm font-semibold mb-3">Charts</h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {Object.entries(charts).map(([key, dataUri]) => (
-          <div
-            key={key}
-            className="rounded-lg p-3 overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-          >
-            <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
-              {labels[key] || key.replace(/_/g, " ")}
-            </p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={dataUri}
-              alt={labels[key] || key}
-              className="w-full rounded"
-              style={{ background: "#fff" }}
-            />
-          </div>
-        ))}
-      </div>
+      <button
+        onClick={() => expanded ? setExpanded(false) : load()}
+        className="text-sm font-semibold px-4 py-2 rounded-md cursor-pointer transition-colors hover:brightness-125"
+        style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+      >
+        {loading ? "Loading charts…" : expanded ? "▾ Hide Charts" : "▸ Show Charts"}
+      </button>
+
+      {expanded && charts && Object.keys(charts).length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          {Object.entries(charts).map(([key, dataUri]) => (
+            <div
+              key={key}
+              className="rounded-lg p-3 overflow-hidden"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
+                {CHART_LABELS[key] || key.replace(/_/g, " ")}
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={dataUri}
+                alt={CHART_LABELS[key] || key}
+                className="w-full rounded"
+                style={{ background: "#fff" }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {expanded && charts && Object.keys(charts).length === 0 && (
+        <p className="mt-3 text-xs" style={{ color: "var(--muted)" }}>No charts available.</p>
+      )}
     </div>
   );
 }
@@ -245,7 +273,7 @@ function ReportSection({ report }: { report: PcaReport }) {
         <SectorRotationTable rotation={report.sector_rotation} />
       )}
 
-      <ChartGrid charts={report.charts} />
+      <LazyCharts reportId={report.id} />
     </div>
   );
 }
