@@ -148,9 +148,13 @@ function timeText(created: string): string {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
+const PAGE_SIZES = [20, 50, 100, 250];
+
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("extreme_score");
   const [sortAsc, setSortAsc] = useState(false);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
 
   const signalOrder: Record<string, number> = { Open: 2, Closed: 1 };
 
@@ -178,6 +182,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
     return sortAsc ? Number(av) - Number(bv) : Number(bv) - Number(av);
   });
 
+  const totalPages = Math.ceil(stocks.length / pageSize);
+  const paged = stocks.slice(page * pageSize, (page + 1) * pageSize);
+
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortAsc(!sortAsc);
     else {
@@ -201,6 +208,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   }
 
   return (
+    <>
     <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border)" }}>
       <table className="w-full text-sm">
         <thead style={{ background: "var(--card)" }}>
@@ -238,7 +246,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
           </tr>
         </thead>
         <tbody>
-          {stocks.map((s) => {
+          {paged.map((s) => {
             const hm = heatmapContext?.[s.symbol];
             return (
               <tr
@@ -296,5 +304,47 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
         </tbody>
       </table>
     </div>
+
+    {/* Pagination */}
+    <div className="flex items-center justify-between mt-3 text-xs" style={{ color: "var(--muted)" }}>
+      <div className="flex items-center gap-2">
+        <span>{stocks.length} stocks</span>
+        <span>·</span>
+        <select
+          value={pageSize}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }}
+          className="rounded px-2 py-1 text-xs cursor-pointer outline-none"
+          style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--text)" }}
+        >
+          {PAGE_SIZES.map((s) => (
+            <option key={s} value={s}>{s} per page</option>
+          ))}
+        </select>
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPage(Math.max(0, page - 1))}
+            disabled={page === 0}
+            className="px-2 py-1 rounded cursor-pointer disabled:opacity-30"
+            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+          >
+            ← Prev
+          </button>
+          <span>
+            {page + 1} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+            disabled={page >= totalPages - 1}
+            className="px-2 py-1 rounded cursor-pointer disabled:opacity-30"
+            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+    </div>
+    </>
   );
 }
