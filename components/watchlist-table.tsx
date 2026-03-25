@@ -148,7 +148,7 @@ function timeText(created: string): string {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
-const PAGE_SIZES = [20, 50, 100, 250];
+const PAGE_SIZES = [15, 30, 50, 100];
 
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("extreme_score");
