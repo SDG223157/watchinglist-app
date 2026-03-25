@@ -11,8 +11,7 @@ const yahooFinance = new YahooFinance({
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const SP500_URL =
-  "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv";
+const SLICKCHARTS_SP500 = "https://www.slickcharts.com/sp500";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 
 interface StockReturn {
@@ -23,13 +22,32 @@ interface StockReturn {
 }
 
 async function fetchSP500List(): Promise<{ symbol: string; sector: string }[]> {
-  const res = await fetch(SP500_URL);
-  const csv = await res.text();
-  const lines = csv.trim().split("\n").slice(1);
-  return lines.map((line) => {
-    const parts = line.split(",");
-    return { symbol: parts[0], sector: parts[3] || "Unknown" };
+  const res = await fetch(SLICKCHARTS_SP500, {
+    headers: { "User-Agent": UA },
   });
+  const html = await res.text();
+  const tableMatch = html.match(/<table[^>]*>[\s\S]*?<\/table>/);
+  if (!tableMatch) throw new Error("No table found on slickcharts");
+
+  const rows: { symbol: string; sector: string }[] = [];
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+  let match;
+  while ((match = rowRegex.exec(tableMatch[0])) !== null) {
+    const cells: string[] = [];
+    const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
+    let cellMatch;
+    while ((cellMatch = cellRegex.exec(match[1])) !== null) {
+      cells.push(cellMatch[1].replace(/<[^>]+>/g, "").trim());
+    }
+    if (cells.length >= 3 && cells[2] && /^[A-Z]/.test(cells[2])) {
+      rows.push({
+        symbol: cells[2].replace(".", "-"),
+        sector: "Unknown",
+      });
+    }
+  }
+  if (rows.length < 400) throw new Error(`Only ${rows.length} tickers from slickcharts`);
+  return rows;
 }
 
 const HSI_FALLBACK = [
