@@ -127,13 +127,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [quote, summary] = await Promise.all([
+    const [quote, summary, fts] = await Promise.all([
       yahooFinance.quote(symbol),
       yahooFinance
         .quoteSummary(symbol, {
           modules: ["assetProfile", "defaultKeyStatistics", "financialData"],
         })
         .catch(() => null),
+      yahooFinance
+        .fundamentalsTimeSeries(symbol, {
+          period1: "2019-01-01",
+          period2: new Date().toISOString().split("T")[0],
+          type: "annual",
+          module: "all",
+        })
+        .catch(() => []),
     ]);
 
     if (!quote || !quote.regularMarketPrice) {
@@ -146,12 +154,17 @@ export async function POST(req: NextRequest) {
     const profile = summary?.assetProfile || {};
     const keyStats = summary?.defaultKeyStatistics || {};
     const finData = summary?.financialData || {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const annuals: any[] = fts || [];
+    const latest = annuals.length > 0 ? annuals[annuals.length - 1] : null;
+    const prev = annuals.length >= 2 ? annuals[annuals.length - 2] : null;
 
+    // --- Historical prices (from 2020 for 200-day geometric order) ---
     let closes: number[] = [];
     let closeDates: string[] = [];
     try {
       const hist = await yahooFinance.historical(symbol, {
-        period1: "2023-01-01",
+        period1: "2020-01-01",
         period2: new Date().toISOString().split("T")[0],
         interval: "1d",
       });
@@ -161,38 +174,116 @@ export async function POST(req: NextRequest) {
       closeDates = hist.map(
         (q: { date?: Date }) => q.date?.toISOString?.()?.split("T")[0] ?? ""
       );
-    } catch {
-      // historical data unavailable
-    }
-    const { order: geoOrder, details: geoDetails } =
-      computeGeometricOrder(closes);
+    } catch { /* historical data unavailable */ }
+
+    const { order: geoOrder, details: geoDetails } = computeGeometricOrder(closes);
     const tw = computeTrendWise(closes, closeDates);
 
     const allTimeHigh =
       closes.length > 0 ? Math.max(...closes) : quote.fiftyTwoWeekHigh ?? 0;
+    const price = quote.regularMarketPrice;
     const distFromAth =
       allTimeHigh > 0
-        ? `${(((quote.regularMarketPrice - allTimeHigh) / allTimeHigh) * 100).toFixed(1)}%`
+        ? `${(((price - allTimeHigh) / allTimeHigh) * 100).toFixed(1)}%`
         : null;
 
-    const mcapB = quote.marketCap ? quote.marketCap / 1e9 : null;
+    // --- Fundamentals ---
     const sector = profile.sector || quote.sector || null;
     const industry = profile.industry || quote.industry || null;
     const beta = keyStats.beta ?? quote.beta ?? null;
     const pb = keyStats.priceToBook ?? quote.priceToBook ?? null;
-    const roe = finData.returnOnEquity ? +(finData.returnOnEquity * 100).toFixed(1) : null;
-    const opMargin = finData.operatingMargins ? +(finData.operatingMargins * 100).toFixed(1) : null;
-    const netMargin = finData.profitMargins ? +(finData.profitMargins * 100).toFixed(1) : null;
+    const evEbitda = keyStats.enterpriseToEbitda ?? null;
+    const evSales = keyStats.enterpriseToRevenue ?? null;
+    const mcap = quote.marketCap ?? null;
+    const mcapB = mcap ? mcap / 1e9 : null;
+
+    const pct = (v: number | undefined | null) =>
+      v != null ? +(v * 100).toFixed(1) : null;
+
+    const roe = pct(finData.returnOnEquity);
+    const opMargin = pct(finData.operatingMargins);
+    const netMargin = pct(finData.profitMargins);
+    const grossMargin = pct(finData.grossMargins);
+    const ebitdaMargin = pct(finData.ebitdaMargins);
     const de = finData.debtToEquity ?? null;
-    const divYield = quote.dividendYield ? quote.dividendYield * 100 : null;
+    const currentRatio = finData.currentRatio ?? null;
+    const divYield = quote.dividendYield ? +(quote.dividendYield * 100).toFixed(2) : null;
+    const revenue = finData.totalRevenue ?? null;
+    const fcf = finData.freeCashflow ?? null;
+    const fcfYield = fcf && mcap && mcap > 0 ? +((fcf / mcap) * 100).toFixed(2) : null;
+
+    // --- ROIC from fundamentalsTimeSeries ---
+    let roic: number | null = null;
+    if (latest?.EBIT && latest?.totalDebt != null && latest?.commonStockEquity) {
+      const ebit = latest.EBIT;
+      const nopat = ebit * 0.79; // assume ~21% tax
+      const investedCapital = (latest.totalDebt ?? 0) + (latest.commonStockEquity ?? 0);
+      if (investedCapital > 0) {
+        roic = +((nopat / investedCapital) * 100).toFixed(1);
+      }
+    }
+
+    // --- Revenue growth (YoY from annual FTS) ---
+    let revenueGrowthAnnual: number | null = null;
+    if (latest?.totalRevenue && prev?.totalRevenue && prev.totalRevenue > 0) {
+      revenueGrowthAnnual = +(((latest.totalRevenue - prev.totalRevenue) / prev.totalRevenue) * 100).toFixed(1);
+    }
+
+    // --- Earnings growth (YoY) ---
+    let earningsGrowthAnnual: number | null = null;
+    if (latest?.netIncomeCommonStockholders && prev?.netIncomeCommonStockholders) {
+      const ni0 = latest.netIncomeCommonStockholders;
+      const ni1 = prev.netIncomeCommonStockholders;
+      if (ni1 !== 0) {
+        earningsGrowthAnnual = +(((ni0 - ni1) / Math.abs(ni1)) * 100).toFixed(1);
+      }
+    }
+
+    // --- Debt/EBITDA ---
+    let debtToEbitda: number | null = null;
+    if (latest?.totalDebt && latest?.EBITDA && latest.EBITDA > 0) {
+      debtToEbitda = +(latest.totalDebt / latest.EBITDA).toFixed(2);
+    }
+
+    // --- Interest coverage ---
+    let interestCoverage: number | null = null;
+    if (latest?.EBIT && latest?.interestExpense && Math.abs(latest.interestExpense) > 0) {
+      interestCoverage = +(latest.EBIT / Math.abs(latest.interestExpense)).toFixed(1);
+    }
+
+    // --- FCF: prefer financialData, fallback to FTS ---
+    const ftsFcf = latest?.freeCashFlow ?? null;
+    const finalFcf = fcf ?? ftsFcf;
+
+    // --- Revenue CAGR 3Y and 5Y ---
+    let revenueCagr3y: number | null = null;
+    let revenueCagr5y: number | null = null;
+    if (annuals.length >= 4) {
+      const rev3 = annuals[annuals.length - 4]?.totalRevenue;
+      const revNow = latest?.totalRevenue;
+      if (rev3 && revNow && rev3 > 0) {
+        revenueCagr3y = +((Math.pow(revNow / rev3, 1 / 3) - 1) * 100).toFixed(1);
+      }
+    }
+    if (annuals.length >= 6) {
+      const rev5 = annuals[annuals.length - 6]?.totalRevenue;
+      const revNow = latest?.totalRevenue;
+      if (rev5 && revNow && rev5 > 0) {
+        revenueCagr5y = +((Math.pow(revNow / rev5, 1 / 5) - 1) * 100).toFixed(1);
+      }
+    }
 
     const sql = getDb();
     await sql`
       INSERT INTO watchlist_items (
         symbol, name, market, sector, industry, price, market_cap,
-        pe_ratio, price_to_book, dividend_yield,
+        pe_ratio, price_to_book, ev_ebitda, ev_sales, dividend_yield,
         eps, beta, high_52w, low_52w, distance_from_ath,
-        roe, operating_margin, net_margin, debt_to_equity,
+        roe, roic, gross_margin, operating_margin, net_margin, ebitda_margin,
+        debt_to_equity, current_ratio, debt_to_ebitda, interest_coverage,
+        revenue, fcf, fcf_yield,
+        revenue_growth_annual, earnings_growth_annual,
+        revenue_cagr_3y, revenue_cagr_5y,
         geometric_order, geometric_details,
         trend_signal, trend_entry_date, trend_entry_price,
         data_sources
@@ -202,10 +293,12 @@ export async function POST(req: NextRequest) {
         ${quote.market || "us_market"},
         ${sector},
         ${industry},
-        ${quote.regularMarketPrice},
+        ${price},
         ${mcapB},
         ${quote.trailingPE ?? null},
         ${pb},
+        ${evEbitda},
+        ${evSales},
         ${divYield},
         ${quote.epsTrailingTwelveMonths ?? null},
         ${beta},
@@ -213,9 +306,22 @@ export async function POST(req: NextRequest) {
         ${quote.fiftyTwoWeekLow ?? null},
         ${distFromAth},
         ${roe},
+        ${roic},
+        ${grossMargin},
         ${opMargin},
         ${netMargin},
+        ${ebitdaMargin},
         ${de},
+        ${currentRatio},
+        ${debtToEbitda},
+        ${interestCoverage},
+        ${revenue},
+        ${finalFcf},
+        ${fcfYield},
+        ${revenueGrowthAnnual},
+        ${earningsGrowthAnnual},
+        ${revenueCagr3y},
+        ${revenueCagr5y},
         ${geoOrder},
         ${geoDetails},
         ${tw.signal},
