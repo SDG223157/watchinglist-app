@@ -22,7 +22,7 @@ export default async function Dashboard() {
   }
 
   return (
-    <main className="max-w-[1400px] mx-auto px-4 py-8">
+    <main className="max-w-[1800px] mx-auto px-4 py-8">
       <header className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">WatchingList</h1>
