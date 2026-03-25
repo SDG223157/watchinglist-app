@@ -175,7 +175,7 @@ export function WatchlistTable({ stocks: initial }: Props) {
             </th>
             <SortHeader k="pe_ratio" className="text-right">PE</SortHeader>
             <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-              Age
+              Time
             </th>
           </tr>
         </thead>
