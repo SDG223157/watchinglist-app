@@ -34,13 +34,32 @@ export function AddStock() {
         return;
       }
 
-      setSuccess(`Added ${data.symbol} — ${data.name} @ ${data.price}`);
+      setSuccess(`Added ${data.symbol} @ ${data.price} — running AI analysis...`);
       setSymbol("");
-      setTimeout(() => {
-        setOpen(false);
-        setSuccess("");
-        router.refresh();
-      }, 1500);
+      router.refresh();
+
+      // Auto-trigger LLM analysis in background
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 180000);
+        const rpt = await fetch("/api/analyze-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: sym }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (rpt.ok) {
+          setSuccess(`${data.symbol} — full analysis complete!`);
+        } else {
+          const rptData = await rpt.json().catch(() => ({}));
+          setSuccess(`${data.symbol} added (analysis: ${rptData.error || "failed"})`);
+        }
+      } catch {
+        setSuccess(`${data.symbol} added (analysis skipped)`);
+      }
+      router.refresh();
+      setTimeout(() => { setOpen(false); setSuccess(""); }, 2000);
     } catch {
       setError("Network error");
     } finally {
@@ -86,7 +105,7 @@ export function AddStock() {
         className="text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer hover:brightness-125 disabled:opacity-40"
         style={{ background: "var(--blue)", color: "#fff" }}
       >
-        {loading ? "Adding..." : "Add"}
+        {loading ? "Adding + Analyzing..." : "Add"}
       </button>
       <button
         type="button"
