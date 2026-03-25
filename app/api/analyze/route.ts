@@ -78,7 +78,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const quote = await yahooFinance.quote(symbol);
+    const [quote, summary] = await Promise.all([
+      yahooFinance.quote(symbol),
+      yahooFinance
+        .quoteSummary(symbol, {
+          modules: ["assetProfile", "defaultKeyStatistics", "financialData"],
+        })
+        .catch(() => null),
+    ]);
 
     if (!quote || !quote.regularMarketPrice) {
       return NextResponse.json(
@@ -86,6 +93,10 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
+
+    const profile = summary?.assetProfile || {};
+    const keyStats = summary?.defaultKeyStatistics || {};
+    const finData = summary?.financialData || {};
 
     let closes: number[] = [];
     try {
@@ -97,7 +108,7 @@ export async function POST(req: NextRequest) {
         .map((q: { close?: number | null }) => q.close)
         .filter((c: number | null | undefined): c is number => c != null);
     } catch {
-      // historical data unavailable — geometric order will show "insufficient data"
+      // historical data unavailable
     }
     const { order: geoOrder, details: geoDetails } =
       computeGeometricOrder(closes);
@@ -110,6 +121,15 @@ export async function POST(req: NextRequest) {
         : null;
 
     const mcapB = quote.marketCap ? quote.marketCap / 1e9 : null;
+    const sector = profile.sector || quote.sector || null;
+    const industry = profile.industry || quote.industry || null;
+    const beta = keyStats.beta ?? quote.beta ?? null;
+    const pb = keyStats.priceToBook ?? quote.priceToBook ?? null;
+    const roe = finData.returnOnEquity ? +(finData.returnOnEquity * 100).toFixed(1) : null;
+    const opMargin = finData.operatingMargins ? +(finData.operatingMargins * 100).toFixed(1) : null;
+    const netMargin = finData.profitMargins ? +(finData.profitMargins * 100).toFixed(1) : null;
+    const de = finData.debtToEquity ?? null;
+    const divYield = quote.dividendYield ? quote.dividendYield * 100 : null;
 
     const sql = getDb();
     await sql`
@@ -117,24 +137,29 @@ export async function POST(req: NextRequest) {
         symbol, name, market, sector, industry, price, market_cap,
         pe_ratio, price_to_book, dividend_yield,
         eps, beta, high_52w, low_52w, distance_from_ath,
+        roe, operating_margin, net_margin, debt_to_equity,
         geometric_order, geometric_details,
         data_sources
       ) VALUES (
         ${symbol},
         ${quote.shortName || quote.longName || symbol},
         ${quote.market || "us_market"},
-        ${quote.sector || null},
-        ${quote.industry || null},
+        ${sector},
+        ${industry},
         ${quote.regularMarketPrice},
         ${mcapB},
         ${quote.trailingPE ?? null},
-        ${quote.priceToBook ?? null},
-        ${quote.dividendYield ? quote.dividendYield * 100 : null},
+        ${pb},
+        ${divYield},
         ${quote.epsTrailingTwelveMonths ?? null},
-        ${quote.beta ?? null},
+        ${beta},
         ${quote.fiftyTwoWeekHigh ?? null},
         ${quote.fiftyTwoWeekLow ?? null},
         ${distFromAth},
+        ${roe},
+        ${opMargin},
+        ${netMargin},
+        ${de},
         ${geoOrder},
         ${geoDetails},
         ${"yahoo-finance2 (web)"}
