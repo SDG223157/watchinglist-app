@@ -70,10 +70,14 @@ export interface WatchlistStock {
   revenue_cagr_3y: number;
   revenue_cagr_5y: number;
   revenue_growth_annual: number;
+  earnings_growth_annual: number;
   revenue_growth_ttm: number;
   revenue_growth_recent_q: number;
   earnings_growth_ttm: number;
   earnings_growth_recent_q: number;
+  current_ratio: number;
+  debt_to_ebitda: number;
+  interest_coverage: number;
   data_sources: string;
   created_at: string;
 }

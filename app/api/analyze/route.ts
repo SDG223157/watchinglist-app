@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
     const evEbitda = keyStats.enterpriseToEbitda ?? null;
     const evSales = keyStats.enterpriseToRevenue ?? null;
     const mcap = quote.marketCap ?? null;
-    const mcapB = mcap ? mcap / 1e9 : null;
+    const mcapB = mcap ? +(mcap / 1e9).toFixed(1) : null;
 
     const pct = (v: number | undefined | null) =>
       v != null ? +(v * 100).toFixed(1) : null;
@@ -208,9 +208,10 @@ export async function POST(req: NextRequest) {
     const de = finData.debtToEquity ?? null;
     const currentRatio = finData.currentRatio ?? null;
     const divYield = quote.dividendYield ? +(quote.dividendYield * 100).toFixed(2) : null;
-    const revenue = finData.totalRevenue ?? null;
-    const fcf = finData.freeCashflow ?? null;
-    const fcfYield = fcf && mcap && mcap > 0 ? +((fcf / mcap) * 100).toFixed(2) : null;
+    const revenueRaw = finData.totalRevenue ?? null;
+    const revenue = revenueRaw ? +(revenueRaw / 1e9).toFixed(2) : null;
+    const fcfRaw = finData.freeCashflow ?? null;
+    const fcfYield = fcfRaw && mcap && mcap > 0 ? +((fcfRaw / mcap) * 100).toFixed(2) : null;
 
     // --- ROIC from fundamentalsTimeSeries ---
     let roic: number | null = null;
@@ -251,9 +252,9 @@ export async function POST(req: NextRequest) {
       interestCoverage = +(latest.EBIT / Math.abs(latest.interestExpense)).toFixed(1);
     }
 
-    // --- FCF: prefer financialData, fallback to FTS ---
-    const ftsFcf = latest?.freeCashFlow ?? null;
-    const finalFcf = fcf ?? ftsFcf;
+    // --- FCF: prefer financialData (in B), fallback to FTS ---
+    const ftsFcfRaw = latest?.freeCashFlow ?? null;
+    const fcfB = fcfRaw ? +(fcfRaw / 1e9).toFixed(2) : ftsFcfRaw ? +(ftsFcfRaw / 1e9).toFixed(2) : null;
 
     // --- Revenue CAGR 3Y and 5Y ---
     let revenueCagr3y: number | null = null;
@@ -316,7 +317,7 @@ export async function POST(req: NextRequest) {
         ${debtToEbitda},
         ${interestCoverage},
         ${revenue},
-        ${finalFcf},
+        ${fcfB},
         ${fcfYield},
         ${revenueGrowthAnnual},
         ${earningsGrowthAnnual},

@@ -41,6 +41,12 @@ function WallCard({
   );
 }
 
+function fmtB(v: number | null | undefined): string {
+  if (v == null) return "—";
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}T`;
+  return `$${v.toFixed(1)}B`;
+}
+
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div>
@@ -124,16 +130,26 @@ export default async function StockDetail({
         className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-4 p-5 rounded-lg mb-8"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
       >
-        <Metric label="Market Cap" value={stock.market_cap ? `${stock.market_cap}B` : null} />
+        <Metric label="Market Cap" value={stock.market_cap ? fmtB(stock.market_cap) : null} />
         <Metric label="PE Ratio" value={stock.pe_ratio?.toFixed(1)} />
         <Metric label="P/B" value={stock.price_to_book?.toFixed(2)} />
         <Metric label="EV/EBITDA" value={stock.ev_ebitda?.toFixed(1)} />
         <Metric label="ROIC" value={stock.roic ? `${stock.roic}%` : null} />
         <Metric label="ROE" value={stock.roe ? `${stock.roe}%` : null} />
+        <Metric label="Gross Margin" value={stock.gross_margin ? `${stock.gross_margin}%` : null} />
         <Metric label="Op. Margin" value={stock.operating_margin ? `${stock.operating_margin}%` : null} />
         <Metric label="Net Margin" value={stock.net_margin ? `${stock.net_margin}%` : null} />
-        <Metric label="FCF" value={stock.fcf ? `${stock.fcf}B` : null} />
+        <Metric label="EBITDA Margin" value={stock.ebitda_margin ? `${stock.ebitda_margin}%` : null} />
+        <Metric label="FCF" value={stock.fcf ? fmtB(stock.fcf) : null} />
+        <Metric label="FCF Yield" value={stock.fcf_yield ? `${stock.fcf_yield}%` : null} />
+        <Metric label="Revenue" value={stock.revenue ? fmtB(stock.revenue) : null} />
+        <Metric label="Rev Growth YoY" value={stock.revenue_growth_annual ? `${stock.revenue_growth_annual}%` : null} />
+        <Metric label="Rev CAGR 3Y" value={stock.revenue_cagr_3y ? `${stock.revenue_cagr_3y}%` : null} />
+        <Metric label="Rev CAGR 5Y" value={stock.revenue_cagr_5y ? `${stock.revenue_cagr_5y}%` : null} />
         <Metric label="D/E" value={stock.debt_to_equity?.toFixed(2)} />
+        <Metric label="Current Ratio" value={stock.current_ratio?.toFixed(2)} />
+        <Metric label="Beta" value={stock.beta?.toFixed(2)} />
+        <Metric label="Div Yield" value={stock.dividend_yield ? `${stock.dividend_yield}%` : null} />
         <Metric label="52W Low" value={stock.low_52w?.toFixed(2)} />
         <Metric label="52W High" value={stock.high_52w?.toFixed(2)} />
       </div>
