@@ -139,13 +139,13 @@ function formatMcap(m: number | null | undefined): string {
   return `${m.toFixed(0)}B`;
 }
 
-function ageText(created: string): string {
+function timeText(created: string): string {
   if (!created) return "—";
-  const diff = Date.now() - new Date(created).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return "today";
-  if (days === 1) return "1d";
-  return `${days}d`;
+  return new Date(created).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
@@ -279,7 +279,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                   {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}
                 </td>
                 <td className="px-3 py-3 text-right text-xs" style={{ color: "var(--muted)" }}>
-                  {ageText(s.created_at)}
+                  {timeText(s.created_at)}
                 </td>
               </tr>
             );
