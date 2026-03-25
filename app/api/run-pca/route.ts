@@ -13,6 +13,7 @@ export const maxDuration = 300;
 
 const SP500_URL =
   "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv";
+const YFIUA_BASE = "https://yfiua.github.io/index-constituents";
 
 interface StockReturn {
   ticker: string;
@@ -29,6 +30,48 @@ async function fetchSP500List(): Promise<{ symbol: string; sector: string }[]> {
     const parts = line.split(",");
     return { symbol: parts[0], sector: parts[3] || "Unknown" };
   });
+}
+
+async function fetchYfiuaIndex(
+  index: string
+): Promise<{ symbol: string; sector: string }[]> {
+  try {
+    const res = await fetch(`${YFIUA_BASE}/${index}/constituents.json`, {
+      headers: { "User-Agent": "WatchingList/1.0" },
+    });
+    const data: { Symbol: string; Name?: string }[] = await res.json();
+    return data.map((r) => ({ symbol: r.Symbol, sector: "Unknown" }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchChinaList(): Promise<{ symbol: string; sector: string }[]> {
+  const [csi, hsi, hsce] = await Promise.all([
+    fetchYfiuaIndex("csi300"),
+    fetchYfiuaIndex("hsi"),
+    fetchYfiuaIndex("hsce"),
+  ]);
+  const seen = new Set<string>();
+  const all: { symbol: string; sector: string }[] = [];
+  for (const item of [...csi, ...hsi, ...hsce]) {
+    if (!seen.has(item.symbol)) {
+      seen.add(item.symbol);
+      all.push(item);
+    }
+  }
+  return all;
+}
+
+async function enrichSector(
+  symbol: string
+): Promise<string> {
+  try {
+    const q = await yahooFinance.quoteSummary(symbol, { modules: ["assetProfile"] });
+    return q?.assetProfile?.sector || "Unknown";
+  } catch {
+    return "Unknown";
+  }
 }
 
 async function fetchReturns(
@@ -64,14 +107,9 @@ function buildSectorRotation(
   valid.sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0));
 
   const winners = new Set(valid.slice(0, topN).map((s) => s.ticker));
-  const losers = new Set(
-    valid.slice(-topN).map((s) => s.ticker)
-  );
+  const losers = new Set(valid.slice(-topN).map((s) => s.ticker));
 
-  const sectorMap: Record<
-    string,
-    { winners: number; losers: number }
-  > = {};
+  const sectorMap: Record<string, { winners: number; losers: number }> = {};
   for (const s of valid) {
     if (!sectorMap[s.sector])
       sectorMap[s.sector] = { winners: 0, losers: 0 };
@@ -96,35 +134,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const universe = (body.universe as string) || "SP500";
+  const universe = ((body.universe as string) || "SP500").toUpperCase();
+  const dbUniverse = universe === "CHINA" ? "CHINA" : "SP500";
+  const label = universe === "CHINA" ? "China + HK" : "S&P 500";
 
-  if (universe !== "SP500") {
-    return NextResponse.json(
-      { error: "Only SP500 supported in web runner" },
-      { status: 400 }
-    );
-  }
+  const constituents =
+    universe === "CHINA" ? await fetchChinaList() : await fetchSP500List();
 
-  const constituents = await fetchSP500List();
-  const batchSize = 20;
+  const batchSize = 15;
   const results: StockReturn[] = [];
   let processed = 0;
 
   for (let i = 0; i < constituents.length; i += batchSize) {
     const batch = constituents.slice(i, i + batchSize);
     const promises = batch.map(async (c) => {
-      const [r3, r6] = await Promise.all([
+      const [r3, r6, sector] = await Promise.all([
         fetchReturns(c.symbol, 3),
         fetchReturns(c.symbol, 6),
+        c.sector === "Unknown" ? enrichSector(c.symbol) : Promise.resolve(c.sector),
       ]);
-      return { ticker: c.symbol, sector: c.sector, return3m: r3, return6m: r6 };
+      return { ticker: c.symbol, sector, return3m: r3, return6m: r6 };
     });
     const batchResults = await Promise.all(promises);
     results.push(...batchResults);
     processed += batch.length;
   }
 
-  const topN = 50;
+  const topN = Math.max(Math.round(results.length * 0.1), 10);
 
   const valid6m = results.filter((s) => s.return6m !== null);
   valid6m.sort((a, b) => (b.return6m ?? 0) - (a.return6m ?? 0));
@@ -134,12 +170,15 @@ export async function POST(req: NextRequest) {
     sector: s.sector,
     return: `${(s.return6m ?? 0) >= 0 ? "+" : ""}${(s.return6m ?? 0).toFixed(1)}%`,
   }));
-  const bottom6m = valid6m.slice(-10).reverse().map((s, i) => ({
-    rank: i + 1,
-    ticker: s.ticker,
-    sector: s.sector,
-    return: `${(s.return6m ?? 0).toFixed(1)}%`,
-  }));
+  const bottom6m = valid6m
+    .slice(-10)
+    .reverse()
+    .map((s, i) => ({
+      rank: i + 1,
+      ticker: s.ticker,
+      sector: s.sector,
+      return: `${(s.return6m ?? 0).toFixed(1)}%`,
+    }));
 
   const valid3m = results.filter((s) => s.return3m !== null);
   valid3m.sort((a, b) => (b.return3m ?? 0) - (a.return3m ?? 0));
@@ -149,54 +188,38 @@ export async function POST(req: NextRequest) {
     sector: s.sector,
     return: `${(s.return3m ?? 0) >= 0 ? "+" : ""}${(s.return3m ?? 0).toFixed(1)}%`,
   }));
-  const bottom3m = valid3m.slice(-10).reverse().map((s, i) => ({
-    rank: i + 1,
-    ticker: s.ticker,
-    sector: s.sector,
-    return: `${(s.return3m ?? 0).toFixed(1)}%`,
-  }));
+  const bottom3m = valid3m
+    .slice(-10)
+    .reverse()
+    .map((s, i) => ({
+      rank: i + 1,
+      ticker: s.ticker,
+      sector: s.sector,
+      return: `${(s.return3m ?? 0).toFixed(1)}%`,
+    }));
 
   const rotation6m = buildSectorRotation(results, "6m", topN);
   const rotation3m = buildSectorRotation(results, "3m", topN);
 
   const today = new Date().toISOString().split("T")[0];
   const sql = getDb();
-
   const totalValid = valid6m.length;
-  const winRange6 = top6m.length
-    ? [parseFloat(top6m[top6m.length - 1].return), parseFloat(top6m[0].return)]
-    : [];
-  const loseRange6 = bottom6m.length
-    ? [parseFloat(bottom6m[0].return), parseFloat(bottom6m[bottom6m.length - 1].return)]
-    : [];
 
   for (const period of [
-    {
-      weeks: 26,
-      top: top6m,
-      bottom: bottom6m,
-      rotation: rotation6m,
-      range: { winner_range: winRange6, loser_range: loseRange6 },
-    },
-    {
-      weeks: 13,
-      top: top3m,
-      bottom: bottom3m,
-      rotation: rotation3m,
-      range: {},
-    },
+    { weeks: 26, top: top6m, bottom: bottom6m, rotation: rotation6m },
+    { weeks: 13, top: top3m, bottom: bottom3m, rotation: rotation3m },
   ]) {
-    const md = `# Market Factor Analysis Report\n\n**Universe:** SP500\n**Period:** ${period.weeks} weeks\n**Date:** ${today}\n**Stocks analyzed:** ${totalValid}\n\nGenerated by WatchingList web PCA runner.`;
+    const md = `# Market Factor Analysis Report\n\n**Universe:** ${label}\n**Period:** ${period.weeks} weeks\n**Date:** ${today}\n**Stocks analyzed:** ${totalValid}\n\nGenerated by WatchingList web PCA runner.`;
 
     await sql`
       INSERT INTO pca_reports (universe, period_weeks, scope, report_date,
         report_markdown, top_performers, bottom_performers, sector_rotation,
         key_metrics, charts)
       VALUES (
-        'SP500', ${period.weeks}, 'extremes', ${today}::date,
+        ${dbUniverse}, ${period.weeks}, 'extremes', ${today}::date,
         ${md}, ${JSON.stringify(period.top)}, ${JSON.stringify(period.bottom)},
         ${JSON.stringify(period.rotation)},
-        ${JSON.stringify({ total_stocks: totalValid, period_weeks: period.weeks, ...period.range })},
+        ${JSON.stringify({ total_stocks: totalValid, period_weeks: period.weeks })},
         ${JSON.stringify({})}
       )
     `;
@@ -204,6 +227,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    universe: label,
     stocks: processed,
     date: today,
     periods: ["3M (13W)", "6M (26W)"],

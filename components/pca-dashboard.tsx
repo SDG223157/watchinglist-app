@@ -278,18 +278,20 @@ function ReportSection({ report }: { report: PcaReport }) {
   );
 }
 
-function RunPcaButton() {
+function RunPcaButton({ universe }: { universe: Tab }) {
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("");
+  const label = universe === "SP500" ? "S&P 500" : "China + HK";
+  const apiUniverse = universe === "SP500" ? "SP500" : "CHINA";
 
   async function handleRun() {
     setRunning(true);
-    setStatus("Fetching ~500 stocks… this takes 2-3 minutes");
+    setStatus(`Fetching ${label} stocks… 2-5 minutes`);
     try {
       const res = await fetch("/api/run-pca", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ universe: "SP500" }),
+        body: JSON.stringify({ universe: apiUniverse }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -312,7 +314,7 @@ function RunPcaButton() {
         className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ background: "var(--green)", color: "#fff" }}
       >
-        {running ? "Running…" : "▶ Run PCA (S&P 500)"}
+        {running ? "Running…" : `▶ Run PCA (${label})`}
       </button>
       {status && (
         <span className="text-xs" style={{ color: "var(--muted)" }}>
@@ -354,7 +356,7 @@ export function PcaDashboard({ spReports, chinaReports, spDates, chinaDates }: P
               {dates.length > 1 && ` · ${dates.length} reports`}
             </span>
           )}
-          <RunPcaButton />
+          <RunPcaButton universe={tab} />
         </div>
       </div>
 
