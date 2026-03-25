@@ -141,11 +141,10 @@ function formatMcap(m: number | null | undefined): string {
 
 function timeText(created: string): string {
   if (!created) return "—";
-  return new Date(created).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const d = new Date(created);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
