@@ -3,6 +3,7 @@ import Link from "next/link";
 import Markdown from "react-markdown";
 import { fetchStock, fetchStockHistory, fetchAllHeatmapLatest } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
+import { AnalyzeButton } from "@/components/analyze-button";
 
 export const dynamic = "force-dynamic";
 
@@ -343,17 +344,24 @@ export default async function StockDetail({
       )}
 
       {/* Full Analysis Report */}
-      {stock.analysis_report && (
-        <div
-          className="rounded-lg p-6 mb-8"
-          style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <h2 className="text-lg font-bold mb-4">Full Analysis Report</h2>
+      <div
+        className="rounded-lg p-6 mb-8"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">Analysis Report</h2>
+          <AnalyzeButton symbol={stock.symbol} />
+        </div>
+        {stock.analysis_report ? (
           <div className="prose max-w-none">
             <Markdown>{stock.analysis_report}</Markdown>
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            No report yet. Click &quot;Generate Analysis Report&quot; to create one with AI.
+          </p>
+        )}
+      </div>
 
       {/* Snapshot History */}
       {history.length > 1 && (
