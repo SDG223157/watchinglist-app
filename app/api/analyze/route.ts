@@ -276,62 +276,116 @@ export async function POST(req: NextRequest) {
     }
 
     const sql = getDb();
-    await sql`
-      INSERT INTO watchlist_items (
-        symbol, name, market, sector, industry, price, market_cap,
-        pe_ratio, price_to_book, ev_ebitda, ev_sales, dividend_yield,
-        eps, beta, high_52w, low_52w, distance_from_ath,
-        roe, roic, gross_margin, operating_margin, net_margin, ebitda_margin,
-        debt_to_equity, current_ratio, debt_to_ebitda, interest_coverage,
-        revenue, fcf, fcf_yield,
-        revenue_growth_annual, earnings_growth_annual,
-        revenue_cagr_3y, revenue_cagr_5y,
-        geometric_order, geometric_details,
-        trend_signal, trend_entry_date, trend_entry_price,
-        data_sources
-      ) VALUES (
-        ${symbol},
-        ${quote.shortName || quote.longName || symbol},
-        ${quote.market || "us_market"},
-        ${sector},
-        ${industry},
-        ${price},
-        ${mcapB},
-        ${quote.trailingPE ?? null},
-        ${pb},
-        ${evEbitda},
-        ${evSales},
-        ${divYield},
-        ${quote.epsTrailingTwelveMonths ?? null},
-        ${beta},
-        ${quote.fiftyTwoWeekHigh ?? null},
-        ${quote.fiftyTwoWeekLow ?? null},
-        ${distFromAth},
-        ${roe},
-        ${roic},
-        ${grossMargin},
-        ${opMargin},
-        ${netMargin},
-        ${ebitdaMargin},
-        ${de},
-        ${currentRatio},
-        ${debtToEbitda},
-        ${interestCoverage},
-        ${revenue},
-        ${fcfB},
-        ${fcfYield},
-        ${revenueGrowthAnnual},
-        ${earningsGrowthAnnual},
-        ${revenueCagr3y},
-        ${revenueCagr5y},
-        ${geoOrder},
-        ${geoDetails},
-        ${tw.signal},
-        ${tw.entryDate},
-        ${tw.entryPrice},
-        ${"yahoo-finance2 (web)"}
-      )
+
+    // Check if symbol already exists — update latest record (preserve analysis)
+    const existing = await sql`
+      SELECT id FROM watchlist_items
+      WHERE symbol = ${symbol}
+      ORDER BY created_at DESC LIMIT 1
     `;
+
+    if (existing.length > 0) {
+      await sql`
+        UPDATE watchlist_items SET
+          name = ${quote.shortName || quote.longName || symbol},
+          sector = COALESCE(${sector}, sector),
+          industry = COALESCE(${industry}, industry),
+          price = ${price},
+          market_cap = ${mcapB},
+          pe_ratio = ${quote.trailingPE ?? null},
+          price_to_book = ${pb},
+          ev_ebitda = COALESCE(${evEbitda}, ev_ebitda),
+          ev_sales = COALESCE(${evSales}, ev_sales),
+          dividend_yield = ${divYield},
+          eps = ${quote.epsTrailingTwelveMonths ?? null},
+          beta = ${beta},
+          high_52w = ${quote.fiftyTwoWeekHigh ?? null},
+          low_52w = ${quote.fiftyTwoWeekLow ?? null},
+          distance_from_ath = ${distFromAth},
+          roe = COALESCE(${roe}, roe),
+          roic = COALESCE(${roic}, roic),
+          gross_margin = COALESCE(${grossMargin}, gross_margin),
+          operating_margin = COALESCE(${opMargin}, operating_margin),
+          net_margin = COALESCE(${netMargin}, net_margin),
+          ebitda_margin = COALESCE(${ebitdaMargin}, ebitda_margin),
+          debt_to_equity = COALESCE(${de}, debt_to_equity),
+          current_ratio = COALESCE(${currentRatio}, current_ratio),
+          debt_to_ebitda = COALESCE(${debtToEbitda}, debt_to_ebitda),
+          interest_coverage = COALESCE(${interestCoverage}, interest_coverage),
+          revenue = COALESCE(${revenue}, revenue),
+          fcf = COALESCE(${fcfB}, fcf),
+          fcf_yield = COALESCE(${fcfYield}, fcf_yield),
+          revenue_growth_annual = COALESCE(${revenueGrowthAnnual}, revenue_growth_annual),
+          earnings_growth_annual = COALESCE(${earningsGrowthAnnual}, earnings_growth_annual),
+          revenue_cagr_3y = COALESCE(${revenueCagr3y}, revenue_cagr_3y),
+          revenue_cagr_5y = COALESCE(${revenueCagr5y}, revenue_cagr_5y),
+          geometric_order = ${geoOrder},
+          geometric_details = ${geoDetails},
+          trend_signal = ${tw.signal},
+          trend_entry_date = ${tw.entryDate},
+          trend_entry_price = ${tw.entryPrice},
+          data_sources = ${"yahoo-finance2 (web)"},
+          updated_at = NOW()
+        WHERE id = ${existing[0].id}
+      `;
+    } else {
+      await sql`
+        INSERT INTO watchlist_items (
+          symbol, name, market, sector, industry, price, market_cap,
+          pe_ratio, price_to_book, ev_ebitda, ev_sales, dividend_yield,
+          eps, beta, high_52w, low_52w, distance_from_ath,
+          roe, roic, gross_margin, operating_margin, net_margin, ebitda_margin,
+          debt_to_equity, current_ratio, debt_to_ebitda, interest_coverage,
+          revenue, fcf, fcf_yield,
+          revenue_growth_annual, earnings_growth_annual,
+          revenue_cagr_3y, revenue_cagr_5y,
+          geometric_order, geometric_details,
+          trend_signal, trend_entry_date, trend_entry_price,
+          data_sources
+        ) VALUES (
+          ${symbol},
+          ${quote.shortName || quote.longName || symbol},
+          ${quote.market || "us_market"},
+          ${sector},
+          ${industry},
+          ${price},
+          ${mcapB},
+          ${quote.trailingPE ?? null},
+          ${pb},
+          ${evEbitda},
+          ${evSales},
+          ${divYield},
+          ${quote.epsTrailingTwelveMonths ?? null},
+          ${beta},
+          ${quote.fiftyTwoWeekHigh ?? null},
+          ${quote.fiftyTwoWeekLow ?? null},
+          ${distFromAth},
+          ${roe},
+          ${roic},
+          ${grossMargin},
+          ${opMargin},
+          ${netMargin},
+          ${ebitdaMargin},
+          ${de},
+          ${currentRatio},
+          ${debtToEbitda},
+          ${interestCoverage},
+          ${revenue},
+          ${fcfB},
+          ${fcfYield},
+          ${revenueGrowthAnnual},
+          ${earningsGrowthAnnual},
+          ${revenueCagr3y},
+          ${revenueCagr5y},
+          ${geoOrder},
+          ${geoDetails},
+          ${tw.signal},
+          ${tw.entryDate},
+          ${tw.entryPrice},
+          ${"yahoo-finance2 (web)"}
+        )
+      `;
+    }
 
     return NextResponse.json({
       ok: true,
