@@ -7,7 +7,7 @@ export const maxDuration = 120;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
 const MODEL = "openai/gpt-4.1";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";

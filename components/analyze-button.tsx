@@ -13,21 +13,35 @@ export function AnalyzeButton({ symbol }: { symbol: string }) {
     setError("");
 
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 180000);
+
       const res = await fetch("/api/analyze-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol }),
+        signal: controller.signal,
       });
-      const data = await res.json();
+      clearTimeout(timeout);
+
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        setError(`Server error: ${text.slice(0, 200)}`);
+        return;
+      }
 
       if (!res.ok) {
-        setError(data.error || "Analysis failed");
+        setError(data.error || `Failed (${res.status})`);
         return;
       }
 
       router.refresh();
-    } catch {
-      setError("Network error");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setError(msg.includes("abort") ? "Request timed out (3min)" : msg);
     } finally {
       setLoading(false);
     }

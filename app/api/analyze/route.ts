@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
 export const dynamic = "force-dynamic";
 
