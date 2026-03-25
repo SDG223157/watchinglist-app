@@ -9,6 +9,8 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+ENV AUTH_SECRET=build-placeholder
+ENV AUTH_TRUST_HOST=true
 RUN npm run build
 
 FROM base AS runner
