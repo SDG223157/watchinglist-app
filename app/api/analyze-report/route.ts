@@ -203,7 +203,9 @@ export async function POST(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "HTTP-Referer": "https://watchinglist.app",
+        "X-Title": "WatchingList",
         "Content-Type": "application/json",
+        "User-Agent": "WatchingList/1.0",
       },
       body: JSON.stringify({
         model: MODEL,
@@ -213,16 +215,28 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    const llmText = await llmRes.text();
+
     if (!llmRes.ok) {
-      const errText = await llmRes.text();
-      console.error("LLM error:", llmRes.status, errText);
+      const isHtml = llmText.trimStart().startsWith("<");
+      const errMsg = isHtml
+        ? `Cloudflare blocked request (${llmRes.status}). Retry in a moment.`
+        : llmText.slice(0, 300);
+      console.error("LLM error:", llmRes.status, errMsg);
+      return NextResponse.json({ error: errMsg }, { status: 502 });
+    }
+
+    let llmData;
+    try {
+      llmData = JSON.parse(llmText);
+    } catch {
+      const preview = llmText.slice(0, 200);
+      console.error("LLM returned non-JSON:", preview);
       return NextResponse.json(
-        { error: `LLM API error: ${llmRes.status}` },
+        { error: `LLM returned non-JSON response: ${preview}` },
         { status: 502 }
       );
     }
-
-    const llmData = await llmRes.json();
     const report: string = llmData.choices?.[0]?.message?.content || "";
 
     if (!report) {
