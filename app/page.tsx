@@ -26,9 +26,6 @@ export default async function Dashboard() {
       <header className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">WatchingList</h1>
-          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-            Narrative Cycle × Gravity Wall × Extreme Reversal
-          </p>
         </div>
         {session?.user && (
           <div className="flex items-center gap-3">

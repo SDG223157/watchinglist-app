@@ -49,9 +49,6 @@ export default async function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-xs" style={{ color: "var(--muted)" }}>
-          Narrative Cycle × Gravity Wall × Extreme Reversal
-        </p>
       </div>
     </main>
   );
