@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
     try {
       const hist = await yahooFinance.historical(symbol, {
         period1: "2023-01-01",
+        period2: new Date().toISOString().split("T")[0],
         interval: "1d",
       });
       closes = hist

@@ -159,15 +159,35 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const quote = await yahooFinance.quote(symbol);
+    const [quote, summary] = await Promise.all([
+      yahooFinance.quote(symbol),
+      yahooFinance
+        .quoteSummary(symbol, {
+          modules: ["assetProfile", "defaultKeyStatistics", "financialData"],
+        })
+        .catch(() => null),
+    ]);
     if (!quote?.regularMarketPrice) {
       return NextResponse.json({ error: `No data for ${symbol}` }, { status: 404 });
     }
+    const profile = summary?.assetProfile || {};
+    const finData = summary?.financialData || {};
+    quote.sector = quote.sector || profile.sector;
+    quote.industry = quote.industry || profile.industry;
+    quote.operatingMargins = finData.operatingMargins;
+    quote.profitMargins = finData.profitMargins;
+    quote.returnOnEquity = finData.returnOnEquity;
+    quote.debtToEquity = finData.debtToEquity;
+    quote.revenueGrowth = finData.revenueGrowth;
+    quote.earningsGrowth = finData.earningsGrowth;
+    quote.beta = quote.beta || summary?.defaultKeyStatistics?.beta;
+    quote.priceToBook = quote.priceToBook || summary?.defaultKeyStatistics?.priceToBook;
 
     let hist: { close: number; date: string }[] = [];
     try {
       const raw = await yahooFinance.historical(symbol, {
         period1: "2020-01-01",
+        period2: new Date().toISOString().split("T")[0],
         interval: "1wk",
       });
       hist = raw.map((r: { close: number; date: Date }) => ({
