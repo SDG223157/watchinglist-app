@@ -111,3 +111,44 @@ export async function fetchStockHistory(
   `;
   return rows as unknown as WatchlistStock[];
 }
+
+export interface HeatmapRow {
+  id: number;
+  universe: string;
+  type: string;
+  name: string;
+  return_3m: number | null;
+  return_6m: number | null;
+  return_12m: number | null;
+  shift: number | null;
+  momentum: string | null;
+  rank: number | null;
+  report_date: string;
+}
+
+export async function fetchHeatmap(
+  universe: string,
+  type: string
+): Promise<HeatmapRow[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT * FROM heatmap_data
+    WHERE universe = ${universe}
+      AND type = ${type}
+      AND report_date = (
+        SELECT MAX(report_date) FROM heatmap_data WHERE universe = ${universe}
+      )
+    ORDER BY
+      CASE WHEN type = 'sector' THEN return_12m END DESC NULLS LAST,
+      CASE WHEN type = 'industry' THEN rank END ASC NULLS LAST
+  `;
+  return rows as unknown as HeatmapRow[];
+}
+
+export async function fetchHeatmapDate(universe: string): Promise<string | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT MAX(report_date)::text as d FROM heatmap_data WHERE universe = ${universe}
+  `;
+  return (rows[0] as unknown as { d: string | null })?.d ?? null;
+}

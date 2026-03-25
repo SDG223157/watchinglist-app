@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { fetchAllLatest } from "@/lib/db";
 import { StatCards } from "@/components/stat-cards";
 import { WatchlistTable } from "@/components/watchlist-table";
@@ -21,6 +22,13 @@ export default async function Dashboard() {
         </div>
         {session?.user && (
           <div className="flex items-center gap-3">
+            <Link
+              href="/heatmap"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+            >
+              Heatmap
+            </Link>
             <AddStock />
             {session.user.image && (
               <img
