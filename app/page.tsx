@@ -1,6 +1,7 @@
 import { fetchAllLatest } from "@/lib/db";
 import { StatCards } from "@/components/stat-cards";
 import { WatchlistTable } from "@/components/watchlist-table";
+import { AddStock } from "@/components/add-stock";
 import { auth, signOut } from "@/auth";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default async function Dashboard() {
         </div>
         {session?.user && (
           <div className="flex items-center gap-3">
+            <AddStock />
             {session.user.image && (
               <img
                 src={session.user.image}
