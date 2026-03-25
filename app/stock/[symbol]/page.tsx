@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Markdown from "react-markdown";
-import { fetchStock, fetchStockHistory } from "@/lib/db";
+import { fetchStock, fetchStockHistory, fetchAllHeatmapLatest } from "@/lib/db";
+import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 
 export const dynamic = "force-dynamic";
 
@@ -66,11 +67,16 @@ export default async function StockDetail({
 }) {
   const { symbol: rawSymbol } = await params;
   const symbol = decodeURIComponent(rawSymbol);
-  const stock = await fetchStock(symbol);
+  const [stock, heatmapRows] = await Promise.all([
+    fetchStock(symbol),
+    fetchAllHeatmapLatest(),
+  ]);
 
   if (!stock) notFound();
 
   const history = await fetchStockHistory(symbol, 10);
+  const lookup = buildHeatmapLookup(heatmapRows);
+  const hm = matchStock(stock, lookup);
 
   const geoLabels: Record<number, string> = {
     0: "Anchor",
@@ -186,19 +192,115 @@ export default async function StockDetail({
         <WallCard label="Discount Rates" text={stock.wall_discount} color={wallColor(stock.wall_discount)} />
       </div>
 
-      {/* Sector Context */}
-      {(stock.sector_rank || stock.industry_rank) && (
+      {/* Sector & Industry Heatmap */}
+      {(hm.sector || hm.industry || stock.sector_rank) && (
         <>
-          <h2 className="text-lg font-bold mb-3">Sector Context</h2>
-          <div
-            className="p-5 rounded-lg mb-8 grid grid-cols-1 sm:grid-cols-2 gap-4"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-          >
-            <Metric label="Sector Rank" value={stock.sector_rank} />
-            <Metric label="Industry Rank" value={stock.industry_rank} />
-            <Metric label="Sector Momentum" value={stock.sector_momentum?.toFixed(1)} />
-            <Metric label="Industry Momentum" value={stock.industry_momentum?.toFixed(1)} />
+          <h2 className="text-lg font-bold mb-3">Sector & Industry Heatmap</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+            {hm.sector && (
+              <div
+                className="rounded-lg p-4"
+                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+              >
+                <div className="text-xs uppercase tracking-wider mb-2" style={{ color: "var(--muted)" }}>
+                  Sector — {hm.sector.name}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>3M</div>
+                    <div
+                      className="text-lg font-mono font-bold"
+                      style={{ color: (hm.sector.return_3m ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}
+                    >
+                      {hm.sector.return_3m != null ? `${hm.sector.return_3m >= 0 ? "+" : ""}${hm.sector.return_3m.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>6M</div>
+                    <div
+                      className="text-lg font-mono font-bold"
+                      style={{ color: (hm.sector.return_6m ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}
+                    >
+                      {hm.sector.return_6m != null ? `${hm.sector.return_6m >= 0 ? "+" : ""}${hm.sector.return_6m.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>12M</div>
+                    <div
+                      className="text-lg font-mono font-bold"
+                      style={{ color: (hm.sector.return_12m ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}
+                    >
+                      {hm.sector.return_12m != null ? `${hm.sector.return_12m >= 0 ? "+" : ""}${hm.sector.return_12m.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                </div>
+                {hm.sector.momentum && (
+                  <div className="mt-2 text-xs" style={{
+                    color: hm.sector.momentum.toLowerCase().includes("accel") ? "var(--green)"
+                      : hm.sector.momentum.toLowerCase().includes("decel") ? "var(--red)" : "var(--muted)"
+                  }}>
+                    {hm.sector.momentum} {hm.sector.shift != null && `(${hm.sector.shift >= 0 ? "+" : ""}${hm.sector.shift.toFixed(1)}pp)`}
+                  </div>
+                )}
+              </div>
+            )}
+            {hm.industry && (
+              <div
+                className="rounded-lg p-4"
+                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+              >
+                <div className="text-xs uppercase tracking-wider mb-2" style={{ color: "var(--muted)" }}>
+                  Industry — {hm.industry.name}
+                  {hm.industry.rank && (
+                    <span className="ml-1 opacity-60">#{hm.industry.rank}</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>3M</div>
+                    <div
+                      className="text-lg font-mono font-bold"
+                      style={{ color: (hm.industry.return_3m ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}
+                    >
+                      {hm.industry.return_3m != null ? `${hm.industry.return_3m >= 0 ? "+" : ""}${hm.industry.return_3m.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>6M</div>
+                    <div
+                      className="text-lg font-mono font-bold"
+                      style={{ color: (hm.industry.return_6m ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}
+                    >
+                      {hm.industry.return_6m != null ? `${hm.industry.return_6m >= 0 ? "+" : ""}${hm.industry.return_6m.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>12M</div>
+                    <div
+                      className="text-lg font-mono font-bold"
+                      style={{ color: (hm.industry.return_12m ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}
+                    >
+                      {hm.industry.return_12m != null ? `${hm.industry.return_12m >= 0 ? "+" : ""}${hm.industry.return_12m.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                </div>
+                {hm.industry.shift != null && (
+                  <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
+                    Shift: {hm.industry.shift >= 0 ? "+" : ""}{hm.industry.shift.toFixed(1)}pp
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+          {(stock.sector_rank || stock.industry_rank) && (
+            <div
+              className="p-4 rounded-lg mb-8 grid grid-cols-1 sm:grid-cols-2 gap-4"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              {stock.sector_rank && <Metric label="Sector Rank" value={stock.sector_rank} />}
+              {stock.industry_rank && <Metric label="Industry Rank" value={stock.industry_rank} />}
+            </div>
+          )}
         </>
       )}
 

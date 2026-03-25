@@ -152,3 +152,16 @@ export async function fetchHeatmapDate(universe: string): Promise<string | null>
   `;
   return (rows[0] as unknown as { d: string | null })?.d ?? null;
 }
+
+export async function fetchAllHeatmapLatest(): Promise<HeatmapRow[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT h.* FROM heatmap_data h
+    INNER JOIN (
+      SELECT universe, MAX(report_date) as max_date
+      FROM heatmap_data GROUP BY universe
+    ) m ON h.universe = m.universe AND h.report_date = m.max_date
+    ORDER BY h.universe, h.type, h.return_12m DESC NULLS LAST
+  `;
+  return rows as unknown as HeatmapRow[];
+}

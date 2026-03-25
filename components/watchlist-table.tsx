@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { WatchlistStock } from "@/lib/db";
+import type { WatchlistStock, HeatmapRow } from "@/lib/db";
+import type { StockHeatmapContext } from "@/lib/heatmap-match";
 
 type SortKey =
   | "symbol"
@@ -15,6 +16,7 @@ type SortKey =
 
 interface Props {
   stocks: WatchlistStock[];
+  heatmapContext?: Record<string, StockHeatmapContext>;
 }
 
 function WallPills({ g, y, r }: { g: number; y: number; r: number }) {
@@ -95,6 +97,35 @@ function SignalBadge({ signal }: { signal: string }) {
   );
 }
 
+function retColor(val: number | null | undefined): string {
+  if (val == null) return "var(--muted)";
+  return val >= 0 ? "var(--green)" : "var(--red)";
+}
+
+function retText(val: number | null | undefined): string {
+  if (val == null) return "";
+  const sign = val >= 0 ? "+" : "";
+  return `${sign}${val.toFixed(1)}`;
+}
+
+function HeatmapMini({ row }: { row: HeatmapRow | null }) {
+  if (!row) return <span className="text-[10px]" style={{ color: "var(--muted)" }}>—</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] font-medium truncate max-w-28" title={row.name}>
+        {row.name}
+      </span>
+      <div className="flex gap-1.5 font-mono text-[10px]">
+        <span style={{ color: retColor(row.return_3m) }}>{retText(row.return_3m)}</span>
+        <span style={{ color: retColor(row.return_6m) }}>{retText(row.return_6m)}</span>
+        <span style={{ color: retColor(row.return_12m) }} className="font-semibold">
+          {retText(row.return_12m)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function formatPrice(p: number | null | undefined): string {
   if (!p) return "—";
   return p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 0 })
@@ -116,7 +147,7 @@ function ageText(created: string): string {
   return `${days}d`;
 }
 
-export function WatchlistTable({ stocks: initial }: Props) {
+export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("extreme_score");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -170,6 +201,18 @@ export function WatchlistTable({ stocks: initial }: Props) {
             <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
               TrendWise
             </th>
+            {heatmapContext && (
+              <>
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                  Sector
+                  <span className="block text-[9px] font-normal opacity-60">3M / 6M / 12M</span>
+                </th>
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                  Industry
+                  <span className="block text-[9px] font-normal opacity-60">3M / 6M / 12M</span>
+                </th>
+              </>
+            )}
             <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
               Action
             </th>
@@ -180,48 +223,61 @@ export function WatchlistTable({ stocks: initial }: Props) {
           </tr>
         </thead>
         <tbody>
-          {stocks.map((s) => (
-            <tr
-              key={s.symbol}
-              className="border-t transition-colors hover:bg-zinc-900/60"
-              style={{ borderColor: "var(--border)" }}
-            >
-              <td className="px-3 py-3">
-                <Link
-                  href={`/stock/${encodeURIComponent(s.symbol)}`}
-                  className="font-semibold font-mono hover:underline"
-                  style={{ color: "var(--blue)" }}
-                >
-                  {s.symbol}
-                </Link>
-              </td>
-              <td className="px-3 py-3 max-w-48 truncate" style={{ color: "var(--muted)" }}>
-                {s.name}
-              </td>
-              <td className="px-3 py-3 text-right font-mono">{formatPrice(s.price)}</td>
-              <td className="px-3 py-3 text-right font-mono">{formatMcap(s.market_cap)}</td>
-              <td className="px-3 py-3">
-                <WallPills g={s.green_walls || 0} y={s.yellow_walls || 0} r={s.red_walls || 0} />
-              </td>
-              <td className="px-3 py-3 min-w-28">
-                <ExtremeBar score={s.extreme_score || 0} />
-              </td>
-              <td className="px-3 py-3 text-xs font-mono">{s.clock_position || "—"}</td>
-              <td className="px-3 py-3">
-                <GeoLabel order={s.geometric_order || 0} />
-              </td>
-              <td className="px-3 py-3">
-                <SignalBadge signal={s.trend_signal || ""} />
-              </td>
-              <td className="px-3 py-3 text-xs max-w-32 truncate">{s.action || "—"}</td>
-              <td className="px-3 py-3 text-right font-mono text-xs">
-                {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}
-              </td>
-              <td className="px-3 py-3 text-right text-xs" style={{ color: "var(--muted)" }}>
-                {ageText(s.created_at)}
-              </td>
-            </tr>
-          ))}
+          {stocks.map((s) => {
+            const hm = heatmapContext?.[s.symbol];
+            return (
+              <tr
+                key={s.symbol}
+                className="border-t transition-colors hover:bg-zinc-900/60"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <td className="px-3 py-3">
+                  <Link
+                    href={`/stock/${encodeURIComponent(s.symbol)}`}
+                    className="font-semibold font-mono hover:underline"
+                    style={{ color: "var(--blue)" }}
+                  >
+                    {s.symbol}
+                  </Link>
+                </td>
+                <td className="px-3 py-3 max-w-48 truncate" style={{ color: "var(--muted)" }}>
+                  {s.name}
+                </td>
+                <td className="px-3 py-3 text-right font-mono">{formatPrice(s.price)}</td>
+                <td className="px-3 py-3 text-right font-mono">{formatMcap(s.market_cap)}</td>
+                <td className="px-3 py-3">
+                  <WallPills g={s.green_walls || 0} y={s.yellow_walls || 0} r={s.red_walls || 0} />
+                </td>
+                <td className="px-3 py-3 min-w-28">
+                  <ExtremeBar score={s.extreme_score || 0} />
+                </td>
+                <td className="px-3 py-3 text-xs font-mono">{s.clock_position || "—"}</td>
+                <td className="px-3 py-3">
+                  <GeoLabel order={s.geometric_order || 0} />
+                </td>
+                <td className="px-3 py-3">
+                  <SignalBadge signal={s.trend_signal || ""} />
+                </td>
+                {heatmapContext && (
+                  <>
+                    <td className="px-3 py-3">
+                      <HeatmapMini row={hm?.sector ?? null} />
+                    </td>
+                    <td className="px-3 py-3">
+                      <HeatmapMini row={hm?.industry ?? null} />
+                    </td>
+                  </>
+                )}
+                <td className="px-3 py-3 text-xs max-w-32 truncate">{s.action || "—"}</td>
+                <td className="px-3 py-3 text-right font-mono text-xs">
+                  {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}
+                </td>
+                <td className="px-3 py-3 text-right text-xs" style={{ color: "var(--muted)" }}>
+                  {ageText(s.created_at)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

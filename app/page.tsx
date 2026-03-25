@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { fetchAllLatest } from "@/lib/db";
+import { fetchAllLatest, fetchAllHeatmapLatest } from "@/lib/db";
+import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/heatmap-match";
 import { StatCards } from "@/components/stat-cards";
 import { WatchlistTable } from "@/components/watchlist-table";
 import { AddStock } from "@/components/add-stock";
@@ -8,8 +9,17 @@ import { auth, signOut } from "@/auth";
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
-  const stocks = await fetchAllLatest();
-  const session = await auth();
+  const [stocks, heatmapRows, session] = await Promise.all([
+    fetchAllLatest(),
+    fetchAllHeatmapLatest(),
+    auth(),
+  ]);
+
+  const lookup = buildHeatmapLookup(heatmapRows);
+  const heatmapContext: Record<string, StockHeatmapContext> = {};
+  for (const s of stocks) {
+    heatmapContext[s.symbol] = matchStock(s, lookup);
+  }
 
   return (
     <main className="max-w-[1400px] mx-auto px-4 py-8">
@@ -64,7 +74,7 @@ export default async function Dashboard() {
       </section>
 
       <section>
-        <WatchlistTable stocks={stocks} />
+        <WatchlistTable stocks={stocks} heatmapContext={heatmapContext} />
       </section>
 
       <footer className="mt-12 pb-8 text-center text-xs" style={{ color: "var(--muted)" }}>
