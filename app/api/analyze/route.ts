@@ -7,6 +7,55 @@ const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHis
 
 export const dynamic = "force-dynamic";
 
+function computeTrendWise(
+  closes: number[],
+  dates: string[],
+  window = 60
+): { signal: string; entryDate: string | null; entryPrice: number | null } {
+  if (closes.length < window + 1)
+    return { signal: "No Signal", entryDate: null, entryPrice: null };
+
+  const retracement: number[] = [];
+  const position: number[] = [];
+
+  for (let i = window; i < closes.length; i++) {
+    const slice = closes.slice(i - window, i + 1);
+    const high = Math.max(...slice);
+    const low = Math.min(...slice);
+    const range = high - low || 1;
+    retracement.push(((high - closes[i]) / range) * 100);
+    position.push(((closes[i] - low) / range) * 100);
+  }
+
+  let lastSignal: "Open" | "Closed" | null = null;
+  let entryDate: string | null = null;
+  let entryPrice: number | null = null;
+
+  for (let i = 1; i < retracement.length; i++) {
+    const prevPosBelowRet = position[i - 1] <= retracement[i - 1];
+    const curPosAboveRet = position[i] > retracement[i];
+    const prevPosAboveRet = position[i - 1] >= retracement[i - 1];
+    const curPosBelowRet = position[i] < retracement[i];
+
+    const dataIdx = window + i;
+    if (prevPosBelowRet && curPosAboveRet) {
+      lastSignal = "Open";
+      entryDate = dates[dataIdx] || null;
+      entryPrice = closes[dataIdx];
+    } else if (prevPosAboveRet && curPosBelowRet) {
+      lastSignal = "Closed";
+      entryDate = null;
+      entryPrice = null;
+    }
+  }
+
+  return {
+    signal: lastSignal || "No Signal",
+    entryDate,
+    entryPrice,
+  };
+}
+
 function computeGeometricOrder(closes: number[]): {
   order: number;
   details: string;
@@ -99,6 +148,7 @@ export async function POST(req: NextRequest) {
     const finData = summary?.financialData || {};
 
     let closes: number[] = [];
+    let closeDates: string[] = [];
     try {
       const hist = await yahooFinance.historical(symbol, {
         period1: "2023-01-01",
@@ -108,11 +158,15 @@ export async function POST(req: NextRequest) {
       closes = hist
         .map((q: { close?: number | null }) => q.close)
         .filter((c: number | null | undefined): c is number => c != null);
+      closeDates = hist.map(
+        (q: { date?: Date }) => q.date?.toISOString?.()?.split("T")[0] ?? ""
+      );
     } catch {
       // historical data unavailable
     }
     const { order: geoOrder, details: geoDetails } =
       computeGeometricOrder(closes);
+    const tw = computeTrendWise(closes, closeDates);
 
     const allTimeHigh =
       closes.length > 0 ? Math.max(...closes) : quote.fiftyTwoWeekHigh ?? 0;
@@ -140,6 +194,7 @@ export async function POST(req: NextRequest) {
         eps, beta, high_52w, low_52w, distance_from_ath,
         roe, operating_margin, net_margin, debt_to_equity,
         geometric_order, geometric_details,
+        trend_signal, trend_entry_date, trend_entry_price,
         data_sources
       ) VALUES (
         ${symbol},
@@ -163,6 +218,9 @@ export async function POST(req: NextRequest) {
         ${de},
         ${geoOrder},
         ${geoDetails},
+        ${tw.signal},
+        ${tw.entryDate},
+        ${tw.entryPrice},
         ${"yahoo-finance2 (web)"}
       )
     `;
