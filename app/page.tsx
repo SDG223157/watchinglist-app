@@ -77,8 +77,8 @@ export default async function Dashboard() {
         <WatchlistTable stocks={stocks} heatmapContext={heatmapContext} />
       </section>
 
-      <footer className="mt-12 pb-8 text-center text-xs" style={{ color: "var(--muted)" }}>
-        Data refreshed daily at 09:00 CST &middot; Powered by ROIC.ai + yfinance + GPT-5.4
+      <footer className="mt-12 pb-8 text-right text-xs" style={{ color: "var(--muted)" }}>
+        &copy; WatchingList
       </footer>
     </main>
   );
