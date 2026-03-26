@@ -146,6 +146,26 @@ function MoatBadge({ width }: { width: string | null | undefined }) {
   );
 }
 
+function SignalGeoDot({ stock }: { stock: WatchlistStock }) {
+  const isOpen = /open/i.test(stock.trend_signal || "");
+  const geo = stock.geometric_order ?? -1;
+  if (!isOpen || geo < 1 || geo > 2) return null;
+  const label = geo === 1 ? "Velocity" : "Acceleration";
+  return (
+    <span
+      title={`TrendWise Open + Geo ${geo} (${label})`}
+      className="inline-block rounded-full"
+      style={{
+        width: 8,
+        height: 8,
+        minWidth: 8,
+        backgroundColor: "#22c55e",
+        boxShadow: "0 0 6px #22c55e",
+      }}
+    />
+  );
+}
+
 function TriggerDot({ stock }: { stock: WatchlistStock }) {
   const triggers = detectTriggers(stock);
   const level = worstLevel(triggers);
@@ -368,7 +388,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                     >
                       {s.symbol}
                     </Link>
-                    <TriggerDot stock={s} />
+                    <SignalGeoDot stock={s} />
                   </div>
                 </td>
                 <td className="px-3 py-4 max-w-48 truncate" style={{ color: "var(--muted)" }}>
@@ -410,7 +430,10 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                   {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}
                 </td>
                 <td className="px-3 py-4 text-right text-sm" style={{ color: "var(--muted)" }}>
-                  {timeText(s.created_at)}
+                  <div className="flex items-center justify-end gap-1.5">
+                    <TriggerDot stock={s} />
+                    {timeText(s.created_at)}
+                  </div>
                 </td>
               </tr>
             );
