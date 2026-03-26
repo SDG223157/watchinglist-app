@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 export function AnalyzeButton({ symbol }: { symbol: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [newScore, setNewScore] = useState<number | null>(null);
   const router = useRouter();
 
   async function handleClick() {
     setLoading(true);
     setError("");
+    setNewScore(null);
 
     try {
       const controller = new AbortController();
@@ -36,6 +38,10 @@ export function AnalyzeButton({ symbol }: { symbol: string }) {
       if (!res.ok) {
         setError(data.error || `Failed (${res.status})`);
         return;
+      }
+
+      if (data.compositeScore != null) {
+        setNewScore(data.compositeScore);
       }
 
       router.refresh();
@@ -64,6 +70,11 @@ export function AnalyzeButton({ symbol }: { symbol: string }) {
           "Generate Analysis Report"
         )}
       </button>
+      {newScore != null && (
+        <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+          Score updated: {newScore}/100
+        </span>
+      )}
       {error && (
         <span className="text-xs" style={{ color: "var(--red)" }}>
           {error}

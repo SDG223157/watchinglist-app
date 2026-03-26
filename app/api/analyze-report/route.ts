@@ -331,7 +331,7 @@ export async function POST(req: NextRequest) {
       } catch { /* ok, save report anyway */ }
     }
 
-    // Update the latest record for this symbol
+    // Save LLM analysis fields to DB
     const sql = getDb();
     await sql`
       UPDATE watchlist_items SET
@@ -362,7 +362,7 @@ export async function POST(req: NextRequest) {
       )
     `;
 
-    // Recompute composite score from the updated record
+    // Recompute composite score from the freshly updated record (single atomic update)
     const updated = await fetchStock(symbol);
     let compositeScore = 0;
     if (updated) {
@@ -370,16 +370,13 @@ export async function POST(req: NextRequest) {
       compositeScore = breakdown.total;
       await sql`
         UPDATE watchlist_items SET composite_score = ${compositeScore}
-        WHERE id = (
-          SELECT id FROM watchlist_items
-          WHERE symbol = ${symbol}
-          ORDER BY created_at DESC LIMIT 1
-        )
+        WHERE id = ${updated.id}
       `;
     }
 
     revalidateTag("stocks", "max");
     revalidatePath("/");
+    revalidatePath(`/stock/${encodeURIComponent(symbol)}`);
 
     return NextResponse.json({ ok: true, report, parsed, compositeScore });
   } catch (err: unknown) {
