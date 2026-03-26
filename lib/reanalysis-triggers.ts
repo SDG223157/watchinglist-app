@@ -65,6 +65,14 @@ export function detectTriggers(s: WatchlistStock): Trigger[] {
     });
   }
 
+  const gw = s.green_walls || 0;
+  if (gw >= 3 && age >= 30) {
+    triggers.push({
+      level: "warning",
+      reason: `Strong stock (${gw} green walls) — refresh recommended (${age}d old)`,
+    });
+  }
+
   if (age >= 30 && age < 90 && s.analysis_report) {
     triggers.push({
       level: "info",
