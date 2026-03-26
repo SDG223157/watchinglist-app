@@ -43,6 +43,13 @@ function WallCard({
   );
 }
 
+function fmtPct(v: number | null | undefined): string {
+  if (v == null) return "—";
+  // Old data stored as decimal (0.0841 = 8.41%), new data as percentage (8.41)
+  const val = Math.abs(v) < 1 ? v * 100 : v;
+  return val.toFixed(2);
+}
+
 function fmtB(v: number | null | undefined): string {
   if (v == null) return "—";
   if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}T`;
@@ -246,9 +253,9 @@ export default async function StockDetail({
         <Metric label="FCF" value={stock.fcf ? fmtB(stock.fcf) : null} />
         <Metric label="FCF Yield" value={stock.fcf_yield ? `${stock.fcf_yield}%` : null} />
         <Metric label="Revenue" value={stock.revenue ? fmtB(stock.revenue) : null} />
-        <Metric label="Rev Growth YoY" value={stock.revenue_growth_annual ? `${stock.revenue_growth_annual}%` : null} />
-        <Metric label="Rev CAGR 3Y" value={stock.revenue_cagr_3y ? `${stock.revenue_cagr_3y}%` : null} />
-        <Metric label="Rev CAGR 5Y" value={stock.revenue_cagr_5y ? `${stock.revenue_cagr_5y}%` : null} />
+        <Metric label="Rev Growth YoY" value={stock.revenue_growth_annual ? `${fmtPct(stock.revenue_growth_annual)}%` : null} />
+        <Metric label="Rev CAGR 3Y" value={stock.revenue_cagr_3y ? `${fmtPct(stock.revenue_cagr_3y)}%` : null} />
+        <Metric label="Rev CAGR 5Y" value={stock.revenue_cagr_5y ? `${fmtPct(stock.revenue_cagr_5y)}%` : null} />
         <Metric label="D/E" value={stock.debt_to_equity?.toFixed(2)} />
         <Metric label="Current Ratio" value={stock.current_ratio?.toFixed(2)} />
         <Metric label="Beta" value={stock.beta?.toFixed(2)} />
