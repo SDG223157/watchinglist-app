@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
-import { fetchLatestPcaReports, fetchPcaReportDates } from "@/lib/db";
+import { getCachedPcaReports, getCachedPcaDates } from "@/lib/db";
 import { PcaDashboard } from "@/components/pca-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -9,10 +9,10 @@ export default async function PcaPage() {
   const session = await auth();
 
   const [spReports, chinaReports, spDates, chinaDates] = await Promise.all([
-    fetchLatestPcaReports("SP500"),
-    fetchLatestPcaReports("CHINA"),
-    fetchPcaReportDates("SP500"),
-    fetchPcaReportDates("CHINA"),
+    getCachedPcaReports("SP500"),
+    getCachedPcaReports("CHINA"),
+    getCachedPcaDates("SP500"),
+    getCachedPcaDates("CHINA"),
   ]);
 
   return (

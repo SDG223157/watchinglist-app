@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
+import { cachedQuote, cachedSummary, cachedHistorical, cachedFundamentals } from "@/lib/yf-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -128,20 +127,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const [quote, summary, fts] = await Promise.all([
-      yahooFinance.quote(symbol),
-      yahooFinance
-        .quoteSummary(symbol, {
-          modules: ["assetProfile", "defaultKeyStatistics", "financialData"],
-        })
-        .catch(() => null),
-      yahooFinance
-        .fundamentalsTimeSeries(symbol, {
-          period1: "2019-01-01",
-          period2: new Date().toISOString().split("T")[0],
-          type: "annual",
-          module: "all",
-        })
-        .catch(() => []),
+      cachedQuote(symbol),
+      cachedSummary(symbol),
+      cachedFundamentals(symbol),
     ]);
 
     if (!quote || !quote.regularMarketPrice) {
@@ -162,19 +150,15 @@ export async function POST(req: NextRequest) {
     // --- Historical prices (from 2020 for 200-day geometric order) ---
     let closes: number[] = [];
     let closeDates: string[] = [];
-    try {
-      const hist = await yahooFinance.historical(symbol, {
-        period1: "2020-01-01",
-        period2: new Date().toISOString().split("T")[0],
-        interval: "1d",
-      });
+    const hist = await cachedHistorical(symbol, "2020-01-01", "1d");
+    if (hist.length > 0) {
       closes = hist
         .map((q: { close?: number | null }) => q.close)
         .filter((c: number | null | undefined): c is number => c != null);
       closeDates = hist.map(
         (q: { date?: Date }) => q.date?.toISOString?.()?.split("T")[0] ?? ""
       );
-    } catch { /* historical data unavailable */ }
+    }
 
     const { order: geoOrder, details: geoDetails } = computeGeometricOrder(closes);
     const tw = computeTrendWise(closes, closeDates);
@@ -386,6 +370,8 @@ export async function POST(req: NextRequest) {
         )
       `;
     }
+
+    revalidateTag("stocks", "max");
 
     return NextResponse.json({
       ok: true,

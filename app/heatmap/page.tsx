@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
-import { fetchHeatmap, fetchHeatmapDate } from "@/lib/db";
+import { getCachedHeatmapByUniverse, getCachedHeatmapDate } from "@/lib/db";
 import { HeatmapTabs } from "@/components/heatmap-tabs";
 
 export const dynamic = "force-dynamic";
@@ -10,12 +10,12 @@ export default async function HeatmapPage() {
 
   const [usSectors, usIndustries, usDate, cnSectors, cnIndustries, cnDate] =
     await Promise.all([
-      fetchHeatmap("SP500", "sector"),
-      fetchHeatmap("SP500", "industry"),
-      fetchHeatmapDate("SP500"),
-      fetchHeatmap("China", "sector"),
-      fetchHeatmap("China", "industry"),
-      fetchHeatmapDate("China"),
+      getCachedHeatmapByUniverse("SP500", "sector"),
+      getCachedHeatmapByUniverse("SP500", "industry"),
+      getCachedHeatmapDate("SP500"),
+      getCachedHeatmapByUniverse("China", "sector"),
+      getCachedHeatmapByUniverse("China", "industry"),
+      getCachedHeatmapDate("China"),
     ]);
 
   return (

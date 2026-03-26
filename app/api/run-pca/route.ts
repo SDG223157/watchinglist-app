@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance({
-  suppressNotices: ["yahooSurvey", "ripHistorical"],
-});
+import { yahooFinance } from "@/lib/yf-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -312,6 +309,8 @@ export async function POST(req: NextRequest) {
       )
     `;
   }
+
+  revalidateTag("pca", "max");
 
   return NextResponse.json({
     ok: true,

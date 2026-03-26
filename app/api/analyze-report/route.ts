@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
+import { cachedQuote, cachedSummary, cachedHistorical } from "@/lib/yf-cache";
 
 const MODEL = "openai/gpt-5.4";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -160,12 +159,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const [quote, summary] = await Promise.all([
-      yahooFinance.quote(symbol),
-      yahooFinance
-        .quoteSummary(symbol, {
-          modules: ["assetProfile", "defaultKeyStatistics", "financialData"],
-        })
-        .catch(() => null),
+      cachedQuote(symbol),
+      cachedSummary(symbol),
     ]);
     if (!quote?.regularMarketPrice) {
       return NextResponse.json({ error: `No data for ${symbol}` }, { status: 404 });
@@ -184,17 +179,13 @@ export async function POST(req: NextRequest) {
     quote.priceToBook = quote.priceToBook || summary?.defaultKeyStatistics?.priceToBook;
 
     let hist: { close: number; date: string }[] = [];
-    try {
-      const raw = await yahooFinance.historical(symbol, {
-        period1: "2020-01-01",
-        period2: new Date().toISOString().split("T")[0],
-        interval: "1wk",
-      });
-      hist = raw.map((r: { close: number; date: Date }) => ({
+    const rawHist = await cachedHistorical(symbol, "2020-01-01", "1wk");
+    if (rawHist.length > 0) {
+      hist = rawHist.map((r: { close: number; date: Date }) => ({
         close: r.close,
         date: r.date?.toISOString?.() ?? "",
       }));
-    } catch { /* ok */ }
+    }
 
     const prompt = buildPrompt(quote, hist);
 
@@ -278,6 +269,8 @@ export async function POST(req: NextRequest) {
         ORDER BY created_at DESC LIMIT 1
       )
     `;
+
+    revalidateTag("stocks", "max");
 
     return NextResponse.json({ ok: true, report, parsed });
   } catch (err: unknown) {

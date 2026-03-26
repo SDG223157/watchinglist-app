@@ -1,8 +1,54 @@
 import { neon } from "@neondatabase/serverless";
+import { unstable_cache } from "next/cache";
 
 export function getDb() {
   return neon(process.env.DATABASE_URL!);
 }
+
+/**
+ * Cached DB query wrappers.
+ * Pages use these for fast reads; API routes call revalidateTag()
+ * after mutations to bust the cache immediately.
+ */
+export const getCachedStocks = unstable_cache(
+  async () => fetchAllLatest(),
+  ["watchlist-stocks"],
+  { revalidate: 60, tags: ["stocks"] }
+);
+
+export const getCachedHeatmap = unstable_cache(
+  async () => fetchAllHeatmapLatest(),
+  ["heatmap-all"],
+  { revalidate: 300, tags: ["heatmap"] }
+);
+
+export const getCachedHeatmapByUniverse = (universe: string, type: string) =>
+  unstable_cache(
+    async () => fetchHeatmap(universe, type),
+    [`heatmap-${universe}-${type}`],
+    { revalidate: 300, tags: ["heatmap"] }
+  )();
+
+export const getCachedHeatmapDate = (universe: string) =>
+  unstable_cache(
+    async () => fetchHeatmapDate(universe),
+    [`heatmap-date-${universe}`],
+    { revalidate: 300, tags: ["heatmap"] }
+  )();
+
+export const getCachedPcaReports = (universe: string) =>
+  unstable_cache(
+    async () => fetchLatestPcaReports(universe),
+    [`pca-${universe}`],
+    { revalidate: 300, tags: ["pca"] }
+  )();
+
+export const getCachedPcaDates = (universe: string) =>
+  unstable_cache(
+    async () => fetchPcaReportDates(universe),
+    [`pca-dates-${universe}`],
+    { revalidate: 300, tags: ["pca"] }
+  )();
 
 export interface WatchlistStock {
   id: number;

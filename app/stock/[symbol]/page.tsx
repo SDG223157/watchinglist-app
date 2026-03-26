@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Markdown from "react-markdown";
-import { fetchStock, fetchStockHistory, fetchAllHeatmapLatest } from "@/lib/db";
+import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { AnalyzeButton } from "@/components/analyze-button";
 
@@ -76,7 +76,7 @@ export default async function StockDetail({
   const symbol = decodeURIComponent(rawSymbol);
   const [stock, heatmapRows] = await Promise.all([
     fetchStock(symbol),
-    fetchAllHeatmapLatest(),
+    getCachedHeatmap(),
   ]);
 
   if (!stock) notFound();

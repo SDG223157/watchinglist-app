@@ -3,9 +3,7 @@ import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
+import { yahooFinance } from "@/lib/yf-cache";
 
 export async function GET(req: NextRequest) {
   const session = await auth();

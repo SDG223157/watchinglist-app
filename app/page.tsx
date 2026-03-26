@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fetchAllLatest, fetchAllHeatmapLatest } from "@/lib/db";
+import { getCachedStocks, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/heatmap-match";
 import { StatCards } from "@/components/stat-cards";
 import { WatchlistTable } from "@/components/watchlist-table";
@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const [stocks, heatmapRows, session] = await Promise.all([
-    fetchAllLatest(),
-    fetchAllHeatmapLatest(),
+    getCachedStocks(),
+    getCachedHeatmap(),
     auth(),
   ]);
 
