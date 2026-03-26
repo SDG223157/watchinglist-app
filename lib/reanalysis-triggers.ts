@@ -15,9 +15,16 @@ function daysSince(dateStr: string | null | undefined): number {
   }
 }
 
+const ACTION_BUY_RE = /buy|accumulate|right-side|left-side|加仓|建仓|买入/i;
+
+export function isActionable(action: string | null | undefined): boolean {
+  return ACTION_BUY_RE.test(action || "");
+}
+
 export function detectTriggers(s: WatchlistStock): Trigger[] {
   const triggers: Trigger[] = [];
   const age = daysSince(s.created_at);
+  const actionable = isActionable(s.action);
 
   if (age >= 90) {
     triggers.push({
@@ -70,6 +77,13 @@ export function detectTriggers(s: WatchlistStock): Trigger[] {
     triggers.push({
       level: "warning",
       reason: `Strong stock (${gw} green walls) — refresh recommended (${age}d old)`,
+    });
+  }
+
+  if (actionable && age >= 30) {
+    triggers.push({
+      level: "warning",
+      reason: `Actionable stock (${s.action}) — keep analysis fresh (${age}d old)`,
     });
   }
 
