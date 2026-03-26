@@ -111,6 +111,10 @@ export interface WatchlistStock {
   industry_12m_return: number;
   heatmap_date: string;
   analysis_report: string;
+  moat_type: string;
+  moat_width: string;
+  moat_trend: string;
+  moat_sources: string;
   altman_z_score: number;
   fcf_yield: number;
   revenue_cagr_3y: number;

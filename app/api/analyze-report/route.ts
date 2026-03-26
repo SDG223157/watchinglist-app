@@ -129,6 +129,18 @@ Color each: GREEN (good+stable/accel), YELLOW (mixed), RED (bad+stable/decel)
 **Extreme Scan (score each 1-5, total /20):**
 - Industry bubble, Macro & valuation, Liquidity, Sentiment
 
+**Moat Analysis (Buffett/Dorsey Framework):**
+Identify the company's competitive advantages from these 5 sources:
+- Network Effects: Does usage by one customer increase value for others?
+- Switching Costs: How painful/expensive is it to leave for a competitor?
+- Intangible Assets: Brands, patents, licenses, regulatory advantages?
+- Cost Advantages: Scale economies, process advantages, resource access?
+- Efficient Scale: Does the market only support a limited number of players?
+
+Rate each: STRONG / MODERATE / WEAK / NONE
+Overall Moat Width: WIDE (2+ strong sources) / NARROW (1 strong or 2+ moderate) / NONE
+Moat Trend: EXPANDING / STABLE / ERODING
+
 **7 Buy Conditions:**
 1. >=3 GREEN walls
 2. Market Clock favorable
@@ -149,6 +161,12 @@ Produce a markdown report with these sections:
 ### Sector & Industry Assessment
 Evaluate whether the sector and sub-industry are providing tailwind or headwind.
 Include 3M/6M/12M returns, momentum direction, and rank. State clearly: TAILWIND / NEUTRAL / HEADWIND.
+
+### Competitive Moat
+| Moat Source | Rating | Evidence |
+Table with STRONG/MODERATE/WEAK/NONE for each of: Network Effects, Switching Costs, Intangible Assets, Cost Advantages, Efficient Scale.
+**Moat Width: WIDE/NARROW/NONE** | **Trend: EXPANDING/STABLE/ERODING**
+Key moat sources summary (the 2-3 most important competitive advantages in plain language).
 
 ### Gravity Check (Damodaran's Four Walls)
 | Wall | Status | Evidence |
@@ -183,6 +201,10 @@ Also output a JSON block at the end (fenced with \`\`\`json) containing:
   "yellow_walls": N,
   "red_walls": N,
   "extreme_score": N,
+  "moat_type": "Network Effects + Switching Costs (list the primary moat sources)",
+  "moat_width": "WIDE / NARROW / NONE",
+  "moat_trend": "EXPANDING / STABLE / ERODING",
+  "moat_sources": "2-3 sentence summary of key competitive advantages",
   "sector_signal": "TAILWIND / NEUTRAL / HEADWIND",
   "action": "buy X% / watch / avoid",
   "buy_reason": "summary of 7 conditions",
@@ -327,7 +349,11 @@ export async function POST(req: NextRequest) {
         action = COALESCE(${(parsed.action as string) || null}, action),
         buy_reason = COALESCE(${(parsed.buy_reason as string) || null}, buy_reason),
         notes = COALESCE(${(parsed.notes as string) || null}, notes),
-        narrative = COALESCE(${(parsed.narrative as string) || null}, narrative)
+        narrative = COALESCE(${(parsed.narrative as string) || null}, narrative),
+        moat_type = COALESCE(${(parsed.moat_type as string) || null}, moat_type),
+        moat_width = COALESCE(${(parsed.moat_width as string) || null}, moat_width),
+        moat_trend = COALESCE(${(parsed.moat_trend as string) || null}, moat_trend),
+        moat_sources = COALESCE(${(parsed.moat_sources as string) || null}, moat_sources)
       WHERE id = (
         SELECT id FROM watchlist_items
         WHERE symbol = ${symbol}

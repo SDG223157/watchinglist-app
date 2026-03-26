@@ -128,6 +128,21 @@ function HeatmapMini({ row }: { row: HeatmapRow | null }) {
   );
 }
 
+function MoatBadge({ width }: { width: string | null | undefined }) {
+  if (!width) return <span className="text-[10px]" style={{ color: "var(--muted)" }}>—</span>;
+  const w = width.toUpperCase();
+  const cfg = w === "WIDE"
+    ? { icon: "🏰", color: "var(--green)" }
+    : w === "NARROW"
+      ? { icon: "🛡️", color: "var(--yellow)" }
+      : { icon: "⚠️", color: "var(--red)" };
+  return (
+    <span className="text-xs font-medium" style={{ color: cfg.color }}>
+      {cfg.icon} {w}
+    </span>
+  );
+}
+
 function formatPrice(p: number | null | undefined): string {
   if (!p) return "—";
   return p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 0 })
@@ -237,6 +252,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
               </>
             )}
             <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+              Moat
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
               Action
             </th>
             <SortHeader k="pe_ratio" className="text-right">PE</SortHeader>
@@ -291,6 +309,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                     </td>
                   </>
                 )}
+                <td className="px-3 py-4">
+                  <MoatBadge width={s.moat_width} />
+                </td>
                 <td className="px-3 py-4 text-sm max-w-32 truncate">{s.action || "—"}</td>
                 <td className="px-3 py-4 text-right font-mono text-sm">
                   {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}

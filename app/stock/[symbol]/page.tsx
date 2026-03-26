@@ -200,6 +200,68 @@ export default async function StockDetail({
         </div>
       </div>
 
+      {/* Moat Analysis */}
+      {(stock.moat_width || stock.moat_type) && (
+        <>
+          <h2 className="text-lg font-bold mb-3">Competitive Moat</h2>
+          <div
+            className="rounded-lg p-5 mb-8"
+            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-4 mb-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold"
+                  style={{
+                    background:
+                      stock.moat_width === "WIDE" ? "rgba(34,197,94,0.15)" :
+                      stock.moat_width === "NARROW" ? "rgba(234,179,8,0.15)" :
+                      "rgba(239,68,68,0.15)",
+                    color:
+                      stock.moat_width === "WIDE" ? "var(--green)" :
+                      stock.moat_width === "NARROW" ? "var(--yellow)" :
+                      "var(--red)",
+                  }}
+                >
+                  {stock.moat_width === "WIDE" ? "🏰" : stock.moat_width === "NARROW" ? "🛡️" : "⚠️"}
+                  {stock.moat_width || "—"} Moat
+                </span>
+                {stock.moat_trend && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{
+                      background:
+                        stock.moat_trend === "EXPANDING" ? "rgba(34,197,94,0.1)" :
+                        stock.moat_trend === "ERODING" ? "rgba(239,68,68,0.1)" :
+                        "rgba(255,255,255,0.05)",
+                      color:
+                        stock.moat_trend === "EXPANDING" ? "var(--green)" :
+                        stock.moat_trend === "ERODING" ? "var(--red)" :
+                        "var(--muted)",
+                    }}
+                  >
+                    {stock.moat_trend === "EXPANDING" ? "↑" : stock.moat_trend === "ERODING" ? "↓" : "→"} {stock.moat_trend}
+                  </span>
+                )}
+              </div>
+            </div>
+            {stock.moat_type && (
+              <div className="text-sm mb-2">
+                <span className="text-xs uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                  Sources:{" "}
+                </span>
+                {stock.moat_type}
+              </div>
+            )}
+            {stock.moat_sources && (
+              <p className="text-sm leading-relaxed" style={{ color: "var(--muted)" }}>
+                {stock.moat_sources}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
       {/* Walls */}
       <h2 className="text-lg font-bold mb-3">Gravity Walls (Damodaran)</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
