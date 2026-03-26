@@ -97,13 +97,6 @@ export function detectTriggers(s: WatchlistStock): Trigger[] {
     });
   }
 
-  if (age >= 30 && age < 90 && s.analysis_report) {
-    triggers.push({
-      level: "info",
-      reason: `Analysis ${age}d old — consider refresh`,
-    });
-  }
-
   return triggers;
 }
 
