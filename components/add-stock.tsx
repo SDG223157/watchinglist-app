@@ -123,6 +123,7 @@ export function AddStock() {
       setQuery("");
       router.refresh();
 
+      let analysisOk = false;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 180000);
@@ -134,7 +135,8 @@ export function AddStock() {
         });
         clearTimeout(timeout);
         if (rpt.ok) {
-          setSuccess(`${data.symbol} — analysis complete!`);
+          setSuccess(`${data.symbol} — analysis complete! Redirecting...`);
+          analysisOk = true;
         } else {
           const rptData = await rpt.json().catch(() => ({}));
           setSuccess(`${data.symbol} added (${rptData.error || "analysis failed"})`);
@@ -142,8 +144,15 @@ export function AddStock() {
       } catch {
         setSuccess(`${data.symbol} added (analysis skipped)`);
       }
-      router.refresh();
-      setTimeout(() => { setOpen(false); setSuccess(""); }, 2000);
+
+      if (analysisOk) {
+        setTimeout(() => {
+          router.push(`/stock/${encodeURIComponent(sym)}`);
+        }, 800);
+      } else {
+        router.refresh();
+        setTimeout(() => { setOpen(false); setSuccess(""); }, 2000);
+      }
     } catch {
       setError("Network error");
     } finally {
