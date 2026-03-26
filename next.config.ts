@@ -12,7 +12,6 @@ const nextConfig: NextConfig = {
         },
       ],
     },
-    // _next/static already has immutable caching built-in by Next.js
   ],
 };
 

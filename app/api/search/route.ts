@@ -1,19 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { auth } from "@/auth";
+import { yahooFinance } from "@/lib/yf-cache";
+import { jsonWithCache } from "@/lib/cache-headers";
 
 export const dynamic = "force-dynamic";
-
-import { yahooFinance } from "@/lib/yf-cache";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonWithCache({ error: "Unauthorized" }, "none", 401);
   }
 
   const q = req.nextUrl.searchParams.get("q")?.trim();
   if (!q || q.length < 1) {
-    return NextResponse.json({ results: [] });
+    return jsonWithCache({ results: [] }, "none");
   }
 
   try {
@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
         type: r.quoteType || "",
       }));
 
-    return NextResponse.json({ results });
+    return jsonWithCache({ results }, "short");
   } catch {
-    return NextResponse.json({ results: [] });
+    return jsonWithCache({ results: [] }, "none");
   }
 }
