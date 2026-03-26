@@ -13,6 +13,35 @@ const SECTOR_ALIAS: Record<string, string> = {
   "materials": "Basic Materials",
 };
 
+const INDUSTRY_ALIAS: Record<string, string> = {
+  "discount stores": "Consumer Staples Merchandise Retail",
+  "auto manufacturers": "Automobile Manufacturers",
+  "banks - diversified": "Diversified Banks",
+  "banks - regional": "Regional Banks",
+  "consumer electronics": "Technology Hardware, Storage & Peripherals",
+  "internet content & information": "Interactive Media & Services",
+  "internet retail": "Broadline Retail",
+  "entertainment": "Movies & Entertainment",
+  "packaged foods": "Packaged Foods & Meats",
+  "oil & gas e&p": "Oil & Gas Exploration & Production",
+  "insurance - life": "Life & Health Insurance",
+  "travel services": "Hotels, Resorts & Cruise Lines",
+  "utilities - renewable": "Independent Power Producers & Energy Traders",
+  "beverages - wineries & distilleries": "Distillers & Vintners",
+  "gold": "Steel",
+  "drug manufacturers": "Pharmaceuticals",
+  "drug manufacturers - general": "Pharmaceuticals",
+  "software - infrastructure": "Systems Software",
+  "software - application": "Application Software",
+  "semiconductor equipment & materials": "Semiconductor Materials & Equipment",
+  "diagnostics & research": "Life Sciences Tools & Services",
+  "medical devices": "Health Care Equipment",
+  "insurance - diversified": "Multi-line Insurance",
+  "residential construction": "Homebuilding",
+  "specialty retail": "Other Specialty Retail",
+  "credit services": "Transaction & Payment Processing Services",
+};
+
 export interface StockHeatmapContext {
   sector: HeatmapRow | null;
   industry: HeatmapRow | null;
@@ -51,7 +80,7 @@ function extractIndustryName(stock: WatchlistStock): string | null {
 function fuzzyMatch(needle: string, haystack: HeatmapRow[]): HeatmapRow | null {
   const lower = needle.toLowerCase();
 
-  const aliased = SECTOR_ALIAS[lower];
+  const aliased = SECTOR_ALIAS[lower] || INDUSTRY_ALIAS[lower];
   if (aliased) {
     const exact = haystack.find(
       (h) => h.name.toLowerCase() === aliased.toLowerCase()
