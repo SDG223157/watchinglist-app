@@ -89,11 +89,11 @@ export function detectTriggers(s: WatchlistStock): Trigger[] {
 
   const signalOpen = /open/i.test(s.trend_signal || "");
   const geoOrder = s.geometric_order ?? -1;
-  if (signalOpen && (geoOrder === 1 || geoOrder === 2) && (!s.analysis_report || age >= 30)) {
-    const geoLabel = geoOrder === 1 ? "Velocity" : "Acceleration";
+  if (signalOpen && geoOrder >= 0 && geoOrder <= 2 && (!s.analysis_report || age >= 30)) {
+    const geoLabels: Record<number, string> = { 0: "Anchor", 1: "Velocity", 2: "Acceleration" };
     triggers.push({
       level: "warning",
-      reason: `TrendWise Open + Geo ${geoOrder} (${geoLabel}) — ${s.analysis_report ? `analysis ${age}d old` : "no analysis"}`,
+      reason: `TrendWise Open + Geo ${geoOrder} (${geoLabels[geoOrder]}) — ${s.analysis_report ? `analysis ${age}d old` : "no analysis"}`,
     });
   }
 
