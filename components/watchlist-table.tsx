@@ -174,19 +174,23 @@ function TriggerDot({ stock }: { stock: WatchlistStock }) {
 
 function ScoreBadge({ stock }: { stock: WatchlistStock }) {
   const { total, grade, gradeColor } = computeCompositeScore(stock);
+  const analyzed = !!(stock.analysis_report && stock.green_walls != null);
   return (
     <div className="flex items-center gap-1.5">
       <span
         className="text-sm font-bold font-mono"
-        style={{ color: gradeColor }}
+        style={{ color: analyzed ? gradeColor : "var(--muted)", opacity: analyzed ? 1 : 0.5 }}
       >
         {total}
       </span>
       <span
         className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
-        style={{ background: `${gradeColor}20`, color: gradeColor }}
+        style={{
+          background: analyzed ? `${gradeColor}20` : "var(--border)",
+          color: analyzed ? gradeColor : "var(--muted)",
+        }}
       >
-        {grade}
+        {analyzed ? grade : "No Analysis"}
       </span>
     </div>
   );

@@ -116,19 +116,38 @@ function TriggerAlerts({ stock }: { stock: import("@/lib/db").WatchlistStock }) 
 
 function ScoreBreakdownCard({ stock }: { stock: import("@/lib/db").WatchlistStock }) {
   const sc = computeCompositeScore(stock);
+  const analyzed = !!(stock.analysis_report && stock.green_walls != null);
   return (
     <div className="rounded-lg p-5 mb-8" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold">Composite Score</h2>
         <div className="flex items-center gap-3">
-          <span className="text-3xl font-bold font-mono" style={{ color: sc.gradeColor }}>
+          <span
+            className="text-3xl font-bold font-mono"
+            style={{ color: analyzed ? sc.gradeColor : "var(--muted)", opacity: analyzed ? 1 : 0.5 }}
+          >
             {sc.total}
           </span>
-          <span className="text-sm font-bold px-3 py-1 rounded-full" style={{ background: `${sc.gradeColor}20`, color: sc.gradeColor }}>
-            {sc.grade}
+          <span
+            className="text-sm font-bold px-3 py-1 rounded-full"
+            style={{
+              background: analyzed ? `${sc.gradeColor}20` : "var(--border)",
+              color: analyzed ? sc.gradeColor : "var(--muted)",
+            }}
+          >
+            {analyzed ? sc.grade : "No Analysis"}
           </span>
         </div>
       </div>
+      {!analyzed && (
+        <div
+          className="rounded-lg p-3 mb-4 text-sm"
+          style={{ background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.3)", color: "var(--yellow)" }}
+        >
+          Score is incomplete — walls, moat, clock, and stage data require LLM analysis.
+          Generate an analysis report below for an accurate score.
+        </div>
+      )}
       <div className="flex flex-col gap-2.5">
         <ScoreBar label="Walls" value={sc.walls} max={SCORE_MAXES.walls} emoji="🧱" />
         <ScoreBar label="Trend" value={sc.trendwise} max={SCORE_MAXES.trendwise} emoji="📈" />
