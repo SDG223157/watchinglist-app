@@ -115,6 +115,7 @@ export interface WatchlistStock {
   moat_width: string;
   moat_trend: string;
   moat_sources: string;
+  composite_score: number;
   altman_z_score: number;
   fcf_yield: number;
   revenue_cagr_3y: number;

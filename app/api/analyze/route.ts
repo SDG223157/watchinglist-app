@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag, revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { getDb } from "@/lib/db";
+import { getDb, fetchStock } from "@/lib/db";
 import { cachedQuote, cachedSummary, cachedHistorical, cachedFundamentals } from "@/lib/yf-cache";
+import { computeCompositeScore } from "@/lib/composite-score";
 
 export const dynamic = "force-dynamic";
 
@@ -368,6 +369,16 @@ export async function POST(req: NextRequest) {
           ${tw.entryPrice},
           ${"yahoo-finance2 (web)"}
         )
+      `;
+    }
+
+    // Compute and save composite score
+    const saved = await fetchStock(symbol);
+    if (saved) {
+      const { total } = computeCompositeScore(saved);
+      await sql`
+        UPDATE watchlist_items SET composite_score = ${total}
+        WHERE id = (SELECT id FROM watchlist_items WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT 1)
       `;
     }
 

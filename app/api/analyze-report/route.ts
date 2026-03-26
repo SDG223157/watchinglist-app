@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag, revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { getDb, getCachedHeatmap } from "@/lib/db";
+import { getDb, getCachedHeatmap, fetchStock } from "@/lib/db";
 import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/heatmap-match";
 import type { WatchlistStock } from "@/lib/db";
+import { computeCompositeScore } from "@/lib/composite-score";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -361,10 +362,26 @@ export async function POST(req: NextRequest) {
       )
     `;
 
+    // Recompute composite score from the updated record
+    const updated = await fetchStock(symbol);
+    let compositeScore = 0;
+    if (updated) {
+      const breakdown = computeCompositeScore(updated);
+      compositeScore = breakdown.total;
+      await sql`
+        UPDATE watchlist_items SET composite_score = ${compositeScore}
+        WHERE id = (
+          SELECT id FROM watchlist_items
+          WHERE symbol = ${symbol}
+          ORDER BY created_at DESC LIMIT 1
+        )
+      `;
+    }
+
     revalidateTag("stocks", "max");
     revalidatePath("/");
 
-    return NextResponse.json({ ok: true, report, parsed });
+    return NextResponse.json({ ok: true, report, parsed, compositeScore });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("analyze-report error:", msg);

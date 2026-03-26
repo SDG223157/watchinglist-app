@@ -4,6 +4,7 @@ import Markdown from "react-markdown";
 import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { AnalyzeButton } from "@/components/analyze-button";
+import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,48 @@ function Metric({ label, value }: { label: string; value: string | number | null
         {label}
       </div>
       <div className="font-mono text-sm mt-0.5">{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function ScoreBar({ label, value, max, emoji }: { label: string; value: number; max: number; emoji: string }) {
+  const pct = Math.min((value / max) * 100, 100);
+  const color = pct >= 80 ? "var(--green)" : pct >= 50 ? "var(--yellow)" : "var(--red)";
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm w-20 shrink-0">{emoji} {label}</span>
+      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="text-xs font-mono w-10 text-right" style={{ color }}>{value}/{max}</span>
+    </div>
+  );
+}
+
+function ScoreBreakdownCard({ stock }: { stock: import("@/lib/db").WatchlistStock }) {
+  const sc = computeCompositeScore(stock);
+  return (
+    <div className="rounded-lg p-5 mb-8" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold">Composite Score</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-3xl font-bold font-mono" style={{ color: sc.gradeColor }}>
+            {sc.total}
+          </span>
+          <span className="text-sm font-bold px-3 py-1 rounded-full" style={{ background: `${sc.gradeColor}20`, color: sc.gradeColor }}>
+            {sc.grade}
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        <ScoreBar label="Walls" value={sc.walls} max={SCORE_MAXES.walls} emoji="🧱" />
+        <ScoreBar label="Trend" value={sc.trendwise} max={SCORE_MAXES.trendwise} emoji="📈" />
+        <ScoreBar label="Clock" value={sc.clock} max={SCORE_MAXES.clock} emoji="🕐" />
+        <ScoreBar label="Moat" value={sc.moat} max={SCORE_MAXES.moat} emoji="🏰" />
+        <ScoreBar label="Stage" value={sc.stage} max={SCORE_MAXES.stage} emoji="🏢" />
+        <ScoreBar label="Geo" value={sc.geo} max={SCORE_MAXES.geo} emoji="📐" />
+        <ScoreBar label="Sector" value={sc.sector} max={SCORE_MAXES.sector} emoji="🌐" />
+      </div>
     </div>
   );
 }
@@ -153,6 +196,9 @@ export default async function StockDetail({
         <Metric label="52W Low" value={stock.low_52w?.toFixed(2)} />
         <Metric label="52W High" value={stock.high_52w?.toFixed(2)} />
       </div>
+
+      {/* Composite Score Breakdown */}
+      <ScoreBreakdownCard stock={stock} />
 
       {/* Analysis Summary Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">

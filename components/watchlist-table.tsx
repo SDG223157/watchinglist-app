@@ -4,9 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import type { WatchlistStock, HeatmapRow } from "@/lib/db";
 import type { StockHeatmapContext } from "@/lib/heatmap-match";
+import { computeCompositeScore } from "@/lib/composite-score";
 
 type SortKey =
   | "symbol"
+  | "composite_score"
   | "price"
   | "market_cap"
   | "extreme_score"
@@ -143,6 +145,26 @@ function MoatBadge({ width }: { width: string | null | undefined }) {
   );
 }
 
+function ScoreBadge({ stock }: { stock: WatchlistStock }) {
+  const { total, grade, gradeColor } = computeCompositeScore(stock);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="text-sm font-bold font-mono"
+        style={{ color: gradeColor }}
+      >
+        {total}
+      </span>
+      <span
+        className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+        style={{ background: `${gradeColor}20`, color: gradeColor }}
+      >
+        {grade}
+      </span>
+    </div>
+  );
+}
+
 function formatPrice(p: number | null | undefined): string {
   if (!p) return "—";
   return p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 0 })
@@ -166,7 +188,7 @@ function timeText(created: string): string {
 const PAGE_SIZES = [10, 20, 50, 100];
 
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>("extreme_score");
+  const [sortKey, setSortKey] = useState<SortKey>("composite_score");
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
@@ -180,6 +202,11 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   }
 
   const stocks = [...initial].sort((a, b) => {
+    if (sortKey === "composite_score") {
+      const av = a.composite_score || computeCompositeScore(a).total;
+      const bv = b.composite_score || computeCompositeScore(b).total;
+      return sortAsc ? av - bv : bv - av;
+    }
     if (sortKey === "clock_position") {
       const av = clockNum(a.clock_position);
       const bv = clockNum(b.clock_position);
@@ -232,6 +259,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
             <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
               Name
             </th>
+            <SortHeader k="composite_score">Score</SortHeader>
             <SortHeader k="price" className="text-right">Price</SortHeader>
             <SortHeader k="market_cap" className="text-right">MCap</SortHeader>
             <SortHeader k="green_walls">Walls</SortHeader>
@@ -283,6 +311,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                 </td>
                 <td className="px-3 py-4 max-w-48 truncate" style={{ color: "var(--muted)" }}>
                   {s.name}
+                </td>
+                <td className="px-3 py-4">
+                  <ScoreBadge stock={s} />
                 </td>
                 <td className="px-3 py-4 text-right font-mono">{formatPrice(s.price)}</td>
                 <td className="px-3 py-4 text-right font-mono">{formatMcap(s.market_cap)}</td>
