@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
+import { revalidateTag, revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { getDb, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/heatmap-match";
@@ -336,6 +336,7 @@ export async function POST(req: NextRequest) {
     `;
 
     revalidateTag("stocks", "max");
+    revalidatePath("/");
 
     return NextResponse.json({ ok: true, report, parsed });
   } catch (err: unknown) {

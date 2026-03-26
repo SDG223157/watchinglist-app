@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
+import { revalidateTag, revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
 import { cachedQuote, cachedSummary, cachedHistorical, cachedFundamentals } from "@/lib/yf-cache";
@@ -372,6 +372,7 @@ export async function POST(req: NextRequest) {
     }
 
     revalidateTag("stocks", "max");
+    revalidatePath("/");
 
     return NextResponse.json({
       ok: true,

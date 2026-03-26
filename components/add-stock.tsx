@@ -146,6 +146,7 @@ export function AddStock() {
       }
 
       if (analysisOk) {
+        router.refresh();
         setTimeout(() => {
           router.push(`/stock/${encodeURIComponent(sym)}`);
         }, 800);
