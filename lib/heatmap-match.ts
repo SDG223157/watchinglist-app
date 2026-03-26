@@ -142,9 +142,17 @@ export function matchStock(
   const industryName = extractIndustryName(stock);
 
   const sector = sectorName ? fuzzyMatch(sectorName, data.sectors) : null;
-  const industry = industryName
+  let industry = industryName
     ? fuzzyMatch(industryName, data.industries)
     : null;
+
+  if (!industry && sectorName) {
+    const sLower = sectorName.toLowerCase();
+    const bestByReturn = data.industries
+      .filter((h) => h.name.toLowerCase().startsWith(sLower))
+      .sort((a, b) => (b.return_12m ?? 0) - (a.return_12m ?? 0));
+    if (bestByReturn.length > 0) industry = bestByReturn[0];
+  }
 
   return { sector, industry, universe };
 }
