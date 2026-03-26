@@ -5,6 +5,7 @@ import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { AnalyzeButton } from "@/components/analyze-button";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
+import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,46 @@ function ScoreBar({ label, value, max, emoji }: { label: string; value: number; 
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
       </div>
       <span className="text-xs font-mono w-10 text-right" style={{ color }}>{value}/{max}</span>
+    </div>
+  );
+}
+
+function TriggerAlerts({ stock }: { stock: import("@/lib/db").WatchlistStock }) {
+  const triggers = detectTriggers(stock);
+  if (triggers.length === 0) return null;
+  const levelColors: Record<string, { bg: string; border: string; dot: string }> = {
+    critical: { bg: "rgba(239,68,68,0.08)", border: "#ef4444", dot: "#ef4444" },
+    warning: { bg: "rgba(245,158,11,0.08)", border: "#f59e0b", dot: "#f59e0b" },
+    info: { bg: "rgba(107,114,128,0.08)", border: "#6b7280", dot: "#6b7280" },
+  };
+  const worst = triggers.some((t) => t.level === "critical")
+    ? "critical"
+    : triggers.some((t) => t.level === "warning")
+      ? "warning"
+      : "info";
+  const c = levelColors[worst];
+  return (
+    <div
+      className="rounded-lg p-4 mb-6"
+      style={{ background: c.bg, border: `1px solid ${c.border}` }}
+    >
+      <div className="text-sm font-semibold mb-2" style={{ color: c.border }}>
+        Re-analysis Recommended
+      </div>
+      <ul className="space-y-1">
+        {triggers.map((t, i) => {
+          const tc = levelColors[t.level];
+          return (
+            <li key={i} className="flex items-start gap-2 text-sm" style={{ color: "var(--foreground)" }}>
+              <span
+                className="inline-block rounded-full mt-1.5 shrink-0"
+                style={{ width: 7, height: 7, backgroundColor: tc.dot }}
+              />
+              {t.reason}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -196,6 +237,9 @@ export default async function StockDetail({
         <Metric label="52W Low" value={stock.low_52w?.toFixed(2)} />
         <Metric label="52W High" value={stock.high_52w?.toFixed(2)} />
       </div>
+
+      {/* Re-analysis Triggers */}
+      <TriggerAlerts stock={stock} />
 
       {/* Composite Score Breakdown */}
       <ScoreBreakdownCard stock={stock} />

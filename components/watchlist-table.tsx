@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { WatchlistStock, HeatmapRow } from "@/lib/db";
 import type { StockHeatmapContext } from "@/lib/heatmap-match";
 import { computeCompositeScore } from "@/lib/composite-score";
+import { detectTriggers, worstLevel } from "@/lib/reanalysis-triggers";
 
 type SortKey =
   | "symbol"
@@ -142,6 +143,32 @@ function MoatBadge({ width }: { width: string | null | undefined }) {
     <span className="text-xs font-medium" style={{ color: cfg.color }}>
       {cfg.icon} {w}
     </span>
+  );
+}
+
+function TriggerDot({ stock }: { stock: WatchlistStock }) {
+  const triggers = detectTriggers(stock);
+  const level = worstLevel(triggers);
+  if (!level) return null;
+  const color =
+    level === "critical"
+      ? "#ef4444"
+      : level === "warning"
+        ? "#f59e0b"
+        : "#6b7280";
+  const title = triggers.map((t) => `[${t.level}] ${t.reason}`).join("\n");
+  return (
+    <span
+      title={title}
+      className="inline-block rounded-full"
+      style={{
+        width: 8,
+        height: 8,
+        minWidth: 8,
+        backgroundColor: color,
+        boxShadow: level === "critical" ? `0 0 6px ${color}` : undefined,
+      }}
+    />
   );
 }
 
@@ -301,13 +328,16 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                 style={{ borderColor: "var(--border)" }}
               >
                 <td className="px-3 py-4">
-                  <Link
-                    href={`/stock/${encodeURIComponent(s.symbol)}`}
-                    className="font-semibold font-mono hover:underline"
-                    style={{ color: "var(--blue)" }}
-                  >
-                    {s.symbol}
-                  </Link>
+                  <div className="flex items-center gap-1.5">
+                    <Link
+                      href={`/stock/${encodeURIComponent(s.symbol)}`}
+                      className="font-semibold font-mono hover:underline"
+                      style={{ color: "var(--blue)" }}
+                    >
+                      {s.symbol}
+                    </Link>
+                    <TriggerDot stock={s} />
+                  </div>
                 </td>
                 <td className="px-3 py-4 max-w-48 truncate" style={{ color: "var(--muted)" }}>
                   {s.name}
