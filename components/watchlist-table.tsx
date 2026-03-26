@@ -219,6 +219,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
+  const [search, setSearch] = useState("");
 
   const signalOrder: Record<string, number> = { Open: 2, Closed: 1 };
 
@@ -228,7 +229,20 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
     return m ? parseInt(m[1], 10) : -1;
   }
 
-  const stocks = [...initial].sort((a, b) => {
+  const filtered = search.trim()
+    ? initial.filter((s) => {
+        const q = search.toLowerCase();
+        return (
+          s.symbol.toLowerCase().includes(q) ||
+          (s.name || "").toLowerCase().includes(q) ||
+          (s.sector || "").toLowerCase().includes(q) ||
+          (s.action || "").toLowerCase().includes(q) ||
+          (s.moat_width || "").toLowerCase().includes(q)
+        );
+      })
+    : initial;
+
+  const stocks = [...filtered].sort((a, b) => {
     if (sortKey === "composite_score") {
       const av = a.composite_score || computeCompositeScore(a).total;
       const bv = b.composite_score || computeCompositeScore(b).total;
@@ -278,6 +292,20 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
 
   return (
     <>
+    <div className="mb-3">
+      <input
+        type="text"
+        placeholder="Search symbol, name, sector, action..."
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+        className="w-full max-w-sm px-3 py-2 text-sm rounded-lg outline-none transition-colors placeholder:opacity-50"
+        style={{
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          color: "var(--text)",
+        }}
+      />
+    </div>
     <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border)" }}>
       <table className="w-full text-[15px]">
         <thead style={{ background: "var(--card)" }}>
@@ -390,7 +418,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
     {/* Pagination */}
     <div className="flex items-center justify-between mt-3 text-xs" style={{ color: "var(--muted)" }}>
       <div className="flex items-center gap-2">
-        <span>{stocks.length} stocks</span>
+        <span>{stocks.length}{search ? ` of ${initial.length}` : ""} stocks</span>
         <span>·</span>
         <select
           value={pageSize}
