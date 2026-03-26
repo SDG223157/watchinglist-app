@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { auth } from "@/auth";
-import { getDb } from "@/lib/db";
+import { getDb, getCachedHeatmap } from "@/lib/db";
+import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/heatmap-match";
+import type { WatchlistStock } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -11,7 +13,39 @@ import { cachedQuote, cachedSummary, cachedHistorical } from "@/lib/yf-cache";
 const MODEL = "openai/gpt-5.4";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-function buildPrompt(quote: Record<string, unknown>, hist: { close: number; date: string }[]): string {
+function fmtReturn(v: number | null): string {
+  if (v == null) return "N/A";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+}
+
+function buildSectorBlock(hm: StockHeatmapContext): string {
+  if (!hm.sector && !hm.industry) return "Sector/Industry data: Not available\n";
+
+  let block = "";
+  if (hm.sector) {
+    block += `Sector: ${hm.sector.name}\n`;
+    block += `  3M Return: ${fmtReturn(hm.sector.return_3m)} | 6M: ${fmtReturn(hm.sector.return_6m)} | 12M: ${fmtReturn(hm.sector.return_12m)}\n`;
+    block += `  Momentum: ${hm.sector.momentum || "N/A"}`;
+    if (hm.sector.shift != null) block += ` (shift: ${hm.sector.shift >= 0 ? "+" : ""}${hm.sector.shift.toFixed(1)}pp)`;
+    block += "\n";
+    if (hm.sector.rank != null) block += `  Sector Rank: #${hm.sector.rank}\n`;
+  }
+  if (hm.industry) {
+    block += `Sub-Industry: ${hm.industry.name}\n`;
+    block += `  3M Return: ${fmtReturn(hm.industry.return_3m)} | 6M: ${fmtReturn(hm.industry.return_6m)} | 12M: ${fmtReturn(hm.industry.return_12m)}\n`;
+    if (hm.industry.momentum) block += `  Momentum: ${hm.industry.momentum}`;
+    if (hm.industry.shift != null) block += ` (shift: ${hm.industry.shift >= 0 ? "+" : ""}${hm.industry.shift.toFixed(1)}pp)`;
+    if (hm.industry.momentum) block += "\n";
+    if (hm.industry.rank != null) block += `  Industry Rank: #${hm.industry.rank}\n`;
+  }
+  return block;
+}
+
+function buildPrompt(
+  quote: Record<string, unknown>,
+  hist: { close: number; date: string }[],
+  hm: StockHeatmapContext
+): string {
   const symbol = quote.symbol;
   const price = quote.regularMarketPrice;
   const pe = quote.trailingPE ?? "N/A";
@@ -33,6 +67,8 @@ function buildPrompt(quote: Record<string, unknown>, hist: { close: number; date
 
   const ath = hist.length > 0 ? Math.max(...hist.map(h => h.close)) : h52;
   const distAth = ath && price ? `${(((Number(price) - Number(ath)) / Number(ath)) * 100).toFixed(1)}%` : "N/A";
+
+  const sectorBlock = buildSectorBlock(hm);
 
   return `You are a senior investment analyst using the Narrative Cycle x Gravity Wall x Extreme Reversal framework.
 
@@ -60,6 +96,17 @@ Debt/Equity: ${de}
 Revenue Growth: ${revGrowth}
 Earnings Growth: ${earnGrowth}
 
+=== SECTOR & INDUSTRY CONTEXT ===
+${sectorBlock}
+Interpretation guide:
+- Strong sector (12M > +15%) + strong industry = tailwind — upgrade position size
+- Weak sector (12M < -5%) + weak industry = headwind — downgrade or require stronger stock-level conviction
+- Strong sector but weak industry = stock is underperforming peers — flag risk
+- Weak sector but strong industry = niche strength — potential alpha
+- Momentum "Accelerating" = sector/industry gaining relative strength
+- Momentum "Decelerating" = sector/industry losing steam, even if absolute returns are positive
+- Sector shift > +3pp = meaningful acceleration; < -3pp = meaningful deceleration
+
 === FRAMEWORK ===
 
 **Market Clock (Phase 1-4):**
@@ -82,13 +129,14 @@ Color each: GREEN (good+stable/accel), YELLOW (mixed), RED (bad+stable/decel)
 **Extreme Scan (score each 1-5, total /20):**
 - Industry bubble, Macro & valuation, Liquidity, Sentiment
 
-**6 Buy Conditions:**
+**7 Buy Conditions:**
 1. >=3 GREEN walls
 2. Market Clock favorable
 3. Corporate Stage 2-5
 4. Geometric Order <= 1
 5. Formula weight >= 2%
 6. TrendWise alignment
+7. Sector/industry tailwind (at least neutral — not both declining)
 
 === OUTPUT ===
 
@@ -97,6 +145,10 @@ Produce a markdown report with these sections:
 ## ${quote.shortName || symbol} (${symbol}) — Analysis Report
 
 **Price / 52W / ATH / Core narrative / Phase / Clock / Corporate Stage / Confidence**
+
+### Sector & Industry Assessment
+Evaluate whether the sector and sub-industry are providing tailwind or headwind.
+Include 3M/6M/12M returns, momentum direction, and rank. State clearly: TAILWIND / NEUTRAL / HEADWIND.
 
 ### Gravity Check (Damodaran's Four Walls)
 | Wall | Status | Evidence |
@@ -109,13 +161,14 @@ Table with GREEN/YELLOW/RED + data
 Table
 
 ### Position Assessment
-6 buy conditions check, recommended action (buy/watch/avoid), position size suggestion
+7 buy conditions check (including sector/industry), recommended action (buy/watch/avoid), position size suggestion.
+If sector/industry is a headwind, explicitly state how it modifies the position size or conviction level.
 
 ### Key Risks
-Top 3 risks
+Top 3 risks (include sector/industry risk if applicable)
 
 ### Investment Thesis
-2-3 paragraph thesis
+2-3 paragraph thesis incorporating sector/industry context
 
 Also output a JSON block at the end (fenced with \`\`\`json) containing:
 {
@@ -130,8 +183,9 @@ Also output a JSON block at the end (fenced with \`\`\`json) containing:
   "yellow_walls": N,
   "red_walls": N,
   "extreme_score": N,
+  "sector_signal": "TAILWIND / NEUTRAL / HEADWIND",
   "action": "buy X% / watch / avoid",
-  "buy_reason": "summary of 6 conditions",
+  "buy_reason": "summary of 7 conditions",
   "notes": "key insight",
   "narrative": "one paragraph current narrative"
 }`;
@@ -158,9 +212,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [quote, summary] = await Promise.all([
+    const [quote, summary, heatmapRows] = await Promise.all([
       cachedQuote(symbol),
       cachedSummary(symbol),
+      getCachedHeatmap(),
     ]);
     if (!quote?.regularMarketPrice) {
       return NextResponse.json({ error: `No data for ${symbol}` }, { status: 404 });
@@ -187,7 +242,17 @@ export async function POST(req: NextRequest) {
       }));
     }
 
-    const prompt = buildPrompt(quote, hist);
+    const lookup = buildHeatmapLookup(heatmapRows);
+    const stubStock = {
+      symbol,
+      sector: quote.sector as string,
+      industry: quote.industry as string,
+      sector_rank: null,
+      industry_rank: null,
+    } as unknown as WatchlistStock;
+    const hm = matchStock(stubStock, lookup);
+
+    const prompt = buildPrompt(quote, hist, hm);
 
     const llmRes = await fetch(OPENROUTER_URL, {
       method: "POST",
