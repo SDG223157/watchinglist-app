@@ -249,7 +249,7 @@ function timeText(created: string): string {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
-const PAGE_SIZES = [10, 20, 50, 100];
+const PAGE_SIZES = [10, 20, 50, 100, 0];
 
 export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("composite_score");
@@ -308,8 +308,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
     return sortAsc ? Number(av) - Number(bv) : Number(bv) - Number(av);
   });
 
-  const totalPages = Math.ceil(stocks.length / pageSize);
-  const paged = stocks.slice(page * pageSize, (page + 1) * pageSize);
+  const effectiveSize = pageSize === 0 ? stocks.length : pageSize;
+  const totalPages = effectiveSize > 0 ? Math.ceil(stocks.length / effectiveSize) : 1;
+  const paged = pageSize === 0 ? stocks : stocks.slice(page * pageSize, (page + 1) * pageSize);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -490,7 +491,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
           style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--text)" }}
         >
           {PAGE_SIZES.map((s) => (
-            <option key={s} value={s}>{s} per page</option>
+            <option key={s} value={s}>{s === 0 ? "All" : `${s} per page`}</option>
           ))}
         </select>
       </div>
