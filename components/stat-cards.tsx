@@ -12,11 +12,17 @@ export function StatCards({ stocks }: Props) {
       : "0";
   const openSignals = stocks.filter((s) => s.trend_signal === "Open").length;
   const strong = stocks.filter((s) => (s.green_walls || 0) >= 3).length;
+  const avgGeo =
+    total > 0
+      ? (stocks.reduce((s, x) => s + (x.geometric_order ?? 0), 0) / total).toFixed(1)
+      : "0";
+
   const cards = [
     { label: "Stocks", value: total, sub: "tracked" },
     { label: "Avg Extreme", value: avgExtreme, sub: "/20" },
     { label: "TrendWise Open", value: openSignals, sub: `of ${total}` },
     { label: "Strong (≥3G)", value: strong, sub: "green walls" },
+    { label: "Avg GEO", value: avgGeo, sub: "order" },
   ];
 
   return (
