@@ -7,6 +7,7 @@ import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { fetchPeerComparison, type PeerMetrics, fetchRevenueSegmentation, type RevenueSegmentation } from "@/lib/fmp";
 import { AnalyzeButton } from "@/components/analyze-button";
 import { RefreshButton } from "@/components/refresh-button";
+import { StockSearch } from "@/components/stock-search";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
 
@@ -385,13 +386,16 @@ export default async function StockDetail({
 
   return (
     <main className="max-w-[1200px] mx-auto px-4 py-8">
-      <Link
-        href="/"
-        className="text-sm hover:underline mb-6 inline-block"
-        style={{ color: "var(--blue)" }}
-      >
-        ← Back to Dashboard
-      </Link>
+      <div className="flex items-center justify-between mb-6">
+        <Link
+          href="/"
+          className="text-sm hover:underline"
+          style={{ color: "var(--blue)" }}
+        >
+          ← Back to Dashboard
+        </Link>
+        <StockSearch />
+      </div>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-8">
