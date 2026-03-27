@@ -296,8 +296,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
       return sortAsc ? av - bv : bv - av;
     }
     if (sortKey === "distance_from_ath") {
-      const av = a.distance_from_ath ? parseFloat(a.distance_from_ath) : -999;
-      const bv = b.distance_from_ath ? parseFloat(b.distance_from_ath) : -999;
+      const pf = (s: string | null | undefined) => { const v = parseFloat(s ?? ""); return isNaN(v) ? -999 : v; };
+      const av = pf(a.distance_from_ath);
+      const bv = pf(b.distance_from_ath);
       return sortAsc ? av - bv : bv - av;
     }
     const av = a[sortKey] ?? 0;
@@ -453,13 +454,16 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                   {s.dividend_yield != null ? `${s.dividend_yield}%` : "—"}
                 </td>
                 <td className="px-3 py-4 text-right font-mono text-sm" style={{
-                  color: s.distance_from_ath
-                    ? parseFloat(s.distance_from_ath) <= -50 ? "var(--red)"
-                    : parseFloat(s.distance_from_ath) <= -20 ? "var(--yellow, #eab308)"
-                    : "var(--green)"
-                    : "var(--muted)",
+                  color: (() => {
+                    const v = parseFloat(s.distance_from_ath ?? "");
+                    if (isNaN(v)) return "var(--muted)";
+                    return v <= -50 ? "var(--red)" : v <= -20 ? "var(--yellow, #eab308)" : "var(--green)";
+                  })(),
                 }}>
-                  {s.distance_from_ath || "—"}
+                  {(() => {
+                    const v = parseFloat(s.distance_from_ath ?? "");
+                    return isNaN(v) ? "—" : `${v.toFixed(1)}%`;
+                  })()}
                 </td>
                 <td className="px-3 py-4 text-right text-sm" style={{ color: "var(--muted)" }}>
                   <div className="flex items-center justify-end gap-1.5">
