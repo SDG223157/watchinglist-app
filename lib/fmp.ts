@@ -282,12 +282,18 @@ export async function fetchPeerComparison(symbol: string, limit = 10): Promise<P
 
   const results = await Promise.all(
     entries.map(async (peer): Promise<PeerMetrics | null> => {
-      const ratios = await fmpGet<FmpRatiosTTM[]>("ratios-ttm", { symbol: peer.symbol });
+      const [ratios, keyMetrics] = await Promise.all([
+        fmpGet<FmpRatiosTTM[]>("ratios-ttm", { symbol: peer.symbol }),
+        fmpGet<FmpKeyMetricsTTM[]>("key-metrics-ttm", { symbol: peer.symbol }),
+      ]);
       const r = ratios?.[0];
+      const km = keyMetrics?.[0];
       const num = (v: unknown, mult = 1, dp = 1): number | null => {
         if (v == null || typeof v !== "number" || isNaN(v)) return null;
         return +(v * mult).toFixed(dp);
       };
+      const rAny = r as Record<string, unknown> | undefined;
+      const kmAny = km as Record<string, unknown> | undefined;
       return {
         symbol: peer.symbol,
         name: peer.companyName ?? peer.symbol,
@@ -295,9 +301,9 @@ export async function fetchPeerComparison(symbol: string, limit = 10): Promise<P
         change: 0,
         marketCap: peer.mktCap ?? 0,
         pe: num(r?.priceToEarningsRatioTTM),
-        roe: num(r?.returnOnEquityTTM, 100),
-        operatingMargin: num((r as Record<string, unknown> | undefined)?.operatingProfitMarginTTM as number, 100),
-        fcfYield: num(r?.freeCashFlowYieldTTM, 100, 2),
+        roe: num((rAny?.returnOnEquityTTM ?? kmAny?.returnOnEquityTTM) as number, 100),
+        operatingMargin: num(rAny?.operatingProfitMarginTTM as number, 100),
+        fcfYield: num((r?.freeCashFlowYieldTTM ?? km?.freeCashFlowYieldTTM) as number, 100, 2),
         debtToEquity: num(r?.debtToEquityRatioTTM, 1, 2),
       };
     })
