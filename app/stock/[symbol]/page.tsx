@@ -47,17 +47,25 @@ function WallCard({
   );
 }
 
+function currencySymbol(symbol: string): string {
+  if (symbol.endsWith(".HK")) return "HK$";
+  if (symbol.endsWith(".SS") || symbol.endsWith(".SZ")) return "¥";
+  if (symbol.endsWith(".T") || symbol.endsWith(".TYO")) return "¥";
+  if (symbol.endsWith(".L") || symbol.endsWith(".LON")) return "£";
+  if (symbol.endsWith(".DE") || symbol.endsWith(".PA") || symbol.endsWith(".MI")) return "€";
+  return "$";
+}
+
 function fmtPct(v: number | null | undefined): string {
   if (v == null) return "—";
-  // Old data stored as decimal (0.0841 = 8.41%), new data as percentage (8.41)
   const val = Math.abs(v) < 1 ? v * 100 : v;
   return val.toFixed(2);
 }
 
-function fmtB(v: number | null | undefined): string {
+function fmtB(v: number | null | undefined, cs = "$"): string {
   if (v == null) return "—";
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}T`;
-  return `$${v.toFixed(1)}B`;
+  if (Math.abs(v) >= 1000) return `${cs}${(v / 1000).toFixed(1)}T`;
+  return `${cs}${v.toFixed(1)}B`;
 }
 
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -191,14 +199,14 @@ function ScoreBreakdownCard({ stock }: { stock: import("@/lib/db").WatchlistStoc
   );
 }
 
-function fmtSegVal(v: number): string {
-  if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-  return `$${v.toLocaleString()}`;
+function fmtSegVal(v: number, cs = "$"): string {
+  if (v >= 1e12) return `${cs}${(v / 1e12).toFixed(1)}T`;
+  if (v >= 1e9) return `${cs}${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${cs}${(v / 1e6).toFixed(0)}M`;
+  return `${cs}${v.toLocaleString()}`;
 }
 
-function SegmentBars({ title, entries }: { title: string; entries: import("@/lib/fmp").SegmentEntry[] }) {
+function SegmentBars({ title, entries, cs }: { title: string; entries: import("@/lib/fmp").SegmentEntry[]; cs: string }) {
   if (entries.length === 0) return null;
 
   const latest = entries[0];
@@ -246,7 +254,7 @@ function SegmentBars({ title, entries }: { title: string; entries: import("@/lib
                     </span>
                   )}
                   <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>
-                    {fmtSegVal(value)} ({pct.toFixed(1)}%)
+                    {fmtSegVal(value, cs)} ({pct.toFixed(1)}%)
                   </span>
                 </div>
               </div>
@@ -267,7 +275,7 @@ function SegmentBars({ title, entries }: { title: string; entries: import("@/lib
   );
 }
 
-function RevenueSegmentationSection({ segments }: { segments: RevenueSegmentation }) {
+function RevenueSegmentationSection({ segments, cs }: { segments: RevenueSegmentation; cs: string }) {
   if (segments.product.length === 0 && segments.geographic.length === 0) return null;
   return (
     <>
@@ -276,8 +284,8 @@ function RevenueSegmentationSection({ segments }: { segments: RevenueSegmentatio
         className="rounded-lg p-5 mb-8 grid grid-cols-1 lg:grid-cols-2 gap-8"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
       >
-        <SegmentBars title="By Product" entries={segments.product} />
-        <SegmentBars title="By Geography" entries={segments.geographic} />
+        <SegmentBars title="By Product" entries={segments.product} cs={cs} />
+        <SegmentBars title="By Geography" entries={segments.geographic} cs={cs} />
       </div>
     </>
   );
@@ -325,11 +333,11 @@ function PeersSection({ peers, currentSymbol }: { peers: PeerMetrics[]; currentS
                     </Link>
                   </td>
                   <td className="px-3 py-2 text-xs truncate max-w-[180px]">{p.name}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs">${p.price.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{currencySymbol(p.symbol)}{p.price.toFixed(2)}</td>
                   <td className="px-3 py-2 text-right font-mono text-xs">
                     {p.marketCap >= 1e12
-                      ? `$${(p.marketCap / 1e12).toFixed(1)}T`
-                      : `$${(p.marketCap / 1e9).toFixed(1)}B`}
+                      ? `${currencySymbol(p.symbol)}${(p.marketCap / 1e12).toFixed(1)}T`
+                      : `${currencySymbol(p.symbol)}${(p.marketCap / 1e9).toFixed(1)}B`}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-xs">{p.pe?.toFixed(1) ?? "—"}</td>
                   <td className="px-3 py-2 text-right font-mono text-xs">{p.roe != null ? `${p.roe}%` : "—"}</td>
@@ -377,6 +385,8 @@ export default async function StockDetail({
   const lookup = buildHeatmapLookup(heatmapRows);
   const hm = matchStock(stock, lookup);
 
+  const cs = currencySymbol(stock.symbol);
+
   const geoLabels: Record<number, string> = {
     0: "Anchor",
     1: "Velocity",
@@ -414,7 +424,7 @@ export default async function StockDetail({
           <RefreshButton symbol={stock.symbol} />
           <div className="text-right">
             <div className="text-3xl font-mono font-bold">
-              {stock.price ? stock.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}
+              {stock.price ? `${cs}${stock.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"}
             </div>
             <div className="text-xs" style={{ color: "var(--muted)" }}>
               {stock.distance_from_ath && stock.distance_from_ath !== "?" ? stock.distance_from_ath : ""}
@@ -425,7 +435,7 @@ export default async function StockDetail({
 
       {/* Valuation */}
       <MetricSection title="Valuation">
-        <Metric label="Market Cap" value={stock.market_cap ? fmtB(stock.market_cap) : null} />
+        <Metric label="Market Cap" value={stock.market_cap ? fmtB(stock.market_cap, cs) : null} />
         <Metric label="PE (TTM)" value={stock.pe_ttm?.toFixed(1) ?? stock.pe_ratio?.toFixed(1)} />
         <Metric label="Forward PE" value={stock.forward_pe?.toFixed(1)} />
         <Metric label="PEG" value={stock.peg_ratio?.toFixed(2)} />
@@ -435,7 +445,7 @@ export default async function StockDetail({
         <Metric label="EV/EBITDA" value={stock.ev_ebitda?.toFixed(1)} />
         <Metric label="EV/Sales" value={stock.ev_sales?.toFixed(2)} />
         <Metric label="Earnings Yield" value={stock.earnings_yield ? `${stock.earnings_yield}%` : null} />
-        <Metric label="DCF Fair Value" value={stock.dcf_fair_value?.toFixed(2)} />
+        <Metric label="DCF Fair Value" value={stock.dcf_fair_value ? `${cs}${stock.dcf_fair_value.toFixed(2)}` : null} />
         <Metric
           label="DCF Upside"
           value={
@@ -472,34 +482,34 @@ export default async function StockDetail({
 
       {/* Fundamentals & Cash Flow */}
       <MetricSection title="Fundamentals & Cash Flow">
-        <Metric label="Revenue" value={stock.revenue ? fmtB(stock.revenue) : null} />
-        <Metric label="Revenue TTM" value={stock.revenue_ttm ? fmtB(stock.revenue_ttm) : null} />
-        <Metric label="Net Income TTM" value={stock.net_income_ttm ? fmtB(stock.net_income_ttm) : null} />
-        <Metric label="EBITDA TTM" value={stock.ebitda_ttm ? fmtB(stock.ebitda_ttm) : null} />
-        <Metric label="FCF" value={stock.fcf ? fmtB(stock.fcf) : null} />
-        <Metric label="FCF TTM" value={stock.fcf_ttm ? fmtB(stock.fcf_ttm) : null} />
+        <Metric label="Revenue" value={stock.revenue ? fmtB(stock.revenue, cs) : null} />
+        <Metric label="Revenue TTM" value={stock.revenue_ttm ? fmtB(stock.revenue_ttm, cs) : null} />
+        <Metric label="Net Income TTM" value={stock.net_income_ttm ? fmtB(stock.net_income_ttm, cs) : null} />
+        <Metric label="EBITDA TTM" value={stock.ebitda_ttm ? fmtB(stock.ebitda_ttm, cs) : null} />
+        <Metric label="FCF" value={stock.fcf ? fmtB(stock.fcf, cs) : null} />
+        <Metric label="FCF TTM" value={stock.fcf_ttm ? fmtB(stock.fcf_ttm, cs) : null} />
         <Metric label="FCF Yield" value={stock.fcf_yield ? `${stock.fcf_yield}%` : null} />
-        <Metric label="Owner Earnings" value={stock.owner_earnings ? fmtB(stock.owner_earnings) : null} />
-        <Metric label="EPS" value={stock.eps?.toFixed(2)} />
-        <Metric label="Forward EPS" value={stock.forward_eps?.toFixed(2)} />
+        <Metric label="Owner Earnings" value={stock.owner_earnings ? fmtB(stock.owner_earnings, cs) : null} />
+        <Metric label="EPS" value={stock.eps ? `${cs}${stock.eps.toFixed(2)}` : null} />
+        <Metric label="Forward EPS" value={stock.forward_eps ? `${cs}${stock.forward_eps.toFixed(2)}` : null} />
         <Metric label="Div Yield" value={stock.dividend_yield ? `${stock.dividend_yield}%` : null} />
         <Metric label="Shareholder Yield" value={stock.shareholder_yield ? `${stock.shareholder_yield}%` : null} />
       </MetricSection>
 
       {/* Balance Sheet & Risk */}
       <MetricSection title="Balance Sheet & Risk">
-        <Metric label="Total Assets" value={stock.total_assets ? fmtB(stock.total_assets) : null} />
-        <Metric label="Total Debt" value={stock.total_debt ? fmtB(stock.total_debt) : null} />
-        <Metric label="Net Debt" value={stock.net_debt ? fmtB(stock.net_debt) : null} />
-        <Metric label="Cash" value={stock.cash_and_equivalents ? fmtB(stock.cash_and_equivalents) : null} />
+        <Metric label="Total Assets" value={stock.total_assets ? fmtB(stock.total_assets, cs) : null} />
+        <Metric label="Total Debt" value={stock.total_debt ? fmtB(stock.total_debt, cs) : null} />
+        <Metric label="Net Debt" value={stock.net_debt ? fmtB(stock.net_debt, cs) : null} />
+        <Metric label="Cash" value={stock.cash_and_equivalents ? fmtB(stock.cash_and_equivalents, cs) : null} />
         <Metric label="D/E" value={stock.debt_to_equity?.toFixed(2)} />
         <Metric label="Debt/EBITDA" value={stock.debt_to_ebitda?.toFixed(2)} />
         <Metric label="Current Ratio" value={stock.current_ratio?.toFixed(2)} />
         <Metric label="Interest Coverage" value={stock.interest_coverage?.toFixed(1)} />
         <Metric label="Beta" value={stock.beta?.toFixed(2)} />
-        <Metric label="52W Low" value={stock.low_52w?.toFixed(2)} />
-        <Metric label="52W High" value={stock.high_52w?.toFixed(2)} />
-        <Metric label="DCF Levered" value={stock.dcf_levered?.toFixed(2)} />
+        <Metric label="52W Low" value={stock.low_52w ? `${cs}${stock.low_52w.toFixed(2)}` : null} />
+        <Metric label="52W High" value={stock.high_52w ? `${cs}${stock.high_52w.toFixed(2)}` : null} />
+        <Metric label="DCF Levered" value={stock.dcf_levered ? `${cs}${stock.dcf_levered.toFixed(2)}` : null} />
       </MetricSection>
 
       {/* Scores & Ratings */}
@@ -511,7 +521,7 @@ export default async function StockDetail({
       </MetricSection>
 
       {/* Revenue Segmentation */}
-      <RevenueSegmentationSection segments={segments} />
+      <RevenueSegmentationSection segments={segments} cs={cs} />
 
       {/* Re-analysis Triggers */}
       <TriggerAlerts stock={stock} />
@@ -559,7 +569,7 @@ export default async function StockDetail({
           </div>
           {stock.trend_entry_date && (
             <div className="text-xs mt-0.5 font-mono" style={{ color: "var(--muted)" }}>
-              Entry: {stock.trend_entry_date} @ {stock.trend_entry_price}
+              Entry: {stock.trend_entry_date} @ {cs}{stock.trend_entry_price}
             </div>
           )}
         </div>
@@ -874,7 +884,7 @@ export default async function StockDetail({
                         year: "numeric",
                       })}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{h.price?.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{h.price ? `${cs}${h.price.toFixed(2)}` : "—"}</td>
                     <td className="px-3 py-2 text-xs">
                       {h.green_walls || 0}G/{h.yellow_walls || 0}Y/{h.red_walls || 0}R
                     </td>

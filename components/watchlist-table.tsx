@@ -216,16 +216,27 @@ function ScoreBadge({ stock }: { stock: WatchlistStock }) {
   );
 }
 
-function formatPrice(p: number | null | undefined): string {
-  if (!p) return "—";
-  return p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 0 })
-    : p.toFixed(2);
+function ccy(symbol: string): string {
+  if (symbol.endsWith(".HK")) return "HK$";
+  if (symbol.endsWith(".SS") || symbol.endsWith(".SZ")) return "¥";
+  if (symbol.endsWith(".T") || symbol.endsWith(".TYO")) return "¥";
+  if (symbol.endsWith(".L") || symbol.endsWith(".LON")) return "£";
+  if (symbol.endsWith(".DE") || symbol.endsWith(".PA") || symbol.endsWith(".MI")) return "€";
+  return "$";
 }
 
-function formatMcap(m: number | null | undefined): string {
+function formatPrice(p: number | null | undefined, symbol = ""): string {
+  if (!p) return "—";
+  const c = ccy(symbol);
+  return p >= 1000 ? `${c}${p.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+    : `${c}${p.toFixed(2)}`;
+}
+
+function formatMcap(m: number | null | undefined, symbol = ""): string {
   if (!m) return "—";
-  if (m >= 1000) return `${(m / 1000).toFixed(1)}T`;
-  return `${m.toFixed(0)}B`;
+  const c = ccy(symbol);
+  if (m >= 1000) return `${c}${(m / 1000).toFixed(1)}T`;
+  return `${c}${m.toFixed(0)}B`;
 }
 
 function timeText(created: string): string {
@@ -397,8 +408,8 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                 <td className="px-3 py-4">
                   <ScoreBadge stock={s} />
                 </td>
-                <td className="px-3 py-4 text-right font-mono">{formatPrice(s.price)}</td>
-                <td className="px-3 py-4 text-right font-mono">{formatMcap(s.market_cap)}</td>
+                <td className="px-3 py-4 text-right font-mono">{formatPrice(s.price, s.symbol)}</td>
+                <td className="px-3 py-4 text-right font-mono">{formatMcap(s.market_cap, s.symbol)}</td>
                 <td className="px-3 py-4">
                   <WallPills g={s.green_walls || 0} y={s.yellow_walls || 0} r={s.red_walls || 0} />
                 </td>
