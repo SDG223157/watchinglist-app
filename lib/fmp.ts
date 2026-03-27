@@ -164,6 +164,11 @@ export async function fetchFmpDcf(symbol: string): Promise<FmpDcf | null> {
   return data?.[0] ?? null;
 }
 
+export async function fetchFmpDcfLevered(symbol: string): Promise<FmpDcf | null> {
+  const data = await fmpGet<FmpDcf[]>("levered-discounted-cash-flow", { symbol });
+  return data?.[0] ?? null;
+}
+
 export async function fetchFmpProfile(symbol: string): Promise<FmpProfile | null> {
   const data = await fmpGet<FmpProfile[]>("profile", { symbol });
   return data?.[0] ?? null;
@@ -225,6 +230,7 @@ export interface FmpData {
   ratios: FmpRatiosTTM | null;
   rating: FmpRating | null;
   dcf: FmpDcf | null;
+  dcfLevered: FmpDcf | null;
   profile: FmpProfile | null;
   balanceSheet: FmpBalanceSheet | null;
   incomeQ: FmpIncomeQ[];
@@ -235,11 +241,12 @@ export interface FmpData {
 }
 
 export async function fetchAllFmpData(symbol: string): Promise<FmpData> {
-  const [ratios, rating, dcf, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics] =
+  const [ratios, rating, dcf, dcfLevered, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics] =
     await Promise.all([
       fetchFmpRatiosTTM(symbol),
       fetchFmpRating(symbol),
       fetchFmpDcf(symbol),
+      fetchFmpDcfLevered(symbol),
       fetchFmpProfile(symbol),
       fetchFmpBalanceSheet(symbol),
       fetchFmpIncomeQuarterly(symbol),
@@ -249,7 +256,7 @@ export async function fetchAllFmpData(symbol: string): Promise<FmpData> {
       fetchFmpKeyMetricsTTM(symbol),
     ]);
 
-  return { ratios, rating, dcf, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics };
+  return { ratios, rating, dcf, dcfLevered, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics };
 }
 
 // ─── Peer comparison ───
@@ -341,6 +348,7 @@ export async function fetchRevenueSegmentation(symbol: string): Promise<RevenueS
 export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
   const r = fmp.ratios;
   const bs = fmp.balanceSheet;
+  const bsValid = bs != null && bs.totalAssets > 0;
   const incQ = fmp.incomeQ;
   const incA = fmp.incomeAnnual; // sorted newest-first from FMP
   const cfQ = fmp.cashFlowQ;
@@ -530,7 +538,7 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     price_to_fcf: num(r?.priceToFreeCashFlowRatioTTM),
     earnings_yield: num(earningsYieldTTM, 100, 2),
     dcf_fair_value: fmp.dcf?.dcf ? +fmp.dcf.dcf.toFixed(2) : null,
-    dcf_levered: null as number | null,
+    dcf_levered: fmp.dcfLevered?.dcf ? +fmp.dcfLevered.dcf.toFixed(2) : null,
 
     // Profitability — use numNZ because FMP returns 0 for missing data
     roa: numNZ(roaTTM, 100),
@@ -543,11 +551,13 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     fcf_ttm: fcfTtm ? +(fcfTtm / 1e9).toFixed(2) : null,
     owner_earnings: ownerEarnings ? +(ownerEarnings / 1e9).toFixed(2) : null,
 
-    // Balance sheet (in billions) — use truthiness check to skip FMP's bogus 0s
-    total_assets: bs && bs.totalAssets > 0 ? +(bs.totalAssets / 1e9).toFixed(1) : null,
-    total_debt: bs && bs.totalDebt > 0 ? +(bs.totalDebt / 1e9).toFixed(1) : null,
-    net_debt: bs?.netDebt != null && bs.netDebt !== 0 ? +(bs.netDebt / 1e9).toFixed(1) : null,
-    cash_and_equivalents: bs && bs.cashAndCashEquivalents > 0 ? +(bs.cashAndCashEquivalents / 1e9).toFixed(1) : null,
+    // Balance sheet (in billions). If FMP's totalAssets is 0 the entire balance
+    // sheet is unreliable (common for Chinese A-shares) — null everything out
+    // so Yahoo fallbacks can kick in via COALESCE.
+    total_assets: bsValid ? +(bs!.totalAssets / 1e9).toFixed(1) : null,
+    total_debt: bsValid && bs!.totalDebt > 0 ? +(bs!.totalDebt / 1e9).toFixed(1) : null,
+    net_debt: bsValid && bs!.netDebt != null && bs!.netDebt !== 0 ? +(bs!.netDebt / 1e9).toFixed(1) : null,
+    cash_and_equivalents: bsValid && bs!.cashAndCashEquivalents > 0 ? +(bs!.cashAndCashEquivalents / 1e9).toFixed(1) : null,
 
     // Scores & ratings
     fmp_rating: fmp.rating?.rating ?? null,
