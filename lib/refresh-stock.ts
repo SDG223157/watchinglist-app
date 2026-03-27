@@ -167,8 +167,16 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
   const { order: geoOrder, details: geoDetails } = computeGeometricOrder(closes);
   const tw = computeTrendWise(closes, closeDates);
 
-  const allTimeHigh =
-    closes.length > 0 ? Math.max(...closes) : (quote as Record<string, unknown>).fiftyTwoWeekHigh ?? 0;
+  // True ATH: fetch full history (weekly to keep payload small)
+  const athHist = await cachedHistorical(symbol, "1970-01-01", "1wk");
+  const athCloses = athHist
+    .map((q: { close?: number | null }) => q.close)
+    .filter((c: number | null | undefined): c is number => c != null);
+  const allTimeHigh = athCloses.length > 0
+    ? Math.max(...athCloses)
+    : closes.length > 0
+      ? Math.max(...closes)
+      : (quote as Record<string, unknown>).fiftyTwoWeekHigh ?? 0;
   const distFromAth =
     Number(allTimeHigh) > 0
       ? `${(((price - Number(allTimeHigh)) / Number(allTimeHigh)) * 100).toFixed(1)}%`
