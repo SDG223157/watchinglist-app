@@ -382,21 +382,34 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     }
   }
 
+  // Helper: safely convert a possibly-missing numeric field to a fixed value
+  const num = (v: unknown, mult = 1, dp = 1): number | null => {
+    if (v == null || typeof v !== "number" || isNaN(v)) return null;
+    return +(v * mult).toFixed(dp);
+  };
+
+  // Merge ratios-ttm and key-metrics-ttm: some stocks (e.g. XOM) have
+  // ROA/ROCE/earningsYield only in key-metrics-ttm, not ratios-ttm
+  const km = fmp.keyMetrics;
+  const roaTTM = r?.returnOnAssetsTTM ?? km?.returnOnAssetsTTM;
+  const roceTTM = r?.returnOnCapitalEmployedTTM ?? km?.returnOnCapitalEmployedTTM;
+  const earningsYieldTTM = r?.earningsYieldTTM ?? km?.earningsYieldTTM;
+
   return {
     // Valuation
-    pe_ttm: r ? +r.priceToEarningsRatioTTM.toFixed(1) : null,
+    pe_ttm: num(r?.priceToEarningsRatioTTM),
     forward_pe: forwardPe,
     forward_eps: forwardEps ? +forwardEps.toFixed(2) : null,
     peg_ratio: pegRatio,
-    price_to_sales: r ? +r.priceToSalesRatioTTM.toFixed(2) : null,
-    price_to_fcf: r ? +r.priceToFreeCashFlowRatioTTM.toFixed(1) : null,
-    earnings_yield: r ? +(r.earningsYieldTTM * 100).toFixed(2) : null,
+    price_to_sales: num(r?.priceToSalesRatioTTM, 1, 2),
+    price_to_fcf: num(r?.priceToFreeCashFlowRatioTTM),
+    earnings_yield: num(earningsYieldTTM, 100, 2),
     dcf_fair_value: fmp.dcf?.dcf ? +fmp.dcf.dcf.toFixed(2) : null,
     dcf_levered: null as number | null,
 
     // Profitability (extras beyond Yahoo)
-    roa: r ? +(r.returnOnAssetsTTM * 100).toFixed(1) : null,
-    roce: r ? +(r.returnOnCapitalEmployedTTM * 100).toFixed(1) : null,
+    roa: num(roaTTM, 100),
+    roce: num(roceTTM, 100),
 
     // TTM financials (in billions)
     revenue_ttm: revenueTtm ? +(revenueTtm / 1e9).toFixed(2) : null,
