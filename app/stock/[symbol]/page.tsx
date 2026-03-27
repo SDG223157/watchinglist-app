@@ -68,6 +68,25 @@ function Metric({ label, value }: { label: string; value: string | number | null
   );
 }
 
+function MetricSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-6">
+      <h3
+        className="text-xs font-semibold uppercase tracking-widest mb-3 px-1"
+        style={{ color: "var(--blue)" }}
+      >
+        {title}
+      </h3>
+      <div
+        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-4 p-5 rounded-lg"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ScoreBar({ label, value, max, emoji }: { label: string; value: number; max: number; emoji: string }) {
   const pct = Math.min((value / max) * 100, 100);
   const color = pct >= 80 ? "var(--green)" : pct >= 50 ? "var(--yellow)" : "var(--red)";
@@ -236,49 +255,19 @@ export default async function StockDetail({
         </div>
       </div>
 
-      {/* Key Metrics Grid */}
-      <div
-        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-4 p-5 rounded-lg mb-4"
-        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-      >
+      {/* Valuation */}
+      <MetricSection title="Valuation">
         <Metric label="Market Cap" value={stock.market_cap ? fmtB(stock.market_cap) : null} />
         <Metric label="PE (TTM)" value={stock.pe_ttm?.toFixed(1) ?? stock.pe_ratio?.toFixed(1)} />
         <Metric label="Forward PE" value={stock.forward_pe?.toFixed(1)} />
-        <Metric label="P/B" value={stock.price_to_book?.toFixed(2)} />
-        <Metric label="EV/EBITDA" value={stock.ev_ebitda?.toFixed(1)} />
         <Metric label="PEG" value={stock.peg_ratio?.toFixed(2)} />
-        <Metric label="ROIC" value={stock.roic ? `${stock.roic}%` : null} />
-        <Metric label="ROE" value={stock.roe ? `${stock.roe}%` : null} />
-        <Metric label="ROA" value={stock.roa ? `${stock.roa}%` : null} />
-        <Metric label="ROCE" value={stock.roce ? `${stock.roce}%` : null} />
-        <Metric label="Gross Margin" value={stock.gross_margin ? `${stock.gross_margin}%` : null} />
-        <Metric label="Op. Margin" value={stock.operating_margin ? `${stock.operating_margin}%` : null} />
-        <Metric label="Net Margin" value={stock.net_margin ? `${stock.net_margin}%` : null} />
-        <Metric label="EBITDA Margin" value={stock.ebitda_margin ? `${stock.ebitda_margin}%` : null} />
-        <Metric label="FCF" value={stock.fcf ? fmtB(stock.fcf) : null} />
-        <Metric label="FCF Yield" value={stock.fcf_yield ? `${stock.fcf_yield}%` : null} />
-        <Metric label="Revenue" value={stock.revenue ? fmtB(stock.revenue) : null} />
-        <Metric label="Rev Growth YoY" value={stock.revenue_growth_annual ? `${fmtPct(stock.revenue_growth_annual)}%` : null} />
-        <Metric label="Rev CAGR 3Y" value={stock.revenue_cagr_3y ? `${fmtPct(stock.revenue_cagr_3y)}%` : null} />
-        <Metric label="Rev CAGR 5Y" value={stock.revenue_cagr_5y ? `${fmtPct(stock.revenue_cagr_5y)}%` : null} />
-        <Metric label="D/E" value={stock.debt_to_equity?.toFixed(2)} />
-        <Metric label="Current Ratio" value={stock.current_ratio?.toFixed(2)} />
-        <Metric label="Beta" value={stock.beta?.toFixed(2)} />
-        <Metric label="Div Yield" value={stock.dividend_yield ? `${stock.dividend_yield}%` : null} />
-        <Metric label="52W Low" value={stock.low_52w?.toFixed(2)} />
-        <Metric label="52W High" value={stock.high_52w?.toFixed(2)} />
-      </div>
-
-      {/* Scores & Valuation Row */}
-      <div
-        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-4 p-5 rounded-lg mb-8"
-        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-      >
-        <Metric label="FMP Rating" value={stock.fmp_rating} />
-        <Metric label="Piotroski F" value={stock.piotroski_score != null ? `${stock.piotroski_score}/9` : null} />
-        <Metric label="Altman Z" value={stock.altman_z_score?.toFixed(2)} />
+        <Metric label="P/B" value={stock.price_to_book?.toFixed(2)} />
+        <Metric label="P/Sales" value={stock.price_to_sales?.toFixed(2)} />
+        <Metric label="P/FCF" value={stock.price_to_fcf?.toFixed(1)} />
+        <Metric label="EV/EBITDA" value={stock.ev_ebitda?.toFixed(1)} />
+        <Metric label="EV/Sales" value={stock.ev_sales?.toFixed(2)} />
+        <Metric label="Earnings Yield" value={stock.earnings_yield ? `${stock.earnings_yield}%` : null} />
         <Metric label="DCF Fair Value" value={stock.dcf_fair_value?.toFixed(2)} />
-        <Metric label="DCF Levered" value={stock.dcf_levered?.toFixed(2)} />
         <Metric
           label="DCF Upside"
           value={
@@ -287,40 +276,77 @@ export default async function StockDetail({
               : null
           }
         />
-        <Metric label="P/Sales" value={stock.price_to_sales?.toFixed(2)} />
-        <Metric label="P/FCF" value={stock.price_to_fcf?.toFixed(1)} />
-        <Metric label="Earnings Yield" value={stock.earnings_yield ? `${stock.earnings_yield}%` : null} />
-        <Metric label="EV/Sales" value={stock.ev_sales?.toFixed(2)} />
+      </MetricSection>
+
+      {/* Profitability */}
+      <MetricSection title="Profitability">
+        <Metric label="ROIC" value={stock.roic ? `${stock.roic}%` : null} />
+        <Metric label="ROE" value={stock.roe ? `${stock.roe}%` : null} />
+        <Metric label="ROA" value={stock.roa ? `${stock.roa}%` : null} />
+        <Metric label="ROCE" value={stock.roce ? `${stock.roce}%` : null} />
+        <Metric label="Gross Margin" value={stock.gross_margin ? `${stock.gross_margin}%` : null} />
+        <Metric label="Op. Margin" value={stock.operating_margin ? `${stock.operating_margin}%` : null} />
+        <Metric label="Net Margin" value={stock.net_margin ? `${stock.net_margin}%` : null} />
+        <Metric label="EBITDA Margin" value={stock.ebitda_margin ? `${stock.ebitda_margin}%` : null} />
+      </MetricSection>
+
+      {/* Growth */}
+      <MetricSection title="Growth">
+        <Metric label="Rev Growth YoY" value={stock.revenue_growth_annual ? `${fmtPct(stock.revenue_growth_annual)}%` : null} />
+        <Metric label="Rev Growth TTM" value={stock.revenue_growth_ttm ? `${fmtPct(stock.revenue_growth_ttm)}%` : null} />
+        <Metric label="Rev Recent Q" value={stock.revenue_growth_recent_q ? `${fmtPct(stock.revenue_growth_recent_q)}%` : null} />
+        <Metric label="Rev CAGR 3Y" value={stock.revenue_cagr_3y ? `${fmtPct(stock.revenue_cagr_3y)}%` : null} />
+        <Metric label="Rev CAGR 5Y" value={stock.revenue_cagr_5y ? `${fmtPct(stock.revenue_cagr_5y)}%` : null} />
+        <Metric label="Earn Growth YoY" value={stock.earnings_growth_annual ? `${fmtPct(stock.earnings_growth_annual)}%` : null} />
+        <Metric label="Earn Growth TTM" value={stock.earnings_growth_ttm ? `${fmtPct(stock.earnings_growth_ttm)}%` : null} />
+        <Metric label="Earn Recent Q" value={stock.earnings_growth_recent_q ? `${fmtPct(stock.earnings_growth_recent_q)}%` : null} />
+      </MetricSection>
+
+      {/* Fundamentals & Cash Flow */}
+      <MetricSection title="Fundamentals & Cash Flow">
+        <Metric label="Revenue" value={stock.revenue ? fmtB(stock.revenue) : null} />
+        <Metric label="Revenue TTM" value={stock.revenue_ttm ? fmtB(stock.revenue_ttm) : null} />
+        <Metric label="Net Income TTM" value={stock.net_income_ttm ? fmtB(stock.net_income_ttm) : null} />
+        <Metric label="EBITDA TTM" value={stock.ebitda_ttm ? fmtB(stock.ebitda_ttm) : null} />
+        <Metric label="FCF" value={stock.fcf ? fmtB(stock.fcf) : null} />
+        <Metric label="FCF TTM" value={stock.fcf_ttm ? fmtB(stock.fcf_ttm) : null} />
+        <Metric label="FCF Yield" value={stock.fcf_yield ? `${stock.fcf_yield}%` : null} />
+        <Metric label="Owner Earnings" value={stock.owner_earnings ? fmtB(stock.owner_earnings) : null} />
         <Metric label="EPS" value={stock.eps?.toFixed(2)} />
+        <Metric label="Forward EPS" value={stock.forward_eps?.toFixed(2)} />
+        <Metric label="Div Yield" value={stock.dividend_yield ? `${stock.dividend_yield}%` : null} />
         <Metric label="Shareholder Yield" value={stock.shareholder_yield ? `${stock.shareholder_yield}%` : null} />
-      </div>
+      </MetricSection>
+
+      {/* Balance Sheet & Risk */}
+      <MetricSection title="Balance Sheet & Risk">
+        <Metric label="Total Assets" value={stock.total_assets ? fmtB(stock.total_assets) : null} />
+        <Metric label="Total Debt" value={stock.total_debt ? fmtB(stock.total_debt) : null} />
+        <Metric label="Net Debt" value={stock.net_debt ? fmtB(stock.net_debt) : null} />
+        <Metric label="Cash" value={stock.cash_and_equivalents ? fmtB(stock.cash_and_equivalents) : null} />
+        <Metric label="D/E" value={stock.debt_to_equity?.toFixed(2)} />
+        <Metric label="Debt/EBITDA" value={stock.debt_to_ebitda?.toFixed(2)} />
+        <Metric label="Current Ratio" value={stock.current_ratio?.toFixed(2)} />
+        <Metric label="Interest Coverage" value={stock.interest_coverage?.toFixed(1)} />
+        <Metric label="Beta" value={stock.beta?.toFixed(2)} />
+        <Metric label="52W Low" value={stock.low_52w?.toFixed(2)} />
+        <Metric label="52W High" value={stock.high_52w?.toFixed(2)} />
+        <Metric label="DCF Levered" value={stock.dcf_levered?.toFixed(2)} />
+      </MetricSection>
+
+      {/* Scores & Ratings */}
+      <MetricSection title="Scores & Ratings">
+        <Metric label="FMP Rating" value={stock.fmp_rating} />
+        <Metric label="FMP Score" value={stock.fmp_rating_score != null ? `${stock.fmp_rating_score}/5` : null} />
+        <Metric label="Piotroski F" value={stock.piotroski_score != null ? `${stock.piotroski_score}/9` : null} />
+        <Metric label="Altman Z" value={stock.altman_z_score?.toFixed(2)} />
+      </MetricSection>
 
       {/* Re-analysis Triggers */}
       <TriggerAlerts stock={stock} />
 
       {/* Composite Score Breakdown */}
       <ScoreBreakdownCard stock={stock} />
-
-      {/* TTM Financials & Balance Sheet */}
-      {(stock.revenue_ttm || stock.net_income_ttm || stock.total_debt) && (
-        <div
-          className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-4 p-5 rounded-lg mb-8"
-          style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <Metric label="Revenue TTM" value={stock.revenue_ttm ? fmtB(stock.revenue_ttm) : null} />
-          <Metric label="Net Income TTM" value={stock.net_income_ttm ? fmtB(stock.net_income_ttm) : null} />
-          <Metric label="EBITDA TTM" value={stock.ebitda_ttm ? fmtB(stock.ebitda_ttm) : null} />
-          <Metric label="FCF TTM" value={stock.fcf_ttm ? fmtB(stock.fcf_ttm) : null} />
-          <Metric label="Owner Earnings" value={stock.owner_earnings ? fmtB(stock.owner_earnings) : null} />
-          <Metric label="Interest Coverage" value={stock.interest_coverage?.toFixed(1)} />
-          <Metric label="Total Assets" value={stock.total_assets ? fmtB(stock.total_assets) : null} />
-          <Metric label="Total Debt" value={stock.total_debt ? fmtB(stock.total_debt) : null} />
-          <Metric label="Net Debt" value={stock.net_debt ? fmtB(stock.net_debt) : null} />
-          <Metric label="Cash" value={stock.cash_and_equivalents ? fmtB(stock.cash_and_equivalents) : null} />
-          <Metric label="Debt/EBITDA" value={stock.debt_to_ebitda?.toFixed(2)} />
-          <Metric label="Forward EPS" value={stock.forward_eps?.toFixed(2)} />
-        </div>
-      )}
 
       {/* Analysis Summary Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
