@@ -253,6 +253,19 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
     }
   }
 
+  // Yahoo fundamentalsTimeSeries balance sheet fallbacks for data FMP misses
+  // (e.g. Chinese A-shares where FMP returns 0 for totalAssets, totalDebt, etc.)
+  const yfTotalAssets = latest?.totalAssets > 0 ? +(latest.totalAssets / 1e9).toFixed(1) : null;
+  const yfTotalDebt = latest?.totalDebt > 0 ? +(latest.totalDebt / 1e9).toFixed(1) : null;
+  const yfNetDebt = latest?.netDebt != null ? +(latest.netDebt / 1e9).toFixed(1) : null;
+  const yfCash = latest?.cashAndCashEquivalents > 0 ? +(latest.cashAndCashEquivalents / 1e9).toFixed(1) : null;
+  const yfCurrentRatio = latest?.currentAssets > 0 && latest?.currentLiabilities > 0
+    ? +(latest.currentAssets / latest.currentLiabilities).toFixed(2) : null;
+  const yfRoa = latest?.netIncomeCommonStockholders != null && latest?.totalAssets > 0
+    ? +((latest.netIncomeCommonStockholders / latest.totalAssets) * 100).toFixed(1) : null;
+  const yfRoce = latest?.EBIT != null && latest?.totalAssets > 0 && latest?.currentLiabilities > 0
+    ? +((latest.EBIT / (latest.totalAssets - latest.currentLiabilities)) * 100).toFixed(1) : null;
+
   const q = quote as Record<string, unknown>;
   const sql = getDb();
 
@@ -289,7 +302,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         net_margin = COALESCE(${netMargin}, net_margin),
         ebitda_margin = COALESCE(${ebitdaMargin}, ebitda_margin),
         debt_to_equity = COALESCE(${de as number | null}, debt_to_equity),
-        current_ratio = COALESCE(${currentRatio as number | null}, current_ratio),
+        current_ratio = COALESCE(${currentRatio as number | null}, ${yfCurrentRatio}, current_ratio),
         debt_to_ebitda = COALESCE(${debtToEbitda}, debt_to_ebitda),
         interest_coverage = COALESCE(${interestCoverage}, interest_coverage),
         revenue = COALESCE(${revenue}, revenue),
@@ -313,17 +326,17 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         earnings_yield = COALESCE(${fmp.earnings_yield}, earnings_yield),
         dcf_fair_value = COALESCE(${fmp.dcf_fair_value}, dcf_fair_value),
         dcf_levered = COALESCE(${fmp.dcf_levered}, dcf_levered),
-        roa = COALESCE(${fmp.roa}, roa),
-        roce = COALESCE(${fmp.roce}, roce),
+        roa = COALESCE(${fmp.roa}, ${yfRoa}, roa),
+        roce = COALESCE(${fmp.roce}, ${yfRoce}, roce),
         revenue_ttm = COALESCE(${fmp.revenue_ttm}, revenue_ttm),
         net_income_ttm = COALESCE(${fmp.net_income_ttm}, net_income_ttm),
         ebitda_ttm = COALESCE(${fmp.ebitda_ttm}, ebitda_ttm),
         fcf_ttm = COALESCE(${fmp.fcf_ttm}, fcf_ttm),
         owner_earnings = COALESCE(${fmp.owner_earnings}, owner_earnings),
-        total_assets = COALESCE(${fmp.total_assets}, total_assets),
-        total_debt = COALESCE(${fmp.total_debt}, total_debt),
-        net_debt = COALESCE(${fmp.net_debt}, net_debt),
-        cash_and_equivalents = COALESCE(${fmp.cash_and_equivalents}, cash_and_equivalents),
+        total_assets = COALESCE(${fmp.total_assets}, ${yfTotalAssets}, total_assets),
+        total_debt = COALESCE(${fmp.total_debt}, ${yfTotalDebt}, total_debt),
+        net_debt = COALESCE(${fmp.net_debt}, ${yfNetDebt}, net_debt),
+        cash_and_equivalents = COALESCE(${fmp.cash_and_equivalents}, ${yfCash}, cash_and_equivalents),
         fmp_rating = COALESCE(${fmp.fmp_rating}, fmp_rating),
         fmp_rating_score = COALESCE(${fmp.fmp_rating_score}, fmp_rating_score),
         piotroski_score = COALESCE(${fmp.piotroski_score}, piotroski_score),
@@ -373,7 +386,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         ${pb as number | null},
         ${evEbitda as number | null},
         ${evSales as number | null},
-        ${divYield},
+        ${divYield ?? fmp.dividend_yield},
         ${(q.epsTrailingTwelveMonths ?? null) as number | null},
         ${beta as number | null},
         ${(q.fiftyTwoWeekHigh ?? null) as number | null},
@@ -386,7 +399,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         ${netMargin},
         ${ebitdaMargin},
         ${de as number | null},
-        ${currentRatio as number | null},
+        ${(currentRatio as number | null) ?? yfCurrentRatio},
         ${debtToEbitda},
         ${interestCoverage},
         ${revenue},
@@ -410,17 +423,17 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         ${fmp.earnings_yield},
         ${fmp.dcf_fair_value},
         ${fmp.dcf_levered},
-        ${fmp.roa},
-        ${fmp.roce},
+        ${fmp.roa ?? yfRoa},
+        ${fmp.roce ?? yfRoce},
         ${fmp.revenue_ttm},
         ${fmp.net_income_ttm},
         ${fmp.ebitda_ttm},
         ${fmp.fcf_ttm},
         ${fmp.owner_earnings},
-        ${fmp.total_assets},
-        ${fmp.total_debt},
-        ${fmp.net_debt},
-        ${fmp.cash_and_equivalents},
+        ${fmp.total_assets ?? yfTotalAssets},
+        ${fmp.total_debt ?? yfTotalDebt},
+        ${fmp.net_debt ?? yfNetDebt},
+        ${fmp.cash_and_equivalents ?? yfCash},
         ${fmp.fmp_rating},
         ${fmp.fmp_rating_score},
         ${fmp.piotroski_score},
