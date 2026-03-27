@@ -18,7 +18,8 @@ type SortKey =
   | "clock_position"
   | "trend_signal"
   | "pe_ratio"
-  | "dividend_yield";
+  | "dividend_yield"
+  | "distance_from_ath";
 
 interface Props {
   stocks: WatchlistStock[];
@@ -294,6 +295,11 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
       const bv = signalOrder[b.trend_signal] ?? 0;
       return sortAsc ? av - bv : bv - av;
     }
+    if (sortKey === "distance_from_ath") {
+      const av = a.distance_from_ath ? parseFloat(a.distance_from_ath) : -999;
+      const bv = b.distance_from_ath ? parseFloat(b.distance_from_ath) : -999;
+      return sortAsc ? av - bv : bv - av;
+    }
     const av = a[sortKey] ?? 0;
     const bv = b[sortKey] ?? 0;
     if (typeof av === "string" && typeof bv === "string")
@@ -378,6 +384,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
             </th>
             <SortHeader k="pe_ratio" className="text-right">PE</SortHeader>
             <SortHeader k="dividend_yield" className="text-right">Div%</SortHeader>
+            <SortHeader k="distance_from_ath" className="text-right">ATH</SortHeader>
             <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
               Time
             </th>
@@ -444,6 +451,15 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                 </td>
                 <td className="px-3 py-4 text-right font-mono text-sm">
                   {s.dividend_yield != null ? `${s.dividend_yield}%` : "—"}
+                </td>
+                <td className="px-3 py-4 text-right font-mono text-sm" style={{
+                  color: s.distance_from_ath
+                    ? parseFloat(s.distance_from_ath) <= -50 ? "var(--red)"
+                    : parseFloat(s.distance_from_ath) <= -20 ? "var(--yellow, #eab308)"
+                    : "var(--green)"
+                    : "var(--muted)",
+                }}>
+                  {s.distance_from_ath || "—"}
                 </td>
                 <td className="px-3 py-4 text-right text-sm" style={{ color: "var(--muted)" }}>
                   <div className="flex items-center justify-end gap-1.5">
