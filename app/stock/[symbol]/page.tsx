@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { AnalyzeButton } from "@/components/analyze-button";
+import { RefreshButton } from "@/components/refresh-button";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
 
@@ -245,12 +246,15 @@ export default async function StockDetail({
             </span>
           </div>
         </div>
-        <div className="sm:ml-auto text-right">
-          <div className="text-3xl font-mono font-bold">
-            {stock.price ? stock.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}
-          </div>
-          <div className="text-xs" style={{ color: "var(--muted)" }}>
-            {stock.distance_from_ath && stock.distance_from_ath !== "?" ? stock.distance_from_ath : ""}
+        <div className="sm:ml-auto flex items-end gap-4">
+          <RefreshButton symbol={stock.symbol} />
+          <div className="text-right">
+            <div className="text-3xl font-mono font-bold">
+              {stock.price ? stock.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}
+            </div>
+            <div className="text-xs" style={{ color: "var(--muted)" }}>
+              {stock.distance_from_ath && stock.distance_from_ath !== "?" ? stock.distance_from_ath : ""}
+            </div>
           </div>
         </div>
       </div>

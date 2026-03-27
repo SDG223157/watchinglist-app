@@ -5,7 +5,7 @@ import { getDb, getCachedHeatmap, fetchStock } from "@/lib/db";
 import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/heatmap-match";
 import type { WatchlistStock } from "@/lib/db";
 import { computeCompositeScore } from "@/lib/composite-score";
-import { refreshStockData } from "@/lib/refresh-stock";
+import { cachedQuote, cachedSummary, cachedHistorical } from "@/lib/yf-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -234,30 +234,37 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Step 1: Refresh all fundamental data in DB (fills empty fields)
-    const refreshed = await refreshStockData(symbol);
-    const { quote, summary, hist } = refreshed;
-
+    // Fetch Yahoo data for the LLM prompt (read-only, no DB writes)
+    const [quote, summary, heatmapRows] = await Promise.all([
+      cachedQuote(symbol),
+      cachedSummary(symbol),
+      getCachedHeatmap(),
+    ]);
     if (!quote?.regularMarketPrice) {
       return NextResponse.json({ error: `No data for ${symbol}` }, { status: 404 });
     }
+    const profile = summary?.assetProfile || {};
+    const finData = summary?.financialData || {};
+    quote.sector = quote.sector || profile.sector;
+    quote.industry = quote.industry || profile.industry;
+    quote.operatingMargins = finData.operatingMargins;
+    quote.profitMargins = finData.profitMargins;
+    quote.returnOnEquity = finData.returnOnEquity;
+    quote.debtToEquity = finData.debtToEquity;
+    quote.revenueGrowth = finData.revenueGrowth;
+    quote.earningsGrowth = finData.earningsGrowth;
+    quote.beta = quote.beta || summary?.defaultKeyStatistics?.beta;
+    quote.priceToBook = quote.priceToBook || summary?.defaultKeyStatistics?.priceToBook;
 
-    // Merge summary fields into quote for the LLM prompt
-    const profile = (summary as Record<string, unknown>)?.assetProfile || {};
-    const finData = (summary as Record<string, unknown>)?.financialData || {};
-    quote.sector = quote.sector || (profile as Record<string, unknown>).sector;
-    quote.industry = quote.industry || (profile as Record<string, unknown>).industry;
-    quote.operatingMargins = (finData as Record<string, unknown>).operatingMargins;
-    quote.profitMargins = (finData as Record<string, unknown>).profitMargins;
-    quote.returnOnEquity = (finData as Record<string, unknown>).returnOnEquity;
-    quote.debtToEquity = (finData as Record<string, unknown>).debtToEquity;
-    quote.revenueGrowth = (finData as Record<string, unknown>).revenueGrowth;
-    quote.earningsGrowth = (finData as Record<string, unknown>).earningsGrowth;
-    quote.beta = quote.beta || ((summary as Record<string, unknown>)?.defaultKeyStatistics as Record<string, unknown>)?.beta;
-    quote.priceToBook = quote.priceToBook || ((summary as Record<string, unknown>)?.defaultKeyStatistics as Record<string, unknown>)?.priceToBook;
+    let hist: { close: number; date: string }[] = [];
+    const rawHist = await cachedHistorical(symbol, "2020-01-01", "1wk");
+    if (rawHist.length > 0) {
+      hist = rawHist.map((r: { close: number; date: Date }) => ({
+        close: r.close,
+        date: r.date?.toISOString?.() ?? "",
+      }));
+    }
 
-    // Step 2: Build heatmap context
-    const heatmapRows = await getCachedHeatmap();
     const lookup = buildHeatmapLookup(heatmapRows);
     const stubStock = {
       symbol,
