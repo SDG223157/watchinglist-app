@@ -408,7 +408,7 @@ export default async function StockDetail({
   };
 
   return (
-    <main className="max-w-[1200px] mx-auto px-4 py-8">
+    <main className="max-w-[1600px] mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <Link
           href="/"
