@@ -250,7 +250,7 @@ export default async function StockDetail({
             {stock.price ? stock.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}
           </div>
           <div className="text-xs" style={{ color: "var(--muted)" }}>
-            {stock.distance_from_ath || ""}
+            {stock.distance_from_ath && stock.distance_from_ath !== "?" ? stock.distance_from_ath : ""}
           </div>
         </div>
       </div>
