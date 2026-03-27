@@ -439,7 +439,7 @@ export default async function StockDetail({
             <div className="text-3xl font-mono font-bold">
               {stock.price ? `${cs}${stock.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"}
             </div>
-            <div className="text-xs" style={{ color: "var(--muted)" }}>
+            <div className="text-xs font-mono" style={{ color: "#ef4444" }}>
               {stock.distance_from_ath && stock.distance_from_ath !== "?" ? stock.distance_from_ath : ""}
             </div>
           </div>
