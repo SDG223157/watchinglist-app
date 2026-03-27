@@ -898,7 +898,7 @@ export default async function StockDetail({
                         year: "numeric",
                       })}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{h.price ? `${cs}${h.price.toFixed(2)}` : "—"}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{N(h.price) ? `${cs}${N(h.price)!.toFixed(2)}` : "—"}</td>
                     <td className="px-3 py-2 text-xs">
                       {h.green_walls || 0}G/{h.yellow_walls || 0}Y/{h.red_walls || 0}R
                     </td>
