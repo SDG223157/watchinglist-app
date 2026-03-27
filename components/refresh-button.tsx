@@ -49,8 +49,8 @@ export function RefreshButton({ symbol }: { symbol: string }) {
       <button
         onClick={handleClick}
         disabled={loading}
-        className="text-xs px-3 py-1.5 rounded font-medium transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50"
-        style={{ background: "transparent", color: "var(--muted)", border: "1px solid var(--border)" }}
+        className="text-xs px-4 py-2 rounded-md font-medium transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50"
+        style={{ background: "var(--blue)", color: "#fff" }}
       >
         {loading ? (
           <span className="flex items-center gap-2">
