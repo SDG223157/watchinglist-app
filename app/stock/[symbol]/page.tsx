@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { AnalyzeButton } from "@/components/analyze-button";
@@ -598,8 +599,46 @@ export default async function StockDetail({
           <AnalyzeButton symbol={stock.symbol} />
         </div>
         {stock.analysis_report ? (
-          <div className="prose max-w-none">
-            <Markdown>{stock.analysis_report}</Markdown>
+          <div className="analysis-report">
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({ children }) => (
+                  <div className="overflow-x-auto my-4">
+                    <table className="w-full text-sm border-collapse">{children}</table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead style={{ background: "rgba(255,255,255,0.04)" }}>{children}</thead>
+                ),
+                th: ({ children }) => (
+                  <th className="px-3 py-2 text-left text-xs font-semibold border-b" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>{children}</th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-3 py-2 text-sm border-b" style={{ borderColor: "var(--border)" }}>{children}</td>
+                ),
+                h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-bold mt-6 mb-2" style={{ color: "var(--blue)" }}>{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-semibold mt-4 mb-2">{children}</h3>,
+                p: ({ children }) => <p className="text-sm leading-relaxed mb-3" style={{ color: "var(--foreground)", opacity: 0.9 }}>{children}</p>,
+                ul: ({ children }) => <ul className="text-sm list-disc pl-5 mb-3 space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="text-sm list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
+                li: ({ children }) => <li className="text-sm leading-relaxed">{children}</li>,
+                strong: ({ children }) => <strong className="font-semibold" style={{ color: "var(--foreground)" }}>{children}</strong>,
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 pl-4 my-3 text-sm italic" style={{ borderColor: "var(--blue)", color: "var(--muted)" }}>{children}</blockquote>
+                ),
+                code: ({ children, className }) => {
+                  if (className?.includes("language-")) {
+                    return null;
+                  }
+                  return <code className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)" }}>{children}</code>;
+                },
+                pre: () => null,
+              }}
+            >
+              {stock.analysis_report.replace(/\n```[\s\S]*?```\s*$/m, "").replace(/\n\{[\s\S]*\}\s*$/, "")}
+            </Markdown>
           </div>
         ) : (
           <p className="text-sm" style={{ color: "var(--muted)" }}>
