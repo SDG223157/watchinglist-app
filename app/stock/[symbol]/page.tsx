@@ -202,7 +202,6 @@ function PeersSection({ peers, currentSymbol }: { peers: PeerMetrics[]; currentS
               <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Symbol</th>
               <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Name</th>
               <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Price</th>
-              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Chg</th>
               <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Mkt Cap</th>
               <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>PE</th>
               <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>ROE</th>
@@ -234,12 +233,6 @@ function PeersSection({ peers, currentSymbol }: { peers: PeerMetrics[]; currentS
                   </td>
                   <td className="px-3 py-2 text-xs truncate max-w-[180px]">{p.name}</td>
                   <td className="px-3 py-2 text-right font-mono text-xs">${p.price.toFixed(2)}</td>
-                  <td
-                    className="px-3 py-2 text-right font-mono text-xs"
-                    style={{ color: p.change >= 0 ? "var(--green)" : "var(--red)" }}
-                  >
-                    {p.change >= 0 ? "+" : ""}{p.change.toFixed(2)}
-                  </td>
                   <td className="px-3 py-2 text-right font-mono text-xs">
                     {p.marketCap >= 1e12
                       ? `$${(p.marketCap / 1e12).toFixed(1)}T`
