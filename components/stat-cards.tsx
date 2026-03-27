@@ -22,7 +22,7 @@ export function StatCards({ stocks }: Props) {
     {
       label: "Total MCap",
       value: totalMcap >= 1000 ? `${(totalMcap / 1000).toFixed(1)}T` : `${totalMcap.toFixed(0)}B`,
-      sub: "USD",
+      sub: "local ccy",
     },
   ];
 

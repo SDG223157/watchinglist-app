@@ -119,7 +119,8 @@ export function AddStock() {
         return;
       }
 
-      setSuccess(`${data.symbol} @ ${data.price} — analyzing...`);
+      const c = sym.endsWith(".HK") ? "HK$" : sym.endsWith(".SS") || sym.endsWith(".SZ") ? "¥" : "$";
+      setSuccess(`${data.symbol} @ ${c}${data.price} — analyzing...`);
       setQuery("");
       router.refresh();
 
