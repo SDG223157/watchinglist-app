@@ -14,8 +14,8 @@ export function StatCards({ stocks }: Props) {
   const strong = stocks.filter((s) => (s.green_walls || 0) >= 3).length;
   const avgGeo =
     total > 0
-      ? (stocks.reduce((s, x) => s + (x.geometric_order ?? 0), 0) / total).toFixed(1)
-      : "0";
+      ? (stocks.reduce((s, x) => s + (x.geometric_order ?? 0), 0) / total).toFixed(2)
+      : "0.00";
 
   const cards = [
     { label: "Stocks", value: total, sub: "tracked" },
