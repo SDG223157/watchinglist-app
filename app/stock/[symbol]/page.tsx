@@ -482,6 +482,7 @@ export default async function StockDetail({
         <Metric label="Earn Growth YoY" value={nn(stock.earnings_growth_annual) ? `${fmtPct(stock.earnings_growth_annual)}%` : null} />
         <Metric label="Earn Growth TTM" value={nn(stock.earnings_growth_ttm) ? `${fmtPct(stock.earnings_growth_ttm)}%` : null} />
         <Metric label="Earn Recent Q" value={nn(stock.earnings_growth_recent_q) ? `${fmtPct(stock.earnings_growth_recent_q)}%` : null} />
+        <Metric label="Earn CAGR 3Y" value={nn(stock.earnings_cagr_3y) ? `${fmtPct(stock.earnings_cagr_3y)}%` : null} />
       </MetricSection>
 
       {/* Fundamentals & Cash Flow */}

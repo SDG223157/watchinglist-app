@@ -144,6 +144,7 @@ export interface WatchlistStock {
   shareholder_yield: number;
   revenue_cagr_3y: number;
   revenue_cagr_5y: number;
+  earnings_cagr_3y: number;
   revenue_growth_annual: number;
   earnings_growth_annual: number;
   revenue_growth_ttm: number;

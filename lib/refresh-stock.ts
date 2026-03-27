@@ -263,6 +263,15 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
     }
   }
 
+  let earningsCagr3y: number | null = null;
+  if (annuals.length >= 4) {
+    const ni3 = annuals[annuals.length - 4]?.netIncomeCommonStockholders;
+    const niNow = latest?.netIncomeCommonStockholders;
+    if (ni3 && niNow && ni3 > 0 && niNow > 0) {
+      earningsCagr3y = +((Math.pow(niNow / ni3, 1 / 3) - 1) * 100).toFixed(1);
+    }
+  }
+
   // Yahoo fundamentalsTimeSeries balance sheet fallbacks for data FMP misses
   // (e.g. Chinese A-shares where FMP returns 0 for totalAssets, totalDebt, etc.)
   const yfTotalAssets = latest?.totalAssets > 0 ? +(latest.totalAssets / 1e9).toFixed(1) : null;
@@ -322,6 +331,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         earnings_growth_annual = COALESCE(${earningsGrowthAnnual}, earnings_growth_annual),
         revenue_cagr_3y = COALESCE(${revenueCagr3y}, ${fmp.revenue_cagr_3y}, revenue_cagr_3y),
         revenue_cagr_5y = COALESCE(${revenueCagr5y}, ${fmp.revenue_cagr_5y}, revenue_cagr_5y),
+        earnings_cagr_3y = COALESCE(${earningsCagr3y}, earnings_cagr_3y),
         geometric_order = ${geoOrder},
         geometric_details = ${geoDetails},
         trend_signal = ${tw.signal},
@@ -370,7 +380,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         debt_to_equity, current_ratio, debt_to_ebitda, interest_coverage,
         revenue, fcf, fcf_yield,
         revenue_growth_annual, earnings_growth_annual,
-        revenue_cagr_3y, revenue_cagr_5y,
+        revenue_cagr_3y, revenue_cagr_5y, earnings_cagr_3y,
         geometric_order, geometric_details,
         trend_signal, trend_entry_date, trend_entry_price,
         pe_ttm, forward_pe, forward_eps, peg_ratio,
@@ -419,6 +429,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         ${earningsGrowthAnnual},
         ${revenueCagr3y ?? fmp.revenue_cagr_3y},
         ${revenueCagr5y ?? fmp.revenue_cagr_5y},
+        ${earningsCagr3y},
         ${geoOrder},
         ${geoDetails},
         ${tw.signal},
