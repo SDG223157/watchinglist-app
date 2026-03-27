@@ -1,5 +1,5 @@
 /**
- * Shared data-refresh logic: fetches Yahoo Finance data and upserts
+ * Shared data-refresh logic: fetches Yahoo Finance + FMP data and upserts
  * all fundamental fields into watchlist_items.  Used by both
  * /api/analyze  (add/refresh a stock) and
  * /api/analyze-report  (ensure data is fresh before LLM call).
@@ -12,6 +12,7 @@ import {
   cachedHistorical,
   cachedFundamentals,
 } from "@/lib/yf-cache";
+import { fetchAllFmpData, computeFmpDerived } from "@/lib/fmp";
 import { computeCompositeScore } from "@/lib/composite-score";
 
 function computeTrendWise(
@@ -128,15 +129,19 @@ export interface RefreshResult {
  * build an LLM prompt from fresh data without re-fetching.
  */
 export async function refreshStockData(symbol: string): Promise<RefreshResult> {
-  const [quote, summary, fts] = await Promise.all([
+  const [quote, summary, fts, fmpData] = await Promise.all([
     cachedQuote(symbol),
     cachedSummary(symbol),
     cachedFundamentals(symbol),
+    fetchAllFmpData(symbol),
   ]);
 
   if (!quote || !quote.regularMarketPrice) {
     throw new Error(`No data found for ${symbol}`);
   }
+
+  const price = (quote as Record<string, unknown>).regularMarketPrice as number;
+  const fmp = computeFmpDerived(fmpData, price);
 
   const profile = (summary as Record<string, unknown>)?.assetProfile || {};
   const keyStats = (summary as Record<string, unknown>)?.defaultKeyStatistics || {};
@@ -164,7 +169,6 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
 
   const allTimeHigh =
     closes.length > 0 ? Math.max(...closes) : (quote as Record<string, unknown>).fiftyTwoWeekHigh ?? 0;
-  const price = (quote as Record<string, unknown>).regularMarketPrice as number;
   const distFromAth =
     Number(allTimeHigh) > 0
       ? `${(((price - Number(allTimeHigh)) / Number(allTimeHigh)) * 100).toFixed(1)}%`
@@ -258,6 +262,8 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
     ORDER BY created_at DESC LIMIT 1
   `;
 
+  const dataSources = process.env.FMP_API_KEY ? "yahoo-finance2, FMP" : "yahoo-finance2 (web)";
+
   if (existing.length > 0) {
     await sql`
       UPDATE watchlist_items SET
@@ -298,7 +304,36 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         trend_signal = ${tw.signal},
         trend_entry_date = ${tw.entryDate},
         trend_entry_price = ${tw.entryPrice},
-        data_sources = ${"yahoo-finance2 (web)"},
+        pe_ttm = COALESCE(${fmp.pe_ttm}, pe_ttm),
+        forward_pe = COALESCE(${fmp.forward_pe}, forward_pe),
+        forward_eps = COALESCE(${fmp.forward_eps}, forward_eps),
+        peg_ratio = COALESCE(${fmp.peg_ratio}, peg_ratio),
+        price_to_sales = COALESCE(${fmp.price_to_sales}, price_to_sales),
+        price_to_fcf = COALESCE(${fmp.price_to_fcf}, price_to_fcf),
+        earnings_yield = COALESCE(${fmp.earnings_yield}, earnings_yield),
+        dcf_fair_value = COALESCE(${fmp.dcf_fair_value}, dcf_fair_value),
+        dcf_levered = COALESCE(${fmp.dcf_levered}, dcf_levered),
+        roa = COALESCE(${fmp.roa}, roa),
+        roce = COALESCE(${fmp.roce}, roce),
+        revenue_ttm = COALESCE(${fmp.revenue_ttm}, revenue_ttm),
+        net_income_ttm = COALESCE(${fmp.net_income_ttm}, net_income_ttm),
+        ebitda_ttm = COALESCE(${fmp.ebitda_ttm}, ebitda_ttm),
+        fcf_ttm = COALESCE(${fmp.fcf_ttm}, fcf_ttm),
+        owner_earnings = COALESCE(${fmp.owner_earnings}, owner_earnings),
+        total_assets = COALESCE(${fmp.total_assets}, total_assets),
+        total_debt = COALESCE(${fmp.total_debt}, total_debt),
+        net_debt = COALESCE(${fmp.net_debt}, net_debt),
+        cash_and_equivalents = COALESCE(${fmp.cash_and_equivalents}, cash_and_equivalents),
+        fmp_rating = COALESCE(${fmp.fmp_rating}, fmp_rating),
+        fmp_rating_score = COALESCE(${fmp.fmp_rating_score}, fmp_rating_score),
+        piotroski_score = COALESCE(${fmp.piotroski_score}, piotroski_score),
+        altman_z_score = COALESCE(${fmp.altman_z_score}, altman_z_score),
+        revenue_growth_ttm = COALESCE(${fmp.revenue_growth_ttm}, revenue_growth_ttm),
+        revenue_growth_recent_q = COALESCE(${fmp.revenue_growth_recent_q}, revenue_growth_recent_q),
+        earnings_growth_ttm = COALESCE(${fmp.earnings_growth_ttm}, earnings_growth_ttm),
+        earnings_growth_recent_q = COALESCE(${fmp.earnings_growth_recent_q}, earnings_growth_recent_q),
+        shareholder_yield = COALESCE(${fmp.shareholder_yield}, shareholder_yield),
+        data_sources = ${dataSources},
         updated_at = NOW()
       WHERE id = ${existing[0].id}
     `;
@@ -315,6 +350,16 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         revenue_cagr_3y, revenue_cagr_5y,
         geometric_order, geometric_details,
         trend_signal, trend_entry_date, trend_entry_price,
+        pe_ttm, forward_pe, forward_eps, peg_ratio,
+        price_to_sales, price_to_fcf, earnings_yield,
+        dcf_fair_value, dcf_levered,
+        roa, roce,
+        revenue_ttm, net_income_ttm, ebitda_ttm, fcf_ttm, owner_earnings,
+        total_assets, total_debt, net_debt, cash_and_equivalents,
+        fmp_rating, fmp_rating_score, piotroski_score, altman_z_score,
+        revenue_growth_ttm, revenue_growth_recent_q,
+        earnings_growth_ttm, earnings_growth_recent_q,
+        shareholder_yield,
         data_sources
       ) VALUES (
         ${symbol},
@@ -356,7 +401,36 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         ${tw.signal},
         ${tw.entryDate},
         ${tw.entryPrice},
-        ${"yahoo-finance2 (web)"}
+        ${fmp.pe_ttm},
+        ${fmp.forward_pe},
+        ${fmp.forward_eps},
+        ${fmp.peg_ratio},
+        ${fmp.price_to_sales},
+        ${fmp.price_to_fcf},
+        ${fmp.earnings_yield},
+        ${fmp.dcf_fair_value},
+        ${fmp.dcf_levered},
+        ${fmp.roa},
+        ${fmp.roce},
+        ${fmp.revenue_ttm},
+        ${fmp.net_income_ttm},
+        ${fmp.ebitda_ttm},
+        ${fmp.fcf_ttm},
+        ${fmp.owner_earnings},
+        ${fmp.total_assets},
+        ${fmp.total_debt},
+        ${fmp.net_debt},
+        ${fmp.cash_and_equivalents},
+        ${fmp.fmp_rating},
+        ${fmp.fmp_rating_score},
+        ${fmp.piotroski_score},
+        ${fmp.altman_z_score},
+        ${fmp.revenue_growth_ttm},
+        ${fmp.revenue_growth_recent_q},
+        ${fmp.earnings_growth_ttm},
+        ${fmp.earnings_growth_recent_q},
+        ${fmp.shareholder_yield},
+        ${dataSources}
       )
     `;
   }
