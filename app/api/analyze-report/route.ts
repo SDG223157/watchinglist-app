@@ -141,6 +141,18 @@ Rate each: STRONG / MODERATE / WEAK / NONE
 Overall Moat Width: WIDE (2+ strong sources) / NARROW (1 strong or 2+ moderate) / NONE
 Moat Trend: EXPANDING / STABLE / ERODING
 
+**Narrative Cycle History (Concentric Circles):**
+Map the company's full narrative history as concentric circles — each major boom/bust cycle is one ring.
+For EACH cycle, identify:
+- The specific catalyst that launched it (technology shift, regulation, macro wave)
+- The peak narrative / market belief at the top
+- What broke it (competition, regulation, macro, internal failure)
+- Peak market cap and drawdown percentage
+- What permanent infrastructure survived the crash (assets, capabilities, market position)
+- Whether the floor of each cycle was above or below the prior cycle's peak (expansion vs contraction)
+
+This is the MOST IMPORTANT section — it reveals the company's structural trajectory and whether each crash destroyed or deposited value.
+
 **7 Buy Conditions:**
 1. >=3 GREEN walls
 2. Market Clock favorable
@@ -157,6 +169,12 @@ Produce a markdown report with these sections:
 ## ${quote.shortName || symbol} (${symbol}) — Analysis Report
 
 **Price / 52W / ATH / Core narrative / Phase / Clock / Corporate Stage / Confidence**
+
+### Narrative Cycle History
+Map ALL major narrative cycles as concentric circles. For each cycle:
+| Cycle | Period | Catalyst | Peak Narrative | What Broke It | Peak MCap | Drawdown | Infrastructure Deposited |
+Include a final row for the CURRENT cycle with your diagnosis of where we are.
+After the table, write a **Concentric Circle Diagnosis**: is the company in Expansion (each cycle floor above prior peak), Recovery, Maturity, or Decline? This determines the structural trajectory.
 
 ### Sector & Industry Assessment
 Evaluate whether the sector and sub-industry are providing tailwind or headwind.
@@ -186,13 +204,15 @@ If sector/industry is a headwind, explicitly state how it modifies the position 
 Top 3 risks (include sector/industry risk if applicable)
 
 ### Investment Thesis
-2-3 paragraph thesis incorporating sector/industry context
+2-3 paragraph thesis incorporating narrative cycle history and sector/industry context.
+Reference the concentric circle diagnosis — is this a company that deposits infrastructure through each crash, or one that destroys value?
 
 Also output a JSON block at the end (fenced with \`\`\`json) containing:
 {
   "clock_position": "~X:00",
   "phase": "Phase N ...",
   "corporate_stage": "Stage N ...",
+  "narrative_cycle_history": "C1(YYYY-YYYY): [catalyst] → [peak narrative] → [what broke it]. Peak MCap ~$XXXB, drawdown -XX%. Infrastructure: [what survived]. | C2(YYYY-YYYY): ... | C3(current): ...",
   "wall_revenue": "... (GREEN/YELLOW/RED)",
   "wall_margins": "... (GREEN/YELLOW/RED)",
   "wall_capital": "... (GREEN/YELLOW/RED)",
@@ -208,8 +228,8 @@ Also output a JSON block at the end (fenced with \`\`\`json) containing:
   "sector_signal": "TAILWIND / NEUTRAL / HEADWIND",
   "action": "buy X% / watch / avoid",
   "buy_reason": "summary of 7 conditions",
-  "notes": "key insight",
-  "narrative": "one paragraph current narrative"
+  "notes": "concentric circle life state + key insight",
+  "narrative": "one paragraph current narrative incorporating cycle position"
 }`;
 }
 
@@ -351,6 +371,7 @@ export async function POST(req: NextRequest) {
         buy_reason = COALESCE(${(parsed.buy_reason as string) || null}, buy_reason),
         notes = COALESCE(${(parsed.notes as string) || null}, notes),
         narrative = COALESCE(${(parsed.narrative as string) || null}, narrative),
+        narrative_cycle_history = COALESCE(${(parsed.narrative_cycle_history as string) || null}, narrative_cycle_history),
         moat_type = COALESCE(${(parsed.moat_type as string) || null}, moat_type),
         moat_width = COALESCE(${(parsed.moat_width as string) || null}, moat_width),
         moat_trend = COALESCE(${(parsed.moat_trend as string) || null}, moat_trend),
