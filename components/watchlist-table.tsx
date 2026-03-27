@@ -17,7 +17,8 @@ type SortKey =
   | "geometric_order"
   | "clock_position"
   | "trend_signal"
-  | "pe_ratio";
+  | "pe_ratio"
+  | "dividend_yield";
 
 interface Props {
   stocks: WatchlistStock[];
@@ -376,6 +377,7 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
               Action
             </th>
             <SortHeader k="pe_ratio" className="text-right">PE</SortHeader>
+            <SortHeader k="dividend_yield" className="text-right">Div%</SortHeader>
             <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
               Time
             </th>
@@ -439,6 +441,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
                 <td className="px-3 py-4 text-sm max-w-32 truncate">{s.action || "—"}</td>
                 <td className="px-3 py-4 text-right font-mono text-sm">
                   {s.pe_ratio ? s.pe_ratio.toFixed(1) : "—"}
+                </td>
+                <td className="px-3 py-4 text-right font-mono text-sm">
+                  {s.dividend_yield != null ? `${s.dividend_yield}%` : "—"}
                 </td>
                 <td className="px-3 py-4 text-right text-sm" style={{ color: "var(--muted)" }}>
                   <div className="flex items-center justify-end gap-1.5">
