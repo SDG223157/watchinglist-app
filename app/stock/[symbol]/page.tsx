@@ -4,7 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
-import { fetchPeerComparison, type PeerMetrics } from "@/lib/fmp";
+import { fetchPeerComparison, type PeerMetrics, fetchRevenueSegmentation, type RevenueSegmentation } from "@/lib/fmp";
 import { AnalyzeButton } from "@/components/analyze-button";
 import { RefreshButton } from "@/components/refresh-button";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
@@ -190,6 +190,98 @@ function ScoreBreakdownCard({ stock }: { stock: import("@/lib/db").WatchlistStoc
   );
 }
 
+function fmtSegVal(v: number): string {
+  if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
+  return `$${v.toLocaleString()}`;
+}
+
+function SegmentBars({ title, entries }: { title: string; entries: import("@/lib/fmp").SegmentEntry[] }) {
+  if (entries.length === 0) return null;
+
+  const latest = entries[0];
+  const prior = entries[1];
+  const total = Object.values(latest.data).reduce((a, b) => a + b, 0);
+  const sorted = Object.entries(latest.data).sort((a, b) => b[1] - a[1]);
+  const maxVal = sorted[0]?.[1] ?? 1;
+
+  const colors = [
+    "var(--blue)", "#8b5cf6", "#f59e0b", "#10b981", "#ef4444",
+    "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
+  ];
+
+  return (
+    <div>
+      <h3
+        className="text-xs font-semibold uppercase tracking-widest mb-3"
+        style={{ color: "var(--blue)" }}
+      >
+        {title} — FY{latest.fiscalYear}
+      </h3>
+      <div className="space-y-2.5">
+        {sorted.map(([name, value], i) => {
+          const pct = total > 0 ? (value / total) * 100 : 0;
+          const barWidth = (value / maxVal) * 100;
+          let yoyLabel = "";
+          if (prior) {
+            const priorVal = prior.data[name];
+            if (priorVal && priorVal > 0) {
+              const yoy = ((value - priorVal) / priorVal) * 100;
+              yoyLabel = `${yoy >= 0 ? "+" : ""}${yoy.toFixed(1)}%`;
+            }
+          }
+          return (
+            <div key={name}>
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-xs truncate max-w-[200px]">{name}</span>
+                <div className="flex items-center gap-3">
+                  {yoyLabel && (
+                    <span
+                      className="text-[10px] font-mono"
+                      style={{ color: yoyLabel.startsWith("+") ? "var(--green)" : "var(--red)" }}
+                    >
+                      {yoyLabel}
+                    </span>
+                  )}
+                  <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>
+                    {fmtSegVal(value)} ({pct.toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+              <div
+                className="h-2 rounded-full overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.06)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${barWidth}%`, background: colors[i % colors.length] }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RevenueSegmentationSection({ segments }: { segments: RevenueSegmentation }) {
+  if (segments.product.length === 0 && segments.geographic.length === 0) return null;
+  return (
+    <>
+      <h2 className="text-lg font-bold mb-3">Revenue Segmentation</h2>
+      <div
+        className="rounded-lg p-5 mb-8 grid grid-cols-1 lg:grid-cols-2 gap-8"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <SegmentBars title="By Product" entries={segments.product} />
+        <SegmentBars title="By Geography" entries={segments.geographic} />
+      </div>
+    </>
+  );
+}
+
 function PeersSection({ peers, currentSymbol }: { peers: PeerMetrics[]; currentSymbol: string }) {
   if (peers.length === 0) return null;
   return (
@@ -276,9 +368,10 @@ export default async function StockDetail({
 
   if (!stock) notFound();
 
-  const [history, peers] = await Promise.all([
+  const [history, peers, segments] = await Promise.all([
     fetchStockHistory(symbol, 10),
     fetchPeerComparison(symbol).catch(() => [] as PeerMetrics[]),
+    fetchRevenueSegmentation(symbol).catch(() => ({ product: [], geographic: [] }) as RevenueSegmentation),
   ]);
   const lookup = buildHeatmapLookup(heatmapRows);
   const hm = matchStock(stock, lookup);
@@ -412,6 +505,9 @@ export default async function StockDetail({
         <Metric label="Piotroski F" value={stock.piotroski_score != null ? `${stock.piotroski_score}/9` : null} />
         <Metric label="Altman Z" value={stock.altman_z_score?.toFixed(2)} />
       </MetricSection>
+
+      {/* Revenue Segmentation */}
+      <RevenueSegmentationSection segments={segments} />
 
       {/* Re-analysis Triggers */}
       <TriggerAlerts stock={stock} />

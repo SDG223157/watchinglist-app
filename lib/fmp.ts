@@ -312,6 +312,30 @@ export async function fetchPeerComparison(symbol: string, limit = 10): Promise<P
   return results.filter((r): r is PeerMetrics => r !== null);
 }
 
+// ─── Revenue segmentation ───
+
+export interface SegmentEntry {
+  fiscalYear: number;
+  date: string;
+  data: Record<string, number>;
+}
+
+export interface RevenueSegmentation {
+  product: SegmentEntry[];
+  geographic: SegmentEntry[];
+}
+
+export async function fetchRevenueSegmentation(symbol: string): Promise<RevenueSegmentation> {
+  const [product, geographic] = await Promise.all([
+    fmpGet<SegmentEntry[]>("revenue-product-segmentation", { symbol }),
+    fmpGet<SegmentEntry[]>("revenue-geographic-segmentation", { symbol }),
+  ]);
+  return {
+    product: (product ?? []).slice(0, 5),
+    geographic: (geographic ?? []).slice(0, 5),
+  };
+}
+
 // ─── Derived computations from FMP data ───
 
 export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
