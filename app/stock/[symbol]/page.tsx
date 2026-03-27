@@ -4,6 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
+import { fetchPeerComparison, type PeerMetrics } from "@/lib/fmp";
 import { AnalyzeButton } from "@/components/analyze-button";
 import { RefreshButton } from "@/components/refresh-button";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
@@ -189,6 +190,76 @@ function ScoreBreakdownCard({ stock }: { stock: import("@/lib/db").WatchlistStoc
   );
 }
 
+function PeersSection({ peers, currentSymbol }: { peers: PeerMetrics[]; currentSymbol: string }) {
+  if (peers.length === 0) return null;
+  return (
+    <>
+      <h2 className="text-lg font-bold mb-3">Stock Peers</h2>
+      <div className="overflow-x-auto rounded-lg mb-8" style={{ border: "1px solid var(--border)" }}>
+        <table className="w-full text-sm">
+          <thead style={{ background: "var(--card)" }}>
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Symbol</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Name</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Price</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Chg</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Mkt Cap</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>PE</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>ROE</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Op. Margin</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>FCF Yield</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>D/E</th>
+            </tr>
+          </thead>
+          <tbody>
+            {peers.map((p) => {
+              const isInWatchlist = p.symbol === currentSymbol;
+              return (
+                <tr
+                  key={p.symbol}
+                  className="border-t"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: isInWatchlist ? "rgba(59,130,246,0.06)" : undefined,
+                  }}
+                >
+                  <td className="px-3 py-2">
+                    <Link
+                      href={`/stock/${encodeURIComponent(p.symbol)}`}
+                      className="font-mono text-xs font-semibold hover:underline"
+                      style={{ color: "var(--blue)" }}
+                    >
+                      {p.symbol}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2 text-xs truncate max-w-[180px]">{p.name}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">${p.price.toFixed(2)}</td>
+                  <td
+                    className="px-3 py-2 text-right font-mono text-xs"
+                    style={{ color: p.change >= 0 ? "var(--green)" : "var(--red)" }}
+                  >
+                    {p.change >= 0 ? "+" : ""}{p.change.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">
+                    {p.marketCap >= 1e12
+                      ? `$${(p.marketCap / 1e12).toFixed(1)}T`
+                      : `$${(p.marketCap / 1e9).toFixed(1)}B`}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{p.pe?.toFixed(1) ?? "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{p.roe != null ? `${p.roe}%` : "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{p.operatingMargin != null ? `${p.operatingMargin}%` : "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{p.fcfYield != null ? `${p.fcfYield}%` : "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{p.debtToEquity?.toFixed(2) ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function wallColor(text: string | null): "green" | "yellow" | "red" | "muted" {
   if (!text) return "muted";
   const t = text.toUpperCase();
@@ -212,7 +283,10 @@ export default async function StockDetail({
 
   if (!stock) notFound();
 
-  const history = await fetchStockHistory(symbol, 10);
+  const [history, peers] = await Promise.all([
+    fetchStockHistory(symbol, 10),
+    fetchPeerComparison(symbol).catch(() => [] as PeerMetrics[]),
+  ]);
   const lookup = buildHeatmapLookup(heatmapRows);
   const hm = matchStock(stock, lookup);
 
@@ -580,6 +654,9 @@ export default async function StockDetail({
           )}
         </>
       )}
+
+      {/* Stock Peers */}
+      <PeersSection peers={peers} currentSymbol={stock.symbol} />
 
       {/* Action */}
       <div

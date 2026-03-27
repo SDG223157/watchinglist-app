@@ -252,6 +252,71 @@ export async function fetchAllFmpData(symbol: string): Promise<FmpData> {
   return { ratios, rating, dcf, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics };
 }
 
+// ─── Peer comparison ───
+
+export interface PeerProfile {
+  symbol: string;
+  companyName: string;
+  sector: string;
+  industry: string;
+  price: number;
+  changes: number;
+  marketCap: number;
+}
+
+export interface PeerMetrics {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  marketCap: number;
+  pe: number | null;
+  roe: number | null;
+  operatingMargin: number | null;
+  revenueGrowth: number | null;
+  fcfYield: number | null;
+  debtToEquity: number | null;
+}
+
+export async function fetchFmpPeers(symbol: string): Promise<string[]> {
+  const data = await fmpGet<{ symbol: string; peersList: string[] }[]>("stock-peers", { symbol });
+  return data?.[0]?.peersList ?? [];
+}
+
+export async function fetchPeerComparison(symbol: string, limit = 10): Promise<PeerMetrics[]> {
+  const peerSymbols = await fetchFmpPeers(symbol);
+  if (peerSymbols.length === 0) return [];
+
+  const symbols = peerSymbols.slice(0, limit);
+
+  const results = await Promise.all(
+    symbols.map(async (s): Promise<PeerMetrics | null> => {
+      const [profile, ratios] = await Promise.all([
+        fmpGet<PeerProfile[]>("profile", { symbol: s }),
+        fmpGet<FmpRatiosTTM[]>("ratios-ttm", { symbol: s }),
+      ]);
+      const p = profile?.[0];
+      if (!p) return null;
+      const r = ratios?.[0];
+      return {
+        symbol: s,
+        name: p.companyName ?? s,
+        price: p.price ?? 0,
+        change: p.changes ?? 0,
+        marketCap: p.marketCap ?? 0,
+        pe: r?.priceToEarningsRatioTTM ?? null,
+        roe: r?.returnOnEquityTTM != null ? +(r.returnOnEquityTTM * 100).toFixed(1) : null,
+        operatingMargin: r ? +((r as Record<string, number>).operatingProfitMarginTTM * 100).toFixed(1) || null : null,
+        revenueGrowth: null,
+        fcfYield: r?.freeCashFlowYieldTTM != null ? +(r.freeCashFlowYieldTTM * 100).toFixed(2) : null,
+        debtToEquity: r?.debtToEquityRatioTTM != null ? +r.debtToEquityRatioTTM.toFixed(2) : null,
+      };
+    })
+  );
+
+  return results.filter((r): r is PeerMetrics => r !== null);
+}
+
 // ─── Derived computations from FMP data ───
 
 export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
