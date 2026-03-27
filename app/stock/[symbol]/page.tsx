@@ -60,16 +60,25 @@ function nn(v: number | null | undefined): boolean {
   return v != null;
 }
 
-function fmtPct(v: number | null | undefined): string {
+function fmtPct(v: number | string | null | undefined): string {
   if (v == null) return "—";
-  const val = Math.abs(v) < 1 ? v * 100 : v;
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  if (isNaN(n)) return "—";
+  const val = Math.abs(n) < 1 ? n * 100 : n;
   return val.toFixed(2);
 }
 
-function fmtB(v: number | null | undefined, cs = "$"): string {
-  if (v == null) return "—";
-  if (Math.abs(v) >= 1000) return `${cs}${(v / 1000).toFixed(1)}T`;
-  return `${cs}${v.toFixed(1)}B`;
+function N(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return isNaN(n) ? null : n;
+}
+
+function fmtB(v: number | string | null | undefined, cs = "$"): string {
+  const n = N(v);
+  if (n == null) return "—";
+  if (Math.abs(n) >= 1000) return `${cs}${(n / 1000).toFixed(1)}T`;
+  return `${cs}${n.toFixed(1)}B`;
 }
 
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -440,21 +449,21 @@ export default async function StockDetail({
       {/* Valuation */}
       <MetricSection title="Valuation">
         <Metric label="Market Cap" value={stock.market_cap ? fmtB(stock.market_cap, cs) : null} />
-        <Metric label="PE (TTM)" value={stock.pe_ttm?.toFixed(1) ?? stock.pe_ratio?.toFixed(1)} />
-        <Metric label="Forward PE" value={stock.forward_pe?.toFixed(1)} />
-        <Metric label="PEG" value={stock.peg_ratio?.toFixed(2)} />
-        <Metric label="P/B" value={stock.price_to_book?.toFixed(2)} />
-        <Metric label="P/Sales" value={stock.price_to_sales?.toFixed(2)} />
-        <Metric label="P/FCF" value={stock.price_to_fcf?.toFixed(1)} />
-        <Metric label="EV/EBITDA" value={stock.ev_ebitda?.toFixed(1)} />
-        <Metric label="EV/Sales" value={stock.ev_sales?.toFixed(2)} />
+        <Metric label="PE (TTM)" value={N(stock.pe_ttm)?.toFixed(1) ?? N(stock.pe_ratio)?.toFixed(1)} />
+        <Metric label="Forward PE" value={N(stock.forward_pe)?.toFixed(1)} />
+        <Metric label="PEG" value={N(stock.peg_ratio)?.toFixed(2)} />
+        <Metric label="P/B" value={N(stock.price_to_book)?.toFixed(2)} />
+        <Metric label="P/Sales" value={N(stock.price_to_sales)?.toFixed(2)} />
+        <Metric label="P/FCF" value={N(stock.price_to_fcf)?.toFixed(1)} />
+        <Metric label="EV/EBITDA" value={N(stock.ev_ebitda)?.toFixed(1)} />
+        <Metric label="EV/Sales" value={N(stock.ev_sales)?.toFixed(2)} />
         <Metric label="Earnings Yield" value={nn(stock.earnings_yield) ? `${stock.earnings_yield}%` : null} />
-        <Metric label="DCF Fair Value" value={nn(stock.dcf_fair_value) ? `${cs}${stock.dcf_fair_value!.toFixed(2)}` : null} />
+        <Metric label="DCF Fair Value" value={N(stock.dcf_fair_value) != null ? `${cs}${N(stock.dcf_fair_value)!.toFixed(2)}` : null} />
         <Metric
           label="DCF Upside"
           value={
-            stock.dcf_fair_value && stock.price
-              ? `${(((stock.dcf_fair_value - stock.price) / stock.price) * 100).toFixed(1)}%`
+            N(stock.dcf_fair_value) != null && N(stock.price)
+              ? `${(((N(stock.dcf_fair_value)! - N(stock.price)!) / N(stock.price)!) * 100).toFixed(1)}%`
               : null
           }
         />
@@ -495,8 +504,8 @@ export default async function StockDetail({
         <Metric label="FCF TTM" value={nn(stock.fcf_ttm) ? fmtB(stock.fcf_ttm, cs) : null} />
         <Metric label="FCF Yield" value={nn(stock.fcf_yield) ? `${stock.fcf_yield}%` : null} />
         <Metric label="Owner Earnings" value={nn(stock.owner_earnings) ? fmtB(stock.owner_earnings, cs) : null} />
-        <Metric label="EPS" value={nn(stock.eps) ? `${cs}${stock.eps!.toFixed(2)}` : null} />
-        <Metric label="Forward EPS" value={nn(stock.forward_eps) ? `${cs}${stock.forward_eps!.toFixed(2)}` : null} />
+        <Metric label="EPS" value={N(stock.eps) != null ? `${cs}${N(stock.eps)!.toFixed(2)}` : null} />
+        <Metric label="Forward EPS" value={N(stock.forward_eps) != null ? `${cs}${N(stock.forward_eps)!.toFixed(2)}` : null} />
         <Metric label="Div Yield" value={nn(stock.dividend_yield) ? `${stock.dividend_yield}%` : null} />
         <Metric label="Shareholder Yield" value={nn(stock.shareholder_yield) ? `${stock.shareholder_yield}%` : null} />
       </MetricSection>
@@ -507,14 +516,14 @@ export default async function StockDetail({
         <Metric label="Total Debt" value={nn(stock.total_debt) ? fmtB(stock.total_debt, cs) : null} />
         <Metric label="Net Debt" value={nn(stock.net_debt) ? fmtB(stock.net_debt, cs) : null} />
         <Metric label="Cash" value={nn(stock.cash_and_equivalents) ? fmtB(stock.cash_and_equivalents, cs) : null} />
-        <Metric label="D/E" value={nn(stock.debt_to_equity) ? stock.debt_to_equity!.toFixed(2) : null} />
-        <Metric label="Debt/EBITDA" value={nn(stock.debt_to_ebitda) ? stock.debt_to_ebitda!.toFixed(2) : null} />
-        <Metric label="Current Ratio" value={nn(stock.current_ratio) ? stock.current_ratio!.toFixed(2) : null} />
-        <Metric label="Interest Coverage" value={nn(stock.interest_coverage) ? stock.interest_coverage!.toFixed(1) : null} />
-        <Metric label="Beta" value={nn(stock.beta) ? stock.beta!.toFixed(2) : null} />
-        <Metric label="52W Low" value={nn(stock.low_52w) ? `${cs}${stock.low_52w!.toFixed(2)}` : null} />
-        <Metric label="52W High" value={nn(stock.high_52w) ? `${cs}${stock.high_52w!.toFixed(2)}` : null} />
-        <Metric label="DCF Levered" value={nn(stock.dcf_levered) ? `${cs}${stock.dcf_levered!.toFixed(2)}` : null} />
+        <Metric label="D/E" value={N(stock.debt_to_equity)?.toFixed(2)} />
+        <Metric label="Debt/EBITDA" value={N(stock.debt_to_ebitda)?.toFixed(2)} />
+        <Metric label="Current Ratio" value={N(stock.current_ratio)?.toFixed(2)} />
+        <Metric label="Interest Coverage" value={N(stock.interest_coverage)?.toFixed(1)} />
+        <Metric label="Beta" value={N(stock.beta)?.toFixed(2)} />
+        <Metric label="52W Low" value={N(stock.low_52w) != null ? `${cs}${N(stock.low_52w)!.toFixed(2)}` : null} />
+        <Metric label="52W High" value={N(stock.high_52w) != null ? `${cs}${N(stock.high_52w)!.toFixed(2)}` : null} />
+        <Metric label="DCF Levered" value={N(stock.dcf_levered) != null ? `${cs}${N(stock.dcf_levered)!.toFixed(2)}` : null} />
       </MetricSection>
 
       {/* Scores & Ratings */}
@@ -522,7 +531,7 @@ export default async function StockDetail({
         <Metric label="FMP Rating" value={stock.fmp_rating} />
         <Metric label="FMP Score" value={stock.fmp_rating_score != null ? `${stock.fmp_rating_score}/5` : null} />
         <Metric label="Piotroski F" value={stock.piotroski_score != null ? `${stock.piotroski_score}/9` : null} />
-        <Metric label="Altman Z" value={stock.altman_z_score?.toFixed(2)} />
+        <Metric label="Altman Z" value={N(stock.altman_z_score)?.toFixed(2)} />
       </MetricSection>
 
       {/* Revenue Segmentation */}
