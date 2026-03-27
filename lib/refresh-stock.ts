@@ -276,7 +276,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         price_to_book = ${pb as number | null},
         ev_ebitda = COALESCE(${evEbitda as number | null}, ev_ebitda),
         ev_sales = COALESCE(${evSales as number | null}, ev_sales),
-        dividend_yield = ${divYield},
+        dividend_yield = COALESCE(${divYield}, ${fmp.dividend_yield}, dividend_yield),
         eps = ${(q.epsTrailingTwelveMonths ?? null) as number | null},
         beta = ${beta as number | null},
         high_52w = ${(q.fiftyTwoWeekHigh ?? null) as number | null},

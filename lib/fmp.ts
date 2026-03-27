@@ -496,9 +496,15 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     }
   }
 
-  // Helper: safely convert a possibly-missing numeric field to a fixed value
+  // Helper: safely convert a possibly-missing numeric field to a fixed value.
+  // FMP returns 0 for genuinely missing data on many Chinese A-shares,
+  // so treat 0 as null when nonZero flag is set.
   const num = (v: unknown, mult = 1, dp = 1): number | null => {
     if (v == null || typeof v !== "number" || isNaN(v)) return null;
+    return +(v * mult).toFixed(dp);
+  };
+  const numNZ = (v: unknown, mult = 1, dp = 1): number | null => {
+    if (v == null || typeof v !== "number" || isNaN(v) || v === 0) return null;
     return +(v * mult).toFixed(dp);
   };
 
@@ -508,6 +514,11 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
   const roaTTM = r?.returnOnAssetsTTM ?? km?.returnOnAssetsTTM;
   const roceTTM = r?.returnOnCapitalEmployedTTM ?? km?.returnOnCapitalEmployedTTM;
   const earningsYieldTTM = r?.earningsYieldTTM ?? km?.earningsYieldTTM;
+
+  // Dividend yield from ratios-ttm (fallback for Yahoo)
+  const dividendYieldPct = r?.dividendYieldTTM != null && r.dividendYieldTTM > 0
+    ? +(r.dividendYieldTTM * 100).toFixed(2)
+    : null;
 
   return {
     // Valuation
@@ -521,9 +532,9 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     dcf_fair_value: fmp.dcf?.dcf ? +fmp.dcf.dcf.toFixed(2) : null,
     dcf_levered: null as number | null,
 
-    // Profitability (extras beyond Yahoo)
-    roa: num(roaTTM, 100),
-    roce: num(roceTTM, 100),
+    // Profitability — use numNZ because FMP returns 0 for missing data
+    roa: numNZ(roaTTM, 100),
+    roce: numNZ(roceTTM, 100),
 
     // TTM financials (in billions)
     revenue_ttm: revenueTtm ? +(revenueTtm / 1e9).toFixed(2) : null,
@@ -532,11 +543,11 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     fcf_ttm: fcfTtm ? +(fcfTtm / 1e9).toFixed(2) : null,
     owner_earnings: ownerEarnings ? +(ownerEarnings / 1e9).toFixed(2) : null,
 
-    // Balance sheet (in billions)
-    total_assets: bs ? +(bs.totalAssets / 1e9).toFixed(1) : null,
-    total_debt: bs?.totalDebt ? +(bs.totalDebt / 1e9).toFixed(1) : null,
-    net_debt: bs?.netDebt ? +(bs.netDebt / 1e9).toFixed(1) : null,
-    cash_and_equivalents: bs?.cashAndCashEquivalents ? +(bs.cashAndCashEquivalents / 1e9).toFixed(1) : null,
+    // Balance sheet (in billions) — use truthiness check to skip FMP's bogus 0s
+    total_assets: bs && bs.totalAssets > 0 ? +(bs.totalAssets / 1e9).toFixed(1) : null,
+    total_debt: bs && bs.totalDebt > 0 ? +(bs.totalDebt / 1e9).toFixed(1) : null,
+    net_debt: bs?.netDebt != null && bs.netDebt !== 0 ? +(bs.netDebt / 1e9).toFixed(1) : null,
+    cash_and_equivalents: bs && bs.cashAndCashEquivalents > 0 ? +(bs.cashAndCashEquivalents / 1e9).toFixed(1) : null,
 
     // Scores & ratings
     fmp_rating: fmp.rating?.rating ?? null,
@@ -556,5 +567,8 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
 
     // Shareholder yield
     shareholder_yield: shareholderYield,
+
+    // Dividend yield (from FMP ratios-ttm, fallback for Yahoo)
+    dividend_yield: dividendYieldPct,
   };
 }
