@@ -17,16 +17,17 @@ async function computeAth(symbol: string): Promise<string | null> {
     const price = (quote as Record<string, unknown>)?.regularMarketPrice as number | undefined;
     if (!price) return null;
 
-    const closes = hist
-      .map((q: { close?: number | null }) => q.close)
-      .filter((c: number | null | undefined): c is number => c != null);
+    const highs = hist
+      .map((q: { high?: number | null }) => q.high)
+      .filter((h: number | null | undefined): h is number => h != null);
 
-    const ath = closes.length > 0
-      ? Math.max(...closes)
+    const ath = highs.length > 0
+      ? Math.max(...highs, price)
       : (quote as Record<string, unknown>).fiftyTwoWeekHigh ?? 0;
 
     if (Number(ath) <= 0) return null;
-    return `${(((price - Number(ath)) / Number(ath)) * 100).toFixed(1)}%`;
+    const pct = ((price - Number(ath)) / Number(ath)) * 100;
+    return `${Math.min(pct, 0).toFixed(1)}%`;
   } catch {
     return null;
   }

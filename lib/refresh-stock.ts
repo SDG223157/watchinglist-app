@@ -167,20 +167,22 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
   const { order: geoOrder, details: geoDetails } = computeGeometricOrder(closes);
   const tw = computeTrendWise(closes, closeDates);
 
-  // True ATH: fetch full history (monthly to keep payload small)
+  // True ATH: fetch full history (monthly, use high not close to capture intra-month peaks)
   const athHist = await cachedHistorical(symbol, "1970-01-01", "1mo");
-  const athCloses = athHist
-    .map((q: { close?: number | null }) => q.close)
-    .filter((c: number | null | undefined): c is number => c != null);
-  const allTimeHigh = athCloses.length > 0
-    ? Math.max(...athCloses)
+  const athHighs = athHist
+    .map((q: { high?: number | null }) => q.high)
+    .filter((h: number | null | undefined): h is number => h != null);
+  const allTimeHigh = athHighs.length > 0
+    ? Math.max(...athHighs, price)
     : closes.length > 0
-      ? Math.max(...closes)
+      ? Math.max(...closes, price)
       : (quote as Record<string, unknown>).fiftyTwoWeekHigh ?? 0;
-  const distFromAth =
-    Number(allTimeHigh) > 0
-      ? `${(((price - Number(allTimeHigh)) / Number(allTimeHigh)) * 100).toFixed(1)}%`
-      : null;
+  const pctFromAth = Number(allTimeHigh) > 0
+    ? ((price - Number(allTimeHigh)) / Number(allTimeHigh)) * 100
+    : null;
+  const distFromAth = pctFromAth != null
+    ? `${Math.min(pctFromAth, 0).toFixed(1)}%`
+    : null;
 
   const sector = (profile as Record<string, unknown>).sector || (quote as Record<string, unknown>).sector || null;
   const industry = (profile as Record<string, unknown>).industry || (quote as Record<string, unknown>).industry || null;
