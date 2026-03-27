@@ -167,8 +167,8 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
   const { order: geoOrder, details: geoDetails } = computeGeometricOrder(closes);
   const tw = computeTrendWise(closes, closeDates);
 
-  // True ATH: fetch full history (weekly to keep payload small)
-  const athHist = await cachedHistorical(symbol, "1970-01-01", "1wk");
+  // True ATH: fetch full history (monthly to keep payload small)
+  const athHist = await cachedHistorical(symbol, "1970-01-01", "1mo");
   const athCloses = athHist
     .map((q: { close?: number | null }) => q.close)
     .filter((c: number | null | undefined): c is number => c != null);
