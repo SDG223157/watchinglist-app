@@ -187,6 +187,15 @@ export async function fetchFmpIncomeQuarterly(symbol: string, limit = 8): Promis
   return data ?? [];
 }
 
+export async function fetchFmpIncomeAnnual(symbol: string, limit = 7): Promise<FmpIncomeQ[]> {
+  const data = await fmpGet<FmpIncomeQ[]>("income-statement", {
+    symbol,
+    period: "annual",
+    limit: String(limit),
+  });
+  return data ?? [];
+}
+
 export async function fetchFmpCashFlowQuarterly(symbol: string, limit = 8): Promise<FmpCashFlowQ[]> {
   const data = await fmpGet<FmpCashFlowQ[]>("cash-flow-statement", {
     symbol,
@@ -219,13 +228,14 @@ export interface FmpData {
   profile: FmpProfile | null;
   balanceSheet: FmpBalanceSheet | null;
   incomeQ: FmpIncomeQ[];
+  incomeAnnual: FmpIncomeQ[];
   cashFlowQ: FmpCashFlowQ[];
   estimates: FmpEstimate[];
   keyMetrics: FmpKeyMetricsTTM | null;
 }
 
 export async function fetchAllFmpData(symbol: string): Promise<FmpData> {
-  const [ratios, rating, dcf, profile, balanceSheet, incomeQ, cashFlowQ, estimates, keyMetrics] =
+  const [ratios, rating, dcf, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics] =
     await Promise.all([
       fetchFmpRatiosTTM(symbol),
       fetchFmpRating(symbol),
@@ -233,12 +243,13 @@ export async function fetchAllFmpData(symbol: string): Promise<FmpData> {
       fetchFmpProfile(symbol),
       fetchFmpBalanceSheet(symbol),
       fetchFmpIncomeQuarterly(symbol),
+      fetchFmpIncomeAnnual(symbol),
       fetchFmpCashFlowQuarterly(symbol),
       fetchFmpEstimates(symbol),
       fetchFmpKeyMetricsTTM(symbol),
     ]);
 
-  return { ratios, rating, dcf, profile, balanceSheet, incomeQ, cashFlowQ, estimates, keyMetrics };
+  return { ratios, rating, dcf, profile, balanceSheet, incomeQ, incomeAnnual, cashFlowQ, estimates, keyMetrics };
 }
 
 // ─── Derived computations from FMP data ───
@@ -247,6 +258,7 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
   const r = fmp.ratios;
   const bs = fmp.balanceSheet;
   const incQ = fmp.incomeQ;
+  const incA = fmp.incomeAnnual; // sorted newest-first from FMP
   const cfQ = fmp.cashFlowQ;
   const est = fmp.estimates;
 
@@ -330,6 +342,24 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
   if (divYield != null && mktCap && mktCap > 0) {
     const buybackYield = buybackRaw != null ? Math.abs(buybackRaw) / mktCap : 0;
     shareholderYield = +((divYield + buybackYield) * 100).toFixed(2);
+  }
+
+  // Revenue CAGR from FMP annual income statements (newest-first)
+  let revenueCagr3y: number | null = null;
+  let revenueCagr5y: number | null = null;
+  if (incA.length >= 4) {
+    const revNow = incA[0]?.revenue;
+    const rev3 = incA[3]?.revenue;
+    if (revNow && rev3 && rev3 > 0) {
+      revenueCagr3y = +((Math.pow(revNow / rev3, 1 / 3) - 1) * 100).toFixed(1);
+    }
+  }
+  if (incA.length >= 6) {
+    const revNow = incA[0]?.revenue;
+    const rev5 = incA[5]?.revenue;
+    if (revNow && rev5 && rev5 > 0) {
+      revenueCagr5y = +((Math.pow(revNow / rev5, 1 / 5) - 1) * 100).toFixed(1);
+    }
   }
 
   // Piotroski F-Score (computed from available data)
@@ -435,6 +465,10 @@ export function computeFmpDerived(fmp: FmpData, currentPrice: number) {
     revenue_growth_recent_q: revenueGrowthRecentQ,
     earnings_growth_ttm: earningsGrowthTtm,
     earnings_growth_recent_q: earningsGrowthRecentQ,
+
+    // CAGR (from FMP annual income statements)
+    revenue_cagr_3y: revenueCagr3y,
+    revenue_cagr_5y: revenueCagr5y,
 
     // Shareholder yield
     shareholder_yield: shareholderYield,
