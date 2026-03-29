@@ -156,3 +156,165 @@ export function diagnoseCapm(stock: WatchlistStock): CAPMDiagnostic {
 
   return { verdict, expected: exp, signals, summary };
 }
+
+// ── Market-Level Clock Diagnosis ──────────────────────────────
+
+export interface MarketClockDiagnosis {
+  market: string;
+  stockCount: number;
+  clockDistribution: { phase: string; count: number; pct: number }[];
+  dominantPhase: string;
+  dominantPct: number;
+  avgAlpha: number;
+  avgBeta: number;
+  avgR2: number;
+  deceleratingPct: number;
+  negativeAlphaPct: number;
+  highBetaPct: number;
+  regime: "RISK-ON EXPANSION" | "CROWDED PEAK" | "RISK-OFF CONTRACTION" | "EARLY RECOVERY" | "TRANSITIONAL" | "INSUFFICIENT DATA";
+  regimeSignals: string[];
+  summary: string;
+}
+
+export function diagnoseMarketClock(
+  stocks: WatchlistStock[],
+  market: string
+): MarketClockDiagnosis {
+  const nil: MarketClockDiagnosis = {
+    market, stockCount: 0, clockDistribution: [], dominantPhase: "—", dominantPct: 0,
+    avgAlpha: 0, avgBeta: 0, avgR2: 0, deceleratingPct: 0, negativeAlphaPct: 0, highBetaPct: 0,
+    regime: "INSUFFICIENT DATA", regimeSignals: [], summary: "Not enough stocks with CAPM + clock data",
+  };
+
+  const valid = stocks.filter(
+    (s) => s.capm_alpha != null && s.capm_beta != null && parseClockHour(s.clock_position) != null
+  );
+  if (valid.length < 3) return { ...nil, stockCount: valid.length };
+
+  const n = valid.length;
+
+  // Clock distribution
+  const buckets: Record<string, WatchlistStock[]> = {
+    "Birth (1–3)": [], "Peak (4–6)": [], "Bust (7–9)": [], "Recovery (10–12)": [],
+  };
+  for (const s of valid) {
+    const h = parseClockHour(s.clock_position)!;
+    if (h >= 1 && h <= 3) buckets["Birth (1–3)"].push(s);
+    else if (h >= 4 && h <= 6) buckets["Peak (4–6)"].push(s);
+    else if (h >= 7 && h <= 9) buckets["Bust (7–9)"].push(s);
+    else buckets["Recovery (10–12)"].push(s);
+  }
+  const clockDistribution = Object.entries(buckets).map(([phase, arr]) => ({
+    phase,
+    count: arr.length,
+    pct: Math.round((arr.length / n) * 100),
+  }));
+  const dominant = clockDistribution.reduce((a, b) => (b.count > a.count ? b : a));
+
+  // Aggregate CAPM metrics
+  const alphas = valid.map((s) => s.capm_alpha!);
+  const betas = valid.map((s) => s.capm_beta!);
+  const r2s = valid.filter((s) => s.capm_r2 != null).map((s) => s.capm_r2!);
+  const avgAlpha = Math.round((alphas.reduce((a, b) => a + b, 0) / n) * 10) / 10;
+  const avgBeta = Math.round((betas.reduce((a, b) => a + b, 0) / n) * 100) / 100;
+  const avgR2 = r2s.length > 0 ? Math.round((r2s.reduce((a, b) => a + b, 0) / r2s.length) * 100) / 100 : 0;
+
+  const deceleratingCount = valid.filter((s) => s.capm_alpha_trend === "decelerating").length;
+  const negAlphaCount = valid.filter((s) => s.capm_alpha! < 0).length;
+  const highBetaCount = valid.filter((s) => s.capm_beta! > 1.5).length;
+  const deceleratingPct = Math.round((deceleratingCount / n) * 100);
+  const negativeAlphaPct = Math.round((negAlphaCount / n) * 100);
+  const highBetaPct = Math.round((highBetaCount / n) * 100);
+
+  // Regime detection
+  const signals: string[] = [];
+  let regime: MarketClockDiagnosis["regime"] = "TRANSITIONAL";
+
+  // Signal 1: Alpha breadth
+  if (negativeAlphaPct > 60) {
+    signals.push(`${negativeAlphaPct}% of stocks have negative α — broad weakness`);
+  } else if (negativeAlphaPct < 30) {
+    signals.push(`Only ${negativeAlphaPct}% negative α — broad strength`);
+  }
+
+  // Signal 2: Alpha momentum
+  if (deceleratingPct > 50) {
+    signals.push(`${deceleratingPct}% of α trends decelerating — momentum fading`);
+  } else if (deceleratingPct < 25) {
+    signals.push(`Only ${deceleratingPct}% decelerating — momentum intact`);
+  }
+
+  // Signal 3: Beta clustering
+  if (highBetaPct > 40) {
+    signals.push(`${highBetaPct}% have β > 1.5 — high systematic exposure, crowded`);
+  } else if (avgBeta < 0.8) {
+    signals.push(`Avg β only ${avgBeta} — stocks decoupled from market`);
+  }
+
+  // Signal 4: R² convergence (herding)
+  if (avgR2 > 0.5) {
+    signals.push(`Avg R² = ${avgR2} — stocks moving in lockstep (herding)`);
+  } else if (avgR2 < 0.25) {
+    signals.push(`Avg R² = ${avgR2} — stocks driven by individual stories`);
+  }
+
+  // Signal 5: Average alpha level
+  if (avgAlpha > 10) {
+    signals.push(`Avg α = +${avgAlpha}% — market generating broad excess returns`);
+  } else if (avgAlpha < -5) {
+    signals.push(`Avg α = ${avgAlpha}% — market destroying value vs benchmark`);
+  }
+
+  // Signal 6: Clock consensus
+  if (dominant.pct >= 50) {
+    signals.push(`${dominant.pct}% of stocks at ${dominant.phase} — strong clock consensus`);
+  } else {
+    signals.push(`No dominant phase (max ${dominant.pct}% at ${dominant.phase}) — market in transition`);
+  }
+
+  // Determine regime from signals
+  const bullSignals = (avgAlpha > 5 ? 1 : 0) + (negativeAlphaPct < 35 ? 1 : 0) + (deceleratingPct < 30 ? 1 : 0);
+  const bearSignals = (avgAlpha < -5 ? 1 : 0) + (negativeAlphaPct > 55 ? 1 : 0) + (highBetaPct > 35 ? 1 : 0);
+  const crowdSignals = (deceleratingPct > 45 ? 1 : 0) + (avgR2 > 0.45 ? 1 : 0) + (highBetaPct > 35 ? 1 : 0);
+  const recoverySignals = (avgAlpha > -5 && avgAlpha < 5 ? 1 : 0)
+    + (valid.filter((s) => s.capm_alpha_trend === "accelerating").length / n > 0.3 ? 1 : 0)
+    + (avgR2 < 0.35 ? 1 : 0);
+
+  if (bullSignals >= 2 && crowdSignals < 2) {
+    regime = "RISK-ON EXPANSION";
+  } else if (crowdSignals >= 2 && deceleratingPct > 40) {
+    regime = "CROWDED PEAK";
+  } else if (bearSignals >= 2) {
+    regime = "RISK-OFF CONTRACTION";
+  } else if (recoverySignals >= 2 && negativeAlphaPct > 30) {
+    regime = "EARLY RECOVERY";
+  }
+
+  // Summary
+  const summaryParts: string[] = [];
+  if (regime === "RISK-ON EXPANSION") {
+    summaryParts.push("Broad alpha generation with momentum intact — market in expansion.");
+  } else if (regime === "CROWDED PEAK") {
+    summaryParts.push("Alpha fading while beta stays high — classic late-cycle crowding.");
+  } else if (regime === "RISK-OFF CONTRACTION") {
+    summaryParts.push("Widespread negative alpha with high correlation — risk-off regime.");
+  } else if (regime === "EARLY RECOVERY") {
+    summaryParts.push("Alpha improving from negative, correlation dropping — early recovery.");
+  } else {
+    summaryParts.push("Mixed signals across stocks — market between regimes.");
+  }
+  summaryParts.push(`Dominant phase: ${dominant.phase} (${dominant.pct}% of ${n} stocks).`);
+
+  return {
+    market,
+    stockCount: n,
+    clockDistribution,
+    dominantPhase: dominant.phase,
+    dominantPct: dominant.pct,
+    avgAlpha, avgBeta, avgR2,
+    deceleratingPct, negativeAlphaPct, highBetaPct,
+    regime,
+    regimeSignals: signals,
+    summary: summaryParts.join(" "),
+  };
+}

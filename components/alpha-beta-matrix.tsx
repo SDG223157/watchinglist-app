@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import type { WatchlistStock } from "@/lib/db";
-import { diagnoseCapm, CLOCK_FRAMEWORK, type DiagnosticVerdict } from "@/lib/capm-diagnostic";
+import { diagnoseCapm, diagnoseMarketClock, CLOCK_FRAMEWORK, type DiagnosticVerdict, type MarketClockDiagnosis } from "@/lib/capm-diagnostic";
 
 interface Props {
   stocks: WatchlistStock[];
@@ -140,6 +140,10 @@ export function AlphaBetaMatrix({ stocks }: Props) {
           {AXIS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
+
+      {/* Market Clock Diagnosis */}
+      <MarketClockCards stocks={filtered} allStocks={stocks} />
+
 
       {/* Stat cards */}
       {(() => {
@@ -411,6 +415,144 @@ export function AlphaBetaMatrix({ stocks }: Props) {
           font-size: 12px;
         }
       `}</style>
+    </div>
+  );
+}
+
+function RegimeColor(regime: MarketClockDiagnosis["regime"]): string {
+  switch (regime) {
+    case "RISK-ON EXPANSION": return "var(--green)";
+    case "CROWDED PEAK": return "var(--yellow)";
+    case "RISK-OFF CONTRACTION": return "var(--red)";
+    case "EARLY RECOVERY": return "#3b82f6";
+    case "TRANSITIONAL": return "var(--muted)";
+    default: return "var(--muted)";
+  }
+}
+
+function RegimeIcon(regime: MarketClockDiagnosis["regime"]): string {
+  switch (regime) {
+    case "RISK-ON EXPANSION": return "▲";
+    case "CROWDED PEAK": return "⚠";
+    case "RISK-OFF CONTRACTION": return "▼";
+    case "EARLY RECOVERY": return "↗";
+    case "TRANSITIONAL": return "↔";
+    default: return "—";
+  }
+}
+
+function MarketClockCards({ stocks, allStocks }: { stocks: WatchlistStock[]; allStocks: WatchlistStock[] }) {
+  const markets = useMemo(() => {
+    const byMarket: Record<string, WatchlistStock[]> = {};
+    for (const s of allStocks) {
+      const m = s.symbol.endsWith(".HK") ? "HK"
+        : s.symbol.endsWith(".SS") || s.symbol.endsWith(".SZ") ? "China"
+        : "US";
+      (byMarket[m] ??= []).push(s);
+    }
+    const diagnoses: MarketClockDiagnosis[] = [];
+    for (const [mkt, arr] of Object.entries(byMarket)) {
+      if (arr.length >= 2) diagnoses.push(diagnoseMarketClock(arr, mkt));
+    }
+    if (allStocks.length >= 3) {
+      diagnoses.unshift(diagnoseMarketClock(allStocks, "All Markets"));
+    }
+    return diagnoses;
+  }, [allStocks]);
+
+  if (markets.length === 0) return null;
+
+  return (
+    <div className="mb-5">
+      <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "var(--blue)" }}>
+        Market Clock Diagnosis
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {markets.map((d) => {
+          const rc = RegimeColor(d.regime);
+          return (
+            <div key={d.market} className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold">{d.market}</span>
+                <span className="text-[10px] font-mono" style={{ color: "var(--muted)" }}>
+                  {d.stockCount} stocks
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg font-bold" style={{ color: rc }}>
+                  {RegimeIcon(d.regime)}
+                </span>
+                <span className="text-sm font-bold" style={{ color: rc }}>
+                  {d.regime}
+                </span>
+              </div>
+              {/* Phase distribution bar */}
+              <div className="flex h-2 rounded-full overflow-hidden mb-2" style={{ background: "rgba(255,255,255,0.06)" }}>
+                {d.clockDistribution.map((p) => {
+                  const phaseColor = p.phase.includes("Birth") ? "#2563eb"
+                    : p.phase.includes("Peak") ? "#22c55e"
+                    : p.phase.includes("Bust") ? "#ef4444"
+                    : "#f59e0b";
+                  return p.pct > 0 ? (
+                    <div key={p.phase} style={{ width: `${p.pct}%`, background: phaseColor }} title={`${p.phase}: ${p.count} (${p.pct}%)`} />
+                  ) : null;
+                })}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] mb-2" style={{ color: "var(--muted)" }}>
+                {d.clockDistribution.filter((p) => p.count > 0).map((p) => (
+                  <span key={p.phase}>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5 align-middle" style={{
+                      background: p.phase.includes("Birth") ? "#2563eb"
+                        : p.phase.includes("Peak") ? "#22c55e"
+                        : p.phase.includes("Bust") ? "#ef4444"
+                        : "#f59e0b",
+                    }} />
+                    {p.phase.split(" ")[0]} {p.pct}%
+                  </span>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[10px] font-mono mb-2">
+                <div>
+                  <div style={{ color: "var(--muted)" }}>Avg α</div>
+                  <div style={{ color: d.avgAlpha >= 0 ? "var(--green)" : "var(--red)" }}>
+                    {d.avgAlpha >= 0 ? "+" : ""}{d.avgAlpha}%
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--muted)" }}>Avg β</div>
+                  <div>{d.avgBeta}</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--muted)" }}>Avg R²</div>
+                  <div>{d.avgR2}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[10px] font-mono mb-3">
+                <div>
+                  <div style={{ color: "var(--muted)" }}>α &lt; 0</div>
+                  <div style={{ color: d.negativeAlphaPct > 50 ? "var(--red)" : "var(--text)" }}>{d.negativeAlphaPct}%</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--muted)" }}>α decel</div>
+                  <div style={{ color: d.deceleratingPct > 45 ? "var(--red)" : "var(--text)" }}>{d.deceleratingPct}%</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--muted)" }}>β &gt; 1.5</div>
+                  <div style={{ color: d.highBetaPct > 35 ? "var(--yellow)" : "var(--text)" }}>{d.highBetaPct}%</div>
+                </div>
+              </div>
+              {/* Signals */}
+              <div className="space-y-1">
+                {d.regimeSignals.map((sig, i) => (
+                  <div key={i} className="text-[10px] leading-tight" style={{ color: "var(--muted)" }}>
+                    {sig}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
