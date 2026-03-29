@@ -60,6 +60,85 @@ function computeTrendWise(
   return { signal: lastSignal || "No Signal", entryDate, entryPrice };
 }
 
+function computeCapmFromReturns(
+  stockCloses: number[],
+  benchCloses: number[],
+  window: number,
+  benchSym: string
+): {
+  alpha: number | null;
+  beta: number | null;
+  r2: number | null;
+  benchmark: string;
+  alpha1y: number | null;
+  alphaTrend: string | null;
+} {
+  const nil = { alpha: null, beta: null, r2: null, benchmark: benchSym, alpha1y: null, alphaTrend: null };
+  const n = Math.min(stockCloses.length, benchCloses.length);
+  if (n < window + 1) return nil;
+
+  const sCloses = stockCloses.slice(-n);
+  const bCloses = benchCloses.slice(-n);
+
+  function dailyReturns(c: number[]): number[] {
+    return c.slice(1).map((v, i) => (v - c[i]) / c[i]);
+  }
+
+  function regress(y: number[], x: number[]): { alpha: number; beta: number; r2: number } {
+    const len = y.length;
+    if (len === 0) return { alpha: 0, beta: 0, r2: 0 };
+    let sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+    for (let i = 0; i < len; i++) {
+      sx += x[i]; sy += y[i]; sxx += x[i] * x[i]; sxy += x[i] * y[i]; syy += y[i] * y[i];
+    }
+    const denom = len * sxx - sx * sx;
+    if (Math.abs(denom) < 1e-15) return { alpha: 0, beta: 0, r2: 0 };
+    const b = (len * sxy - sx * sy) / denom;
+    const a = (sy - b * sx) / len;
+    const ssTot = syy - (sy * sy) / len;
+    const ssRes = y.reduce((s, yi, i) => s + (yi - a - b * x[i]) ** 2, 0);
+    const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+    return { alpha: a, beta: b, r2 };
+  }
+
+  const sRet = dailyReturns(sCloses);
+  const bRet = dailyReturns(bCloses);
+
+  // 6-month window
+  const sRet6 = sRet.slice(-window);
+  const bRet6 = bRet.slice(-window);
+  const reg6 = regress(sRet6, bRet6);
+  const alpha6Ann = reg6.alpha * 252 * 100;
+
+  // 1-year window
+  const win1y = Math.min(252, sRet.length);
+  let alpha1y: number | null = null;
+  if (win1y >= 200) {
+    const reg1y = regress(sRet.slice(-win1y), bRet.slice(-win1y));
+    alpha1y = Math.round(reg1y.alpha * 252 * 100 * 10) / 10;
+  }
+
+  // Alpha trend: compare first-half vs second-half 6M alpha
+  let alphaTrend: string | null = "stable";
+  if (sRet.length >= window * 2) {
+    const firstHalf = regress(sRet.slice(-window * 2, -window), bRet.slice(-window * 2, -window));
+    const a1 = firstHalf.alpha * 252 * 100;
+    const a2 = alpha6Ann;
+    const diff = a2 - a1;
+    if (diff > 5) alphaTrend = "accelerating";
+    else if (diff < -5) alphaTrend = "decelerating";
+  }
+
+  return {
+    alpha: Math.round(alpha6Ann * 10) / 10,
+    beta: Math.round(reg6.beta * 100) / 100,
+    r2: Math.round(reg6.r2 * 100) / 100,
+    benchmark: benchSym,
+    alpha1y,
+    alphaTrend,
+  };
+}
+
 function computeGeometricOrder(closes: number[]): {
   order: number;
   details: string;
@@ -166,6 +245,25 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
 
   const { order: geoOrder, details: geoDetails } = computeGeometricOrder(closes);
   const tw = computeTrendWise(closes, closeDates);
+
+  // CAPM: fetch benchmark and compute alpha/beta/R²
+  const benchSym = symbol.endsWith(".SS") || symbol.endsWith(".SZ")
+    ? "000300.SS"
+    : symbol.endsWith(".HK")
+      ? "^HSI"
+      : "^GSPC";
+  let capm = { alpha: null as number | null, beta: null as number | null, r2: null as number | null, benchmark: benchSym, alpha1y: null as number | null, alphaTrend: null as string | null };
+  try {
+    const benchHist = await cachedHistorical(benchSym, "2020-01-01", "1d");
+    const benchCloses = benchHist
+      .map((q: { close?: number | null }) => q.close)
+      .filter((c: number | null | undefined): c is number => c != null);
+    if (benchCloses.length > 130 && closes.length > 130) {
+      capm = computeCapmFromReturns(closes, benchCloses, 126, benchSym);
+    }
+  } catch {
+    // Benchmark fetch failed — leave CAPM null
+  }
 
   // True ATH: fetch full history (monthly, use high not close to capture intra-month peaks)
   const athHist = await cachedHistorical(symbol, "1970-01-01", "1mo");
@@ -366,6 +464,12 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         earnings_growth_ttm = COALESCE(${fmp.earnings_growth_ttm}, earnings_growth_ttm),
         earnings_growth_recent_q = COALESCE(${fmp.earnings_growth_recent_q}, earnings_growth_recent_q),
         shareholder_yield = COALESCE(${fmp.shareholder_yield}, shareholder_yield),
+        capm_alpha = COALESCE(${capm.alpha}, capm_alpha),
+        capm_beta = COALESCE(${capm.beta}, capm_beta),
+        capm_r2 = COALESCE(${capm.r2}, capm_r2),
+        capm_benchmark = COALESCE(${capm.benchmark}, capm_benchmark),
+        capm_alpha_1y = COALESCE(${capm.alpha1y}, capm_alpha_1y),
+        capm_alpha_trend = COALESCE(${capm.alphaTrend}, capm_alpha_trend),
         data_sources = ${dataSources},
         updated_at = NOW()
       WHERE id = ${existing[0].id}
@@ -393,6 +497,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         revenue_growth_ttm, revenue_growth_recent_q,
         earnings_growth_ttm, earnings_growth_recent_q,
         shareholder_yield,
+        capm_alpha, capm_beta, capm_r2, capm_benchmark, capm_alpha_1y, capm_alpha_trend,
         data_sources
       ) VALUES (
         ${symbol},
@@ -464,6 +569,7 @@ export async function refreshStockData(symbol: string): Promise<RefreshResult> {
         ${fmp.earnings_growth_ttm},
         ${fmp.earnings_growth_recent_q},
         ${fmp.shareholder_yield},
+        ${capm.alpha}, ${capm.beta}, ${capm.r2}, ${capm.benchmark}, ${capm.alpha1y}, ${capm.alphaTrend},
         ${dataSources}
       )
     `;
