@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { fetchStock, fetchStockHistory, getCachedHeatmap } from "@/lib/db";
+import { fetchStock, fetchStockHistory, getCachedHeatmap, isAnalyzed } from "@/lib/db";
 import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { fetchPeerComparison, type PeerMetrics, fetchRevenueSegmentation, type RevenueSegmentation } from "@/lib/fmp";
 import { AnalyzeButton } from "@/components/analyze-button";
@@ -429,7 +429,7 @@ export default async function StockDetail({
             <span className="font-mono text-lg" style={{ color: "var(--blue)" }}>
               {stock.symbol}
             </span>
-            {N(stock.composite_score) != null && (
+            {N(stock.composite_score) != null && isAnalyzed(stock) && (
               <span
                 className="font-mono text-sm font-bold px-2 py-0.5 rounded"
                 style={{

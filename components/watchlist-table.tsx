@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { WatchlistStock, HeatmapRow } from "@/lib/db";
+import { isAnalyzed } from "@/lib/db";
 import type { StockHeatmapContext } from "@/lib/heatmap-match";
 import { computeCompositeScore } from "@/lib/composite-score";
 import { detectTriggers, worstLevel } from "@/lib/reanalysis-triggers";
@@ -196,14 +197,14 @@ function TriggerDot({ stock }: { stock: WatchlistStock }) {
 
 function ScoreBadge({ stock }: { stock: WatchlistStock }) {
   const { total, grade, gradeColor } = computeCompositeScore(stock);
-  const analyzed = !!(stock.analysis_report && stock.green_walls != null);
+  const analyzed = isAnalyzed(stock);
   return (
     <div className="flex items-center gap-1.5">
       <span
         className="text-sm font-bold font-mono"
         style={{ color: analyzed ? gradeColor : "var(--muted)", opacity: analyzed ? 1 : 0.5 }}
       >
-        {total}
+        {analyzed ? total : "—"}
       </span>
       <span
         className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
@@ -281,6 +282,9 @@ export function WatchlistTable({ stocks: initial, heatmapContext }: Props) {
 
   const stocks = [...filtered].sort((a, b) => {
     if (sortKey === "composite_score") {
+      const aOk = isAnalyzed(a);
+      const bOk = isAnalyzed(b);
+      if (aOk !== bOk) return aOk ? -1 : 1;
       const av = a.composite_score || computeCompositeScore(a).total;
       const bv = b.composite_score || computeCompositeScore(b).total;
       return sortAsc ? av - bv : bv - av;

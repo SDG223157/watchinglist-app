@@ -164,6 +164,18 @@ export interface WatchlistStock {
   created_at: string;
 }
 
+/**
+ * A stock is "analyzed" only if GPT-5.4 has run on it, producing wall colors
+ * and moat data. Batch-added stocks (index scans) have all-zero walls and
+ * null moat — their composite score is a meaningless default.
+ */
+export function isAnalyzed(s: WatchlistStock): boolean {
+  const hasWalls = (s.green_walls || 0) + (s.yellow_walls || 0) + (s.red_walls || 0) > 0;
+  const hasMoat = !!s.moat_width;
+  const hasReport = !!s.analysis_report;
+  return hasReport || hasWalls || hasMoat;
+}
+
 export async function fetchAllLatest(): Promise<WatchlistStock[]> {
   const sql = getDb();
   const rows = await sql`
