@@ -513,9 +513,9 @@ function MarketClockCards({ stocks, allStocks }: { stocks: WatchlistStock[]; all
               {/* Phase distribution bar */}
               <div className="flex h-2 rounded-full overflow-hidden mb-2" style={{ background: "rgba(255,255,255,0.06)" }}>
                 {d.clockDistribution.map((p) => {
-                  const phaseColor = p.phase.includes("Birth") ? "#2563eb"
-                    : p.phase.includes("Peak") ? "#22c55e"
-                    : p.phase.includes("Bust") ? "#ef4444"
+                  const phaseColor = p.phase.includes("Valley") ? "#ef4444"
+                    : p.phase.includes("Recovery") ? "#2563eb"
+                    : p.phase.includes("Saturation") ? "#22c55e"
                     : "#f59e0b";
                   return p.pct > 0 ? (
                     <div key={p.phase} style={{ width: `${p.pct}%`, background: phaseColor }} title={`${p.phase}: ${p.count} (${p.pct}%)`} />
@@ -526,12 +526,12 @@ function MarketClockCards({ stocks, allStocks }: { stocks: WatchlistStock[]; all
                 {d.clockDistribution.filter((p) => p.count > 0).map((p) => (
                   <span key={p.phase}>
                     <span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5 align-middle" style={{
-                      background: p.phase.includes("Birth") ? "#2563eb"
-                        : p.phase.includes("Peak") ? "#22c55e"
-                        : p.phase.includes("Bust") ? "#ef4444"
+                      background: p.phase.includes("Valley") ? "#ef4444"
+                        : p.phase.includes("Recovery") ? "#2563eb"
+                        : p.phase.includes("Saturation") ? "#22c55e"
                         : "#f59e0b",
                     }} />
-                    {p.phase.split(" ")[0]} {p.pct}%
+                    {p.phase.split(" (")[0]} {p.pct}%
                   </span>
                 ))}
               </div>

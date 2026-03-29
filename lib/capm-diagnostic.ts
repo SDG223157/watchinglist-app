@@ -12,40 +12,40 @@ export interface ClockExpectation {
 
 export const CLOCK_FRAMEWORK: ClockExpectation[] = [
   {
-    hours: "1–3",
-    phase: "Narrative Birth",
-    alphaRange: "Turning positive, rising",
-    betaRange: "Low → rising (<1)",
-    r2Range: "Low (<0.3)",
-    signature: "Idiosyncratic story decoupling from market",
-    warnings: "High R² too early = no unique story, just riding market",
+    hours: "5–6",
+    phase: "Phase 1: Valley of Despair",
+    alphaRange: "Deeply negative, may start stabilizing",
+    betaRange: "High (>1.5) but starting to decline",
+    r2Range: "High (>0.5) — trapped in market gravity",
+    signature: "Maximum pessimism, everyone selling. α at floor but bleeding slows",
+    warnings: "α still accelerating downward = not yet at valley floor",
   },
   {
-    hours: "4–6",
-    phase: "Narrative Peak",
-    alphaRange: "High positive (>15%)",
+    hours: "7–11",
+    phase: "Phase 2: Recovery / Acceleration",
+    alphaRange: "Turning positive, accelerating",
+    betaRange: "Declining toward or below 1",
+    r2Range: "Falling (<0.4) — decoupling from market",
+    signature: "New narrative forming. Stock rebuilds idiosyncratic story, β normalizes",
+    warnings: "High R² + low α = still riding market, no unique recovery story",
+  },
+  {
+    hours: "11–1",
+    phase: "Phase 3: Saturation / Crowded Top",
+    alphaRange: "High (>15%) but decelerating",
     betaRange: "Rising, often >1",
-    r2Range: "Moderate (0.3–0.5)",
-    signature: "Strong excess return with growing market participation",
-    warnings: "α decelerating while β rising = crowding, peak forming",
+    r2Range: "Moderate → rising (0.3–0.6) as crowd piles in",
+    signature: "Peak narrative. Everyone owns it, α fading, correlation increasing",
+    warnings: "α decelerating + β rising + R² climbing = classic crowding signal",
   },
   {
-    hours: "7–9",
-    phase: "Narrative Bust",
-    alphaRange: "Collapsing → negative",
-    betaRange: "High (>1.5), sticky",
-    r2Range: "Rising (>0.5)",
-    signature: "Loses alpha but keeps beta — worst combination",
-    warnings: "β stays high but α goes negative = trapped in market gravity",
-  },
-  {
-    hours: "10–12",
-    phase: "Recovery / New Cycle",
-    alphaRange: "Negative but improving",
-    betaRange: "Declining toward 1",
-    r2Range: "High then falling",
-    signature: "Rebuilding idiosyncratic story, de-correlating",
-    warnings: "α still negative + high R² = still in market gravity well",
+    hours: "1–5",
+    phase: "Phase 4: Collapse",
+    alphaRange: "Collapsing → deeply negative",
+    betaRange: "High (>1.5), sticky — can't escape",
+    r2Range: "High (>0.5) — locked to market downside",
+    signature: "Narrative breaks. Loses alpha but keeps beta = worst combination",
+    warnings: "β stays high + α goes negative = trapped, amplifying losses",
   },
 ];
 
@@ -71,10 +71,11 @@ function parseClockHour(cp: string | null): number | null {
 }
 
 function getExpectation(hour: number): ClockExpectation {
-  if (hour >= 1 && hour <= 3) return CLOCK_FRAMEWORK[0];
-  if (hour >= 4 && hour <= 6) return CLOCK_FRAMEWORK[1];
-  if (hour >= 7 && hour <= 9) return CLOCK_FRAMEWORK[2];
-  return CLOCK_FRAMEWORK[3];
+  // Market Clock: P1 Valley(5-6), P2 Recovery(7-11), P3 Saturation(11-1), P4 Collapse(1-5)
+  if (hour >= 5 && hour <= 6) return CLOCK_FRAMEWORK[0]; // Phase 1: Valley of Despair
+  if (hour >= 7 && hour <= 10) return CLOCK_FRAMEWORK[1]; // Phase 2: Recovery / Acceleration
+  if (hour >= 11 || hour <= 1) return CLOCK_FRAMEWORK[2]; // Phase 3: Saturation / Crowded Top
+  return CLOCK_FRAMEWORK[3]; // Phase 4: Collapse (2-4)
 }
 
 export function diagnoseCapm(stock: WatchlistStock): CAPMDiagnostic {
@@ -91,51 +92,64 @@ export function diagnoseCapm(stock: WatchlistStock): CAPMDiagnostic {
   const exp = getExpectation(hour);
   const signals: DiagnosticSignal[] = [];
 
-  if (hour >= 1 && hour <= 3) {
-    // Narrative Birth: expect α turning positive, β low, R² low
-    if (a > 0) signals.push({ metric: "alpha", status: "ok", message: `α positive (+${a.toFixed(1)}%) — narrative gaining traction` });
-    else signals.push({ metric: "alpha", status: "contradiction", message: `α negative (${a.toFixed(1)}%) at clock ${hour} — narrative not generating returns yet` });
+  const phase = getExpectation(hour);
+  const phaseIdx = CLOCK_FRAMEWORK.indexOf(phase);
 
-    if (b != null && b < 1) signals.push({ metric: "beta", status: "ok", message: `β < 1 (${b.toFixed(2)}) — low market exposure, idiosyncratic` });
-    else if (b != null) signals.push({ metric: "beta", status: "warning", message: `β > 1 (${b.toFixed(2)}) at birth — too correlated for early narrative` });
+  if (phaseIdx === 0) {
+    // Phase 1: Valley of Despair (5-6) — α deeply negative, β high, R² high
+    if (a < -10) signals.push({ metric: "alpha", status: "ok", message: `α deeply negative (${a.toFixed(1)}%) — consistent with valley` });
+    else if (a < 0) signals.push({ metric: "alpha", status: "ok", message: `α negative (${a.toFixed(1)}%) — pain confirmed` });
+    else signals.push({ metric: "alpha", status: "contradiction", message: `α positive (+${a.toFixed(1)}%) at valley clock — stock has already recovered` });
 
-    if (r2 != null && r2 < 0.3) signals.push({ metric: "r2", status: "ok", message: `R² low (${r2.toFixed(2)}) — stock decoupled from market` });
-    else if (r2 != null) signals.push({ metric: "r2", status: "warning", message: `R² high (${r2.toFixed(2)}) at birth — no unique story, just riding market` });
+    if (b != null && b > 1.5) signals.push({ metric: "beta", status: "ok", message: `β high (${b.toFixed(2)}) — still trapped in market gravity` });
+    else if (b != null && b > 1) signals.push({ metric: "beta", status: "ok", message: `β elevated (${b.toFixed(2)}) — market exposure` });
+    else if (b != null) signals.push({ metric: "beta", status: "warning", message: `β low (${b.toFixed(2)}) for valley — may have already de-risked` });
 
-  } else if (hour >= 4 && hour <= 6) {
-    // Narrative Peak: expect α high, β rising, R² moderate
-    if (a > 15) signals.push({ metric: "alpha", status: "ok", message: `α strong (+${a.toFixed(1)}%) — narrative in full bloom` });
-    else if (a > 0) signals.push({ metric: "alpha", status: "warning", message: `α moderate (+${a.toFixed(1)}%) — expected higher at peak clock` });
-    else signals.push({ metric: "alpha", status: "contradiction", message: `α negative (${a.toFixed(1)}%) at peak clock — narrative not delivering` });
+    if (r2 != null && r2 > 0.5) signals.push({ metric: "r2", status: "ok", message: `R² high (${r2.toFixed(2)}) — locked to market downturn` });
 
-    if (trend === "decelerating") signals.push({ metric: "trend", status: "warning", message: "α decelerating — peak may be forming, crowding risk" });
-    else if (trend === "accelerating") signals.push({ metric: "trend", status: "ok", message: "α still accelerating — narrative momentum intact" });
+    if (trend === "accelerating") signals.push({ metric: "trend", status: "ok", message: "α stabilizing / improving — possible valley floor" });
+    else if (trend === "decelerating") signals.push({ metric: "trend", status: "warning", message: "α still accelerating downward — not yet at floor" });
 
-    if (r2 != null && r2 > 0.5) signals.push({ metric: "r2", status: "warning", message: `R² high (${r2.toFixed(2)}) at peak — becoming market-driven, losing uniqueness` });
-
-  } else if (hour >= 7 && hour <= 9) {
-    // Narrative Bust: expect α collapsing, β high+sticky, R² rising
-    if (a < -10) signals.push({ metric: "alpha", status: "ok", message: `α deeply negative (${a.toFixed(1)}%) — consistent with bust` });
-    else if (a < 0) signals.push({ metric: "alpha", status: "ok", message: `α negative (${a.toFixed(1)}%) — bust confirmed` });
-    else signals.push({ metric: "alpha", status: "contradiction", message: `α positive (+${a.toFixed(1)}%) at bust clock — clock may be wrong, or recovery underway` });
-
-    if (b != null && b > 1.5) signals.push({ metric: "beta", status: "warning", message: `β high (${b.toFixed(2)}) and sticky — trapped, amplifying market losses` });
-    else if (b != null && b > 1) signals.push({ metric: "beta", status: "ok", message: `β > 1 (${b.toFixed(2)}) — elevated market exposure during bust` });
-
-    if (trend === "accelerating") signals.push({ metric: "trend", status: "ok", message: "α improving — possible early recovery signal" });
-
-  } else {
-    // Recovery (10–12): expect α negative but improving, β declining, R² falling
-    if (a > 0 && trend === "accelerating") signals.push({ metric: "alpha", status: "ok", message: `α positive (+${a.toFixed(1)}%) and accelerating — recovery narrative working` });
+  } else if (phaseIdx === 1) {
+    // Phase 2: Recovery / Acceleration (7-11) — α improving → positive, β declining, R² falling
+    if (a > 0 && trend === "accelerating") signals.push({ metric: "alpha", status: "ok", message: `α positive (+${a.toFixed(1)}%) and accelerating — recovery in full swing` });
     else if (a > 0) signals.push({ metric: "alpha", status: "ok", message: `α positive (+${a.toFixed(1)}%) — recovery generating excess returns` });
     else if (trend === "accelerating") signals.push({ metric: "alpha", status: "warning", message: `α still negative (${a.toFixed(1)}%) but improving — early recovery` });
     else signals.push({ metric: "alpha", status: "contradiction", message: `α negative (${a.toFixed(1)}%) and not improving at recovery clock — narrative stalled` });
 
-    if (r2 != null && r2 > 0.6) signals.push({ metric: "r2", status: "warning", message: `R² still high (${r2.toFixed(2)}) — stock hasn't escaped market gravity` });
-    else if (r2 != null && r2 < 0.3) signals.push({ metric: "r2", status: "ok", message: `R² dropping (${r2.toFixed(2)}) — rebuilding idiosyncratic narrative` });
+    if (b != null && b < 1.2) signals.push({ metric: "beta", status: "ok", message: `β normalizing (${b.toFixed(2)}) — de-risking from market` });
+    else if (b != null && b > 1.5) signals.push({ metric: "beta", status: "warning", message: `β still high (${b.toFixed(2)}) in recovery — hasn't de-leveraged` });
 
-    if (b != null && b < 1) signals.push({ metric: "beta", status: "ok", message: `β declining (${b.toFixed(2)}) — de-risking from market` });
-    else if (b != null && b > 1.5) signals.push({ metric: "beta", status: "warning", message: `β still high (${b.toFixed(2)}) at recovery — hasn't de-leveraged from market` });
+    if (r2 != null && r2 < 0.4) signals.push({ metric: "r2", status: "ok", message: `R² falling (${r2.toFixed(2)}) — rebuilding idiosyncratic story` });
+    else if (r2 != null && r2 > 0.6) signals.push({ metric: "r2", status: "warning", message: `R² still high (${r2.toFixed(2)}) — stock hasn't escaped market gravity` });
+
+  } else if (phaseIdx === 2) {
+    // Phase 3: Saturation / Crowded Top (11-1) — α high but decelerating, β rising, R² rising
+    if (a > 15) signals.push({ metric: "alpha", status: "ok", message: `α strong (+${a.toFixed(1)}%) — narrative in full bloom` });
+    else if (a > 0) signals.push({ metric: "alpha", status: "warning", message: `α moderate (+${a.toFixed(1)}%) — expected higher at saturation` });
+    else signals.push({ metric: "alpha", status: "contradiction", message: `α negative (${a.toFixed(1)}%) at crowded top — narrative already broke` });
+
+    if (trend === "decelerating") signals.push({ metric: "trend", status: "warning", message: "α decelerating — classic saturation signal, crowd piling in" });
+    else if (trend === "accelerating") signals.push({ metric: "trend", status: "ok", message: "α still accelerating — not yet saturated" });
+
+    if (b != null && b > 1) signals.push({ metric: "beta", status: "ok", message: `β elevated (${b.toFixed(2)}) — market participation high` });
+
+    if (r2 != null && r2 > 0.4) signals.push({ metric: "r2", status: "warning", message: `R² rising (${r2.toFixed(2)}) — becoming market-driven, losing uniqueness` });
+
+  } else {
+    // Phase 4: Collapse (1-5) — α collapsing, β high+sticky, R² high
+    if (a < -10) signals.push({ metric: "alpha", status: "ok", message: `α deeply negative (${a.toFixed(1)}%) — collapse confirmed` });
+    else if (a < 0) signals.push({ metric: "alpha", status: "ok", message: `α negative (${a.toFixed(1)}%) — narrative breaking` });
+    else signals.push({ metric: "alpha", status: "contradiction", message: `α positive (+${a.toFixed(1)}%) at collapse clock — clock may be wrong` });
+
+    if (b != null && b > 1.5) signals.push({ metric: "beta", status: "warning", message: `β high (${b.toFixed(2)}) and sticky — trapped, amplifying losses` });
+    else if (b != null && b > 1) signals.push({ metric: "beta", status: "ok", message: `β elevated (${b.toFixed(2)}) — market exposure during collapse` });
+    else if (b != null) signals.push({ metric: "beta", status: "warning", message: `β low (${b.toFixed(2)}) at collapse — doesn't fit collapse pattern` });
+
+    if (r2 != null && r2 > 0.5) signals.push({ metric: "r2", status: "ok", message: `R² high (${r2.toFixed(2)}) — locked to market downside` });
+
+    if (trend === "accelerating") signals.push({ metric: "trend", status: "ok", message: "α improving — possible bottoming" });
+    else if (trend === "decelerating") signals.push({ metric: "trend", status: "ok", message: "α still falling — collapse ongoing" });
   }
 
   const contradictions = signals.filter((s) => s.status === "contradiction").length;
@@ -179,69 +193,70 @@ export function detectPhaseFromCapm(stock: WatchlistStock): CAPMImpliedPhase {
     return { phase: "Unknown", hours: "—", confidence: "LOW", llmClock: stock.clock_position, agreement: false, reasoning: "Insufficient CAPM data" };
   }
 
-  // Score each phase by how well the data fits
+  // Score each market clock phase
   const scores: { phase: string; hours: string; score: number; reasons: string[] }[] = [
-    { phase: "Narrative Birth", hours: "1–3", score: 0, reasons: [] },
-    { phase: "Narrative Peak", hours: "4–6", score: 0, reasons: [] },
-    { phase: "Narrative Bust", hours: "7–9", score: 0, reasons: [] },
-    { phase: "Recovery / New Cycle", hours: "10–12", score: 0, reasons: [] },
+    { phase: "P1 Valley of Despair", hours: "5–6", score: 0, reasons: [] },
+    { phase: "P2 Recovery", hours: "7–11", score: 0, reasons: [] },
+    { phase: "P3 Saturation", hours: "11–1", score: 0, reasons: [] },
+    { phase: "P4 Collapse", hours: "1–5", score: 0, reasons: [] },
   ];
 
-  // ── Birth (1–3): α turning positive, β low, R² low ──
-  if (a > 0 && a <= 15) scores[0].score += 2, scores[0].reasons.push(`α moderate (+${a.toFixed(0)}%)`);
-  else if (a > 15) scores[0].score += 0.5, scores[0].reasons.push("α too high for birth");
-  else scores[0].score -= 1;
+  // ── P1 Valley (5–6): α deeply negative, β high, R² high, α may stabilize ──
+  if (a < -15) scores[0].score += 3, scores[0].reasons.push(`deeply negative α (${a.toFixed(0)}%)`);
+  else if (a < -5) scores[0].score += 2, scores[0].reasons.push(`negative α (${a.toFixed(0)}%)`);
+  else if (a < 0) scores[0].score += 1;
+  else scores[0].score -= 2;
 
-  if (b < 0.8) scores[0].score += 2, scores[0].reasons.push(`low β (${b.toFixed(2)})`);
-  else if (b < 1.2) scores[0].score += 0.5;
-  else scores[0].score -= 1;
+  if (b > 1.5) scores[0].score += 1.5, scores[0].reasons.push(`high β (${b.toFixed(2)}) — trapped`);
+  else if (b > 1) scores[0].score += 0.5;
 
-  if (r2 != null && r2 < 0.25) scores[0].score += 2, scores[0].reasons.push(`low R² (${r2.toFixed(2)})`);
-  else if (r2 != null && r2 < 0.4) scores[0].score += 0.5;
-  else if (r2 != null) scores[0].score -= 1;
+  if (r2 != null && r2 > 0.5) scores[0].score += 1, scores[0].reasons.push(`high R² (${r2.toFixed(2)}) — market-locked`);
 
-  if (trend === "accelerating") scores[0].score += 1, scores[0].reasons.push("α accelerating");
+  if (trend === "accelerating") scores[0].score += 1.5, scores[0].reasons.push("α stabilizing — possible floor");
+  else if (trend === "decelerating") scores[0].score += 0.5, scores[0].reasons.push("α still falling");
 
-  // ── Peak (4–6): α high, β elevated, R² moderate ──
-  if (a > 15) scores[1].score += 3, scores[1].reasons.push(`strong α (+${a.toFixed(0)}%)`);
-  else if (a > 8) scores[1].score += 1.5, scores[1].reasons.push(`solid α (+${a.toFixed(0)}%)`);
-  else if (a > 0) scores[1].score += 0.5;
-  else scores[1].score -= 2;
+  // ── P2 Recovery (7–11): α improving → positive, β declining, R² falling ──
+  if (a > 5 && trend === "accelerating") scores[1].score += 3, scores[1].reasons.push(`α positive (+${a.toFixed(0)}%) and accelerating`);
+  else if (a > 0) scores[1].score += 2, scores[1].reasons.push(`α positive (+${a.toFixed(0)}%)`);
+  else if (a > -5 && trend === "accelerating") scores[1].score += 1.5, scores[1].reasons.push(`α near zero (${a.toFixed(0)}%) but improving`);
+  else if (trend === "accelerating") scores[1].score += 1, scores[1].reasons.push("α improving");
+  else scores[1].score -= 1;
 
-  if (b >= 1 && b <= 2) scores[1].score += 1.5, scores[1].reasons.push(`elevated β (${b.toFixed(2)})`);
-  else if (b > 2) scores[1].score += 0.5, scores[1].reasons.push("β very high");
-  else scores[1].score -= 0.5;
+  if (b < 1.2 && b > 0.3) scores[1].score += 1.5, scores[1].reasons.push(`β normalizing (${b.toFixed(2)})`);
+  else if (b < 0.3) scores[1].score += 1, scores[1].reasons.push(`very low β (${b.toFixed(2)})`);
+  else if (b > 1.5) scores[1].score -= 0.5;
 
-  if (r2 != null && r2 >= 0.25 && r2 <= 0.6) scores[1].score += 1, scores[1].reasons.push(`moderate R² (${r2.toFixed(2)})`);
+  if (r2 != null && r2 < 0.4) scores[1].score += 1.5, scores[1].reasons.push(`R² falling (${r2.toFixed(2)}) — decoupling`);
+  else if (r2 != null && r2 > 0.6) scores[1].score -= 0.5;
 
-  if (trend === "decelerating") scores[1].score += 1, scores[1].reasons.push("α decelerating — late peak");
-  else if (trend === "accelerating") scores[1].score += 0.5;
-
-  // ── Bust (7–9): α negative, β high+sticky, R² rising ──
-  if (a < -10) scores[2].score += 3, scores[2].reasons.push(`deeply negative α (${a.toFixed(0)}%)`);
-  else if (a < 0) scores[2].score += 1.5, scores[2].reasons.push(`negative α (${a.toFixed(0)}%)`);
+  // ── P3 Saturation (11–1): α high but decelerating, β elevated, R² rising ──
+  if (a > 15) scores[2].score += 3, scores[2].reasons.push(`strong α (+${a.toFixed(0)}%)`);
+  else if (a > 8) scores[2].score += 1.5, scores[2].reasons.push(`solid α (+${a.toFixed(0)}%)`);
+  else if (a > 0) scores[2].score += 0.5;
   else scores[2].score -= 2;
 
-  if (b > 1.5) scores[2].score += 2, scores[2].reasons.push(`high sticky β (${b.toFixed(2)})`);
-  else if (b > 1) scores[2].score += 1;
-  else scores[2].score -= 1;
+  if (b >= 1 && b <= 2) scores[2].score += 1.5, scores[2].reasons.push(`elevated β (${b.toFixed(2)})`);
+  else if (b > 2) scores[2].score += 0.5, scores[2].reasons.push("β very high");
+  else scores[2].score -= 0.5;
 
-  if (r2 != null && r2 > 0.5) scores[2].score += 1.5, scores[2].reasons.push(`high R² (${r2.toFixed(2)}) — market-driven`);
-  else if (r2 != null && r2 > 0.35) scores[2].score += 0.5;
+  if (r2 != null && r2 >= 0.3 && r2 <= 0.6) scores[2].score += 1, scores[2].reasons.push(`R² rising (${r2.toFixed(2)}) — herding`);
 
-  if (trend === "decelerating") scores[2].score += 1, scores[2].reasons.push("α still falling");
+  if (trend === "decelerating") scores[2].score += 1.5, scores[2].reasons.push("α decelerating — crowding");
+  else if (trend === "accelerating") scores[2].score += 0.5;
 
-  // ── Recovery (10–12): α negative but improving, β declining, R² falling ──
-  if (a < 0 && trend === "accelerating") scores[3].score += 3, scores[3].reasons.push(`α negative (${a.toFixed(0)}%) but accelerating`);
-  else if (a > 0 && a < 10 && trend === "accelerating") scores[3].score += 2, scores[3].reasons.push("α positive and accelerating");
-  else if (a < 0) scores[3].score += 1;
-  else scores[3].score -= 0.5;
+  // ── P4 Collapse (1–5): α collapsing, β high+sticky, R² high ──
+  if (a < -10) scores[3].score += 3, scores[3].reasons.push(`collapsing α (${a.toFixed(0)}%)`);
+  else if (a < 0) scores[3].score += 1.5, scores[3].reasons.push(`negative α (${a.toFixed(0)}%)`);
+  else scores[3].score -= 2;
 
-  if (b < 1 && b > 0.3) scores[3].score += 1.5, scores[3].reasons.push(`β normalizing (${b.toFixed(2)})`);
-  else if (b < 0.3) scores[3].score += 1, scores[3].reasons.push(`very low β (${b.toFixed(2)})`);
+  if (b > 1.5) scores[3].score += 2, scores[3].reasons.push(`high sticky β (${b.toFixed(2)})`);
+  else if (b > 1) scores[3].score += 1;
+  else scores[3].score -= 1;
 
-  if (r2 != null && r2 < 0.3) scores[3].score += 1.5, scores[3].reasons.push(`R² falling (${r2.toFixed(2)}) — de-correlating`);
-  else if (r2 != null && r2 > 0.5) scores[3].score -= 0.5;
+  if (r2 != null && r2 > 0.5) scores[3].score += 1.5, scores[3].reasons.push(`high R² (${r2.toFixed(2)}) — locked to downturn`);
+  else if (r2 != null && r2 > 0.35) scores[3].score += 0.5;
+
+  if (trend === "decelerating") scores[3].score += 1, scores[3].reasons.push("α still falling");
 
   // Pick the best fit
   scores.sort((a, b) => b.score - a.score);
@@ -252,16 +267,18 @@ export function detectPhaseFromCapm(stock: WatchlistStock): CAPMImpliedPhase {
   const confidence: "HIGH" | "MEDIUM" | "LOW" =
     gap >= 3 ? "HIGH" : gap >= 1.5 ? "MEDIUM" : "LOW";
 
-  // Check agreement with LLM clock
+  // Check agreement with LLM clock (mapped to market clock phases)
   let agreement = false;
   if (llmHour != null) {
-    const llmPhaseIdx = llmHour >= 1 && llmHour <= 3 ? 0
-      : llmHour >= 4 && llmHour <= 6 ? 1
-      : llmHour >= 7 && llmHour <= 9 ? 2 : 3;
-    const detectedIdx = best.phase === "Narrative Birth" ? 0
-      : best.phase === "Narrative Peak" ? 1
-      : best.phase === "Narrative Bust" ? 2 : 3;
-    agreement = llmPhaseIdx === detectedIdx;
+    const llmPhaseIdx = (llmHour >= 5 && llmHour <= 6) ? 0
+      : (llmHour >= 7 && llmHour <= 10) ? 1
+      : (llmHour >= 11 || llmHour <= 1) ? 2 : 3;
+    const detectedIdx = scores.indexOf(best) >= 0 ? [scores[0], scores[1], scores[2], scores[3]].indexOf(best) : -1;
+    // best was sorted, find original index by phase name
+    const origIdx = best.phase.startsWith("P1") ? 0
+      : best.phase.startsWith("P2") ? 1
+      : best.phase.startsWith("P3") ? 2 : 3;
+    agreement = llmPhaseIdx === origIdx;
   }
 
   const reasoning = best.reasons.length > 0
@@ -314,16 +331,16 @@ export function diagnoseMarketClock(
 
   const n = valid.length;
 
-  // Clock distribution
+  // Clock distribution (market clock phases)
   const buckets: Record<string, WatchlistStock[]> = {
-    "Birth (1–3)": [], "Peak (4–6)": [], "Bust (7–9)": [], "Recovery (10–12)": [],
+    "P1 Valley (5–6)": [], "P2 Recovery (7–11)": [], "P3 Saturation (11–1)": [], "P4 Collapse (1–5)": [],
   };
   for (const s of valid) {
     const h = parseClockHour(s.clock_position)!;
-    if (h >= 1 && h <= 3) buckets["Birth (1–3)"].push(s);
-    else if (h >= 4 && h <= 6) buckets["Peak (4–6)"].push(s);
-    else if (h >= 7 && h <= 9) buckets["Bust (7–9)"].push(s);
-    else buckets["Recovery (10–12)"].push(s);
+    if (h >= 5 && h <= 6) buckets["P1 Valley (5–6)"].push(s);
+    else if (h >= 7 && h <= 10) buckets["P2 Recovery (7–11)"].push(s);
+    else if (h >= 11 || h <= 1) buckets["P3 Saturation (11–1)"].push(s);
+    else buckets["P4 Collapse (1–5)"].push(s);
   }
   const clockDistribution = Object.entries(buckets).map(([phase, arr]) => ({
     phase,
