@@ -154,6 +154,12 @@ export interface WatchlistStock {
   current_ratio: number;
   debt_to_ebitda: number;
   interest_coverage: number;
+  capm_alpha: number | null;
+  capm_beta: number | null;
+  capm_r2: number | null;
+  capm_benchmark: string | null;
+  capm_alpha_1y: number | null;
+  capm_alpha_trend: string | null;
   data_sources: string;
   created_at: string;
 }

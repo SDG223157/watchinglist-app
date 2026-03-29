@@ -10,6 +10,7 @@ import { RefreshButton } from "@/components/refresh-button";
 import { StockSearch } from "@/components/stock-search";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
+import { diagnoseCapm } from "@/lib/capm-diagnostic";
 
 export const dynamic = "force-dynamic";
 
@@ -599,6 +600,69 @@ export default async function StockDetail({
           )}
         </div>
       </div>
+
+      {/* CAPM Alpha-Beta Diagnostic */}
+      {stock.capm_alpha != null && (() => {
+        const diag = diagnoseCapm(stock);
+        const verdictColor = diag.verdict === "VALIDATES" ? "var(--green)" : diag.verdict === "CONTRADICTS" ? "var(--red)" : "var(--yellow)";
+        const verdictBg = diag.verdict === "VALIDATES" ? "rgba(34,197,94,0.08)" : diag.verdict === "CONTRADICTS" ? "rgba(239,68,68,0.08)" : "rgba(234,179,8,0.08)";
+        const verdictIcon = diag.verdict === "VALIDATES" ? "✓" : diag.verdict === "CONTRADICTS" ? "✗" : "⚠";
+        return (
+          <>
+            <h2 className="text-lg font-bold mb-3">CAPM Diagnostic</h2>
+            <div className="rounded-lg p-5 mb-8" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                <div>
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-2xl font-bold font-mono" style={{ color: "var(--blue)" }}>
+                      α {stock.capm_alpha > 0 ? "+" : ""}{stock.capm_alpha.toFixed(1)}%
+                    </span>
+                    <span className="text-lg font-mono">β {stock.capm_beta?.toFixed(2)}</span>
+                    <span className="text-lg font-mono">R² {stock.capm_r2?.toFixed(2)}</span>
+                    <span className="text-xs" style={{ color: "var(--muted)" }}>vs {stock.capm_benchmark} (6M)</span>
+                  </div>
+                  {stock.capm_alpha_1y != null && (
+                    <div className="text-xs font-mono" style={{ color: "var(--muted)" }}>
+                      1Y α: {stock.capm_alpha_1y > 0 ? "+" : ""}{stock.capm_alpha_1y.toFixed(1)}% | Trend: {stock.capm_alpha_trend}
+                    </div>
+                  )}
+                </div>
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold"
+                  style={{ background: verdictBg, color: verdictColor }}
+                >
+                  {verdictIcon} {diag.verdict} CLOCK
+                </span>
+              </div>
+              <div className="text-sm mb-3">{diag.summary}</div>
+              {diag.signals.length > 0 && (
+                <div className="space-y-1.5">
+                  {diag.signals.map((s, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span
+                        className="inline-block rounded-full mt-1 shrink-0"
+                        style={{
+                          width: 7, height: 7,
+                          backgroundColor: s.status === "ok" ? "var(--green)" : s.status === "warning" ? "var(--yellow)" : "var(--red)",
+                        }}
+                      />
+                      <span style={{ color: s.status === "ok" ? "var(--text)" : s.status === "warning" ? "var(--yellow)" : "var(--red)" }}>
+                        {s.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {diag.expected && (
+                <div className="mt-4 pt-3 text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--muted)" }}>
+                  <strong>Expected at {diag.expected.hours} ({diag.expected.phase}):</strong>{" "}
+                  α {diag.expected.alphaRange} | β {diag.expected.betaRange} | R² {diag.expected.r2Range}
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Moat Analysis */}
       {(stock.moat_width || stock.moat_type) && (
