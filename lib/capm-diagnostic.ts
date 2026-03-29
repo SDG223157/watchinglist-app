@@ -90,10 +90,8 @@ export function diagnoseCapm(stock: WatchlistStock): CAPMDiagnostic {
   }
 
   const exp = getExpectation(hour);
+  const phaseIdx = CLOCK_FRAMEWORK.indexOf(exp);
   const signals: DiagnosticSignal[] = [];
-
-  const phase = getExpectation(hour);
-  const phaseIdx = CLOCK_FRAMEWORK.indexOf(phase);
 
   if (phaseIdx === 0) {
     // Phase 1: Valley of Despair (5-6) — α deeply negative, β high, R² high
@@ -273,12 +271,10 @@ export function detectPhaseFromCapm(stock: WatchlistStock): CAPMImpliedPhase {
     const llmPhaseIdx = (llmHour >= 5 && llmHour <= 6) ? 0
       : (llmHour >= 7 && llmHour <= 10) ? 1
       : (llmHour >= 11 || llmHour <= 1) ? 2 : 3;
-    const detectedIdx = scores.indexOf(best) >= 0 ? [scores[0], scores[1], scores[2], scores[3]].indexOf(best) : -1;
-    // best was sorted, find original index by phase name
-    const origIdx = best.phase.startsWith("P1") ? 0
+    const detectedIdx = best.phase.startsWith("P1") ? 0
       : best.phase.startsWith("P2") ? 1
       : best.phase.startsWith("P3") ? 2 : 3;
-    agreement = llmPhaseIdx === origIdx;
+    agreement = llmPhaseIdx === detectedIdx;
   }
 
   const reasoning = best.reasons.length > 0
