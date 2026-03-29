@@ -428,6 +428,17 @@ export default async function StockDetail({
             <span className="font-mono text-lg" style={{ color: "var(--blue)" }}>
               {stock.symbol}
             </span>
+            {N(stock.composite_score) != null && (
+              <span
+                className="font-mono text-sm font-bold px-2 py-0.5 rounded"
+                style={{
+                  background: N(stock.composite_score)! >= 70 ? "var(--green)" : N(stock.composite_score)! >= 40 ? "var(--yellow)" : "var(--red)",
+                  color: "#000",
+                }}
+              >
+                {N(stock.composite_score)!.toFixed(0)}
+              </span>
+            )}
             <span className="text-sm" style={{ color: "var(--muted)" }}>
               {stock.sector}
             </span>
