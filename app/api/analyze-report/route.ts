@@ -6,6 +6,7 @@ import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/
 import type { WatchlistStock } from "@/lib/db";
 import { computeCompositeScore } from "@/lib/composite-score";
 import { cachedQuote, cachedSummary, cachedHistorical } from "@/lib/yf-cache";
+import { refreshStockData } from "@/lib/refresh-stock";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -254,7 +255,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Fetch Yahoo data for the LLM prompt (read-only, no DB writes)
+    // Refresh price data first (includes CAPM computation)
+    await refreshStockData(symbol).catch(() => {});
+
+    // Fetch Yahoo data for the LLM prompt
     const [quote, summary, heatmapRows] = await Promise.all([
       cachedQuote(symbol),
       cachedSummary(symbol),
