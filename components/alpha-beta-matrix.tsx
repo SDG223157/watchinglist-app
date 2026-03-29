@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import type { WatchlistStock } from "@/lib/db";
-import { diagnoseCapm, diagnoseMarketClock, CLOCK_FRAMEWORK, type DiagnosticVerdict, type MarketClockDiagnosis } from "@/lib/capm-diagnostic";
+import { diagnoseCapm, detectPhaseFromCapm, diagnoseMarketClock, CLOCK_FRAMEWORK, type DiagnosticVerdict, type MarketClockDiagnosis } from "@/lib/capm-diagnostic";
 
 interface Props {
   stocks: WatchlistStock[];
@@ -280,9 +280,21 @@ export function AlphaBetaMatrix({ stocks }: Props) {
             <div className="mt-1" style={{ color: "var(--muted)" }}>{diagnose(hover)}</div>
             {(() => {
               const d = diagnoseCapm(hover);
-              if (d.verdict === "NO_DATA") return null;
-              const vc = d.verdict === "VALIDATES" ? "var(--green)" : d.verdict === "CONTRADICTS" ? "var(--red)" : "var(--yellow)";
-              return <div className="mt-1" style={{ color: vc }}>Clock: {d.verdict} — {d.summary}</div>;
+              const imp = detectPhaseFromCapm(hover);
+              return (
+                <>
+                  {d.verdict !== "NO_DATA" && (() => {
+                    const vc = d.verdict === "VALIDATES" ? "var(--green)" : d.verdict === "CONTRADICTS" ? "var(--red)" : "var(--yellow)";
+                    return <div className="mt-1" style={{ color: vc }}>Clock: {d.verdict} — {d.summary}</div>;
+                  })()}
+                  {imp.phase !== "Unknown" && (
+                    <div className="mt-0.5" style={{ color: imp.agreement ? "var(--green)" : "var(--yellow)" }}>
+                      CAPM implies: {imp.phase} ({imp.hours}) [{imp.confidence}]
+                      {imp.llmClock && !imp.agreement && ` — LLM says ${imp.llmClock}`}
+                    </div>
+                  )}
+                </>
+              );
             })()}
           </div>
         )}
@@ -315,6 +327,7 @@ export function AlphaBetaMatrix({ stocks }: Props) {
                 { col: "capm_r2", label: "R²" },
                 { col: "capm_benchmark", label: "Bench" },
                 { col: "_verdict", label: "Clock Valid." },
+                { col: "_implied", label: "CAPM Phase" },
                 { col: "composite_score", label: "Score" },
                 { col: "action", label: "Action" },
                 { col: "_diag", label: "Diagnosis" },
@@ -334,8 +347,10 @@ export function AlphaBetaMatrix({ stocks }: Props) {
           <tbody>
             {sorted.map((s) => {
               const diag = diagnoseCapm(s);
+              const implied = detectPhaseFromCapm(s);
               const vc = diag.verdict === "VALIDATES" ? "var(--green)" : diag.verdict === "CONTRADICTS" ? "var(--red)" : diag.verdict === "MIXED" ? "var(--yellow)" : "var(--muted)";
               const vi = diag.verdict === "VALIDATES" ? "✓" : diag.verdict === "CONTRADICTS" ? "✗" : diag.verdict === "MIXED" ? "⚠" : "—";
+              const ic = implied.confidence === "HIGH" ? "var(--green)" : implied.confidence === "MEDIUM" ? "var(--yellow)" : "var(--muted)";
               return (
                 <tr key={s.symbol + s.id} className="hover:brightness-110 transition-colors" style={{ borderBottom: "1px solid var(--border)" }}>
                   <td className="px-2 py-1.5 font-semibold">
@@ -358,6 +373,15 @@ export function AlphaBetaMatrix({ stocks }: Props) {
                   <td className="px-2 py-1.5" style={{ color: "var(--muted)" }}>{s.capm_benchmark ?? "—"}</td>
                   <td className="px-2 py-1.5 whitespace-nowrap" title={diag.summary}>
                     <span className="font-semibold" style={{ color: vc }}>{vi} {diag.verdict !== "NO_DATA" ? diag.verdict : "—"}</span>
+                  </td>
+                  <td className="px-2 py-1.5 whitespace-nowrap" title={implied.reasoning}>
+                    <span className="text-[10px]">{implied.phase.split(" ")[0]}</span>
+                    {implied.llmClock && (
+                      <span className="ml-1 text-[9px]" style={{ color: implied.agreement ? "var(--green)" : "var(--red)" }}>
+                        {implied.agreement ? "✓" : "✗"}
+                      </span>
+                    )}
+                    <span className="ml-1 text-[9px]" style={{ color: ic }}>({implied.confidence[0]})</span>
                   </td>
                   <td className="px-2 py-1.5 font-mono">{s.composite_score ?? "—"}</td>
                   <td className="px-2 py-1.5 max-w-[120px] truncate">{s.action || "—"}</td>

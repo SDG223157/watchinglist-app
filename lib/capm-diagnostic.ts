@@ -157,6 +157,127 @@ export function diagnoseCapm(stock: WatchlistStock): CAPMDiagnostic {
   return { verdict, expected: exp, signals, summary };
 }
 
+// ── CAPM-Implied Phase Detection ──────────────────────────────
+
+export interface CAPMImpliedPhase {
+  phase: string;
+  hours: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  llmClock: string | null;
+  agreement: boolean;
+  reasoning: string;
+}
+
+export function detectPhaseFromCapm(stock: WatchlistStock): CAPMImpliedPhase {
+  const a = stock.capm_alpha;
+  const b = stock.capm_beta;
+  const r2 = stock.capm_r2;
+  const trend = stock.capm_alpha_trend;
+  const llmHour = parseClockHour(stock.clock_position);
+
+  if (a == null || b == null) {
+    return { phase: "Unknown", hours: "—", confidence: "LOW", llmClock: stock.clock_position, agreement: false, reasoning: "Insufficient CAPM data" };
+  }
+
+  // Score each phase by how well the data fits
+  const scores: { phase: string; hours: string; score: number; reasons: string[] }[] = [
+    { phase: "Narrative Birth", hours: "1–3", score: 0, reasons: [] },
+    { phase: "Narrative Peak", hours: "4–6", score: 0, reasons: [] },
+    { phase: "Narrative Bust", hours: "7–9", score: 0, reasons: [] },
+    { phase: "Recovery / New Cycle", hours: "10–12", score: 0, reasons: [] },
+  ];
+
+  // ── Birth (1–3): α turning positive, β low, R² low ──
+  if (a > 0 && a <= 15) scores[0].score += 2, scores[0].reasons.push(`α moderate (+${a.toFixed(0)}%)`);
+  else if (a > 15) scores[0].score += 0.5, scores[0].reasons.push("α too high for birth");
+  else scores[0].score -= 1;
+
+  if (b < 0.8) scores[0].score += 2, scores[0].reasons.push(`low β (${b.toFixed(2)})`);
+  else if (b < 1.2) scores[0].score += 0.5;
+  else scores[0].score -= 1;
+
+  if (r2 != null && r2 < 0.25) scores[0].score += 2, scores[0].reasons.push(`low R² (${r2.toFixed(2)})`);
+  else if (r2 != null && r2 < 0.4) scores[0].score += 0.5;
+  else if (r2 != null) scores[0].score -= 1;
+
+  if (trend === "accelerating") scores[0].score += 1, scores[0].reasons.push("α accelerating");
+
+  // ── Peak (4–6): α high, β elevated, R² moderate ──
+  if (a > 15) scores[1].score += 3, scores[1].reasons.push(`strong α (+${a.toFixed(0)}%)`);
+  else if (a > 8) scores[1].score += 1.5, scores[1].reasons.push(`solid α (+${a.toFixed(0)}%)`);
+  else if (a > 0) scores[1].score += 0.5;
+  else scores[1].score -= 2;
+
+  if (b >= 1 && b <= 2) scores[1].score += 1.5, scores[1].reasons.push(`elevated β (${b.toFixed(2)})`);
+  else if (b > 2) scores[1].score += 0.5, scores[1].reasons.push("β very high");
+  else scores[1].score -= 0.5;
+
+  if (r2 != null && r2 >= 0.25 && r2 <= 0.6) scores[1].score += 1, scores[1].reasons.push(`moderate R² (${r2.toFixed(2)})`);
+
+  if (trend === "decelerating") scores[1].score += 1, scores[1].reasons.push("α decelerating — late peak");
+  else if (trend === "accelerating") scores[1].score += 0.5;
+
+  // ── Bust (7–9): α negative, β high+sticky, R² rising ──
+  if (a < -10) scores[2].score += 3, scores[2].reasons.push(`deeply negative α (${a.toFixed(0)}%)`);
+  else if (a < 0) scores[2].score += 1.5, scores[2].reasons.push(`negative α (${a.toFixed(0)}%)`);
+  else scores[2].score -= 2;
+
+  if (b > 1.5) scores[2].score += 2, scores[2].reasons.push(`high sticky β (${b.toFixed(2)})`);
+  else if (b > 1) scores[2].score += 1;
+  else scores[2].score -= 1;
+
+  if (r2 != null && r2 > 0.5) scores[2].score += 1.5, scores[2].reasons.push(`high R² (${r2.toFixed(2)}) — market-driven`);
+  else if (r2 != null && r2 > 0.35) scores[2].score += 0.5;
+
+  if (trend === "decelerating") scores[2].score += 1, scores[2].reasons.push("α still falling");
+
+  // ── Recovery (10–12): α negative but improving, β declining, R² falling ──
+  if (a < 0 && trend === "accelerating") scores[3].score += 3, scores[3].reasons.push(`α negative (${a.toFixed(0)}%) but accelerating`);
+  else if (a > 0 && a < 10 && trend === "accelerating") scores[3].score += 2, scores[3].reasons.push("α positive and accelerating");
+  else if (a < 0) scores[3].score += 1;
+  else scores[3].score -= 0.5;
+
+  if (b < 1 && b > 0.3) scores[3].score += 1.5, scores[3].reasons.push(`β normalizing (${b.toFixed(2)})`);
+  else if (b < 0.3) scores[3].score += 1, scores[3].reasons.push(`very low β (${b.toFixed(2)})`);
+
+  if (r2 != null && r2 < 0.3) scores[3].score += 1.5, scores[3].reasons.push(`R² falling (${r2.toFixed(2)}) — de-correlating`);
+  else if (r2 != null && r2 > 0.5) scores[3].score -= 0.5;
+
+  // Pick the best fit
+  scores.sort((a, b) => b.score - a.score);
+  const best = scores[0];
+  const second = scores[1];
+  const gap = best.score - second.score;
+
+  const confidence: "HIGH" | "MEDIUM" | "LOW" =
+    gap >= 3 ? "HIGH" : gap >= 1.5 ? "MEDIUM" : "LOW";
+
+  // Check agreement with LLM clock
+  let agreement = false;
+  if (llmHour != null) {
+    const llmPhaseIdx = llmHour >= 1 && llmHour <= 3 ? 0
+      : llmHour >= 4 && llmHour <= 6 ? 1
+      : llmHour >= 7 && llmHour <= 9 ? 2 : 3;
+    const detectedIdx = best.phase === "Narrative Birth" ? 0
+      : best.phase === "Narrative Peak" ? 1
+      : best.phase === "Narrative Bust" ? 2 : 3;
+    agreement = llmPhaseIdx === detectedIdx;
+  }
+
+  const reasoning = best.reasons.length > 0
+    ? best.reasons.join(", ")
+    : `Best fit score: ${best.score.toFixed(1)}`;
+
+  return {
+    phase: best.phase,
+    hours: best.hours,
+    confidence,
+    llmClock: stock.clock_position,
+    agreement,
+    reasoning,
+  };
+}
+
 // ── Market-Level Clock Diagnosis ──────────────────────────────
 
 export interface MarketClockDiagnosis {

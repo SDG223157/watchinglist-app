@@ -10,7 +10,7 @@ import { RefreshButton } from "@/components/refresh-button";
 import { StockSearch } from "@/components/stock-search";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
-import { diagnoseCapm } from "@/lib/capm-diagnostic";
+import { diagnoseCapm, detectPhaseFromCapm } from "@/lib/capm-diagnostic";
 
 export const dynamic = "force-dynamic";
 
@@ -659,6 +659,36 @@ export default async function StockDetail({
                   α {diag.expected.alphaRange} | β {diag.expected.betaRange} | R² {diag.expected.r2Range}
                 </div>
               )}
+              {(() => {
+                const implied = detectPhaseFromCapm(stock);
+                const confColor = implied.confidence === "HIGH" ? "var(--green)" : implied.confidence === "MEDIUM" ? "var(--yellow)" : "var(--muted)";
+                return (
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--blue)" }}>
+                        CAPM-Implied Phase
+                      </span>
+                      <span className="text-sm font-bold">{implied.phase}</span>
+                      <span className="text-[10px] font-mono" style={{ color: "var(--muted)" }}>({implied.hours})</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ background: `${confColor}20`, color: confColor }}>
+                        {implied.confidence}
+                      </span>
+                      {implied.llmClock && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                          style={{
+                            background: implied.agreement ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                            color: implied.agreement ? "var(--green)" : "var(--red)",
+                          }}
+                        >
+                          {implied.agreement ? "✓ Agrees with LLM clock" : `✗ LLM says ${implied.llmClock}`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs" style={{ color: "var(--muted)" }}>{implied.reasoning}</div>
+                  </div>
+                );
+              })()}
             </div>
           </>
         );
