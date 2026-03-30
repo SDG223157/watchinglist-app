@@ -8,6 +8,7 @@ import { fetchPeerComparison, type PeerMetrics, fetchRevenueSegmentation, type R
 import { AnalyzeButton } from "@/components/analyze-button";
 import { RefreshButton } from "@/components/refresh-button";
 import { StockSearch } from "@/components/stock-search";
+import { HmmRegimeChart } from "@/components/hmm-regime-chart";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
 import { diagnoseCapm, detectPhaseFromCapm } from "@/lib/capm-diagnostic";
@@ -693,6 +694,14 @@ export default async function StockDetail({
           </>
         );
       })()}
+
+      {/* Markov Regime Model (HMM) */}
+      <div
+        className="rounded-lg p-5 mb-8"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <HmmRegimeChart symbol={stock.symbol} />
+      </div>
 
       {/* Moat Analysis */}
       {(stock.moat_width || stock.moat_type) && (
