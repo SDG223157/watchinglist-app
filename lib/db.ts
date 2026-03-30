@@ -111,6 +111,8 @@ export interface WatchlistStock {
   corporate_stage: string;
   geometric_order: number;
   geometric_details: string;
+  hmm_regime: string | null;
+  hmm_persistence: number | null;
   trend_signal: string;
   trend_entry_date: string;
   trend_entry_price: number;

@@ -156,6 +156,19 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
     total = Math.max(0, Math.min(100, total + (lbAdj[lbs] ?? 0)));
   }
 
+  // HMM regime modifier: persistent bull = tailwind, persistent bear = headwind
+  const hmmRegime = (s.hmm_regime || "").toLowerCase();
+  const hmmP = s.hmm_persistence;
+  if (hmmRegime && hmmRegime !== "n/a" && hmmP != null) {
+    let hmmAdj = 0;
+    if (hmmRegime.includes("bull")) {
+      hmmAdj = hmmP >= 0.95 ? 5 : hmmP >= 0.90 ? 3 : 0;
+    } else if (hmmRegime.includes("bear")) {
+      hmmAdj = hmmP >= 0.95 ? -5 : hmmP >= 0.90 ? -3 : 0;
+    }
+    total = Math.max(0, Math.min(100, total + hmmAdj));
+  }
+
   const { grade, gradeColor } = gradeFromScore(total);
 
   return { walls, trendwise, clock, moat, stage, geo, sector, total, grade, gradeColor };
