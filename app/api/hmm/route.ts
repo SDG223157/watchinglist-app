@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { cachedHistorical } from "@/lib/yf-cache";
 import { fitHmm, type HmmResult } from "@/lib/hmm";
 import { withCacheHeaders } from "@/lib/cache-headers";
@@ -7,11 +6,6 @@ import { withCacheHeaders } from "@/lib/cache-headers";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const symbol = req.nextUrl.searchParams.get("symbol")?.toUpperCase();
   const years = parseInt(req.nextUrl.searchParams.get("years") || "5", 10);
   const nStates = parseInt(req.nextUrl.searchParams.get("states") || "3", 10);
