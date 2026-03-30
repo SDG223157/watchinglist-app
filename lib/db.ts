@@ -160,6 +160,9 @@ export interface WatchlistStock {
   capm_benchmark: string | null;
   capm_alpha_1y: number | null;
   capm_alpha_trend: string | null;
+  long_bull_score: number | null;
+  capex_diagnosis: string | null;
+  freeze_test: string | null;
   data_sources: string;
   created_at: string;
 }

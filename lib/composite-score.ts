@@ -148,7 +148,14 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
   const geo = scoreGeo(s.geometric_order);
   const sector = scoreSector(s);
 
-  const total = walls + trendwise + clock + moat + stage + geo + sector;
+  let total = walls + trendwise + clock + moat + stage + geo + sector;
+
+  const lbs = s.long_bull_score;
+  if (lbs != null) {
+    const lbAdj: Record<number, number> = { 6: 8, 5: 5, 4: 3, 3: 0, 2: -3, 1: -5, 0: -8 };
+    total = Math.max(0, Math.min(100, total + (lbAdj[lbs] ?? 0)));
+  }
+
   const { grade, gradeColor } = gradeFromScore(total);
 
   return { walls, trendwise, clock, moat, stage, geo, sector, total, grade, gradeColor };
