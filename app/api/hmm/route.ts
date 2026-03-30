@@ -14,8 +14,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Symbol required" }, { status: 400 });
   }
 
-  if (nStates < 2 || nStates > 3) {
-    return NextResponse.json({ error: "States must be 2 or 3" }, { status: 400 });
+  if (nStates < 2 || nStates > 5) {
+    return NextResponse.json({ error: "States must be 2–5" }, { status: 400 });
   }
 
   try {

@@ -66,22 +66,19 @@ function gaussianLogPdf(x: number, mu: number, variance: number): number {
 
 function initializeParams(returns: number[], nStates: number): HmmParams {
   const sorted = [...returns].sort((a, b) => a - b);
-  const totalVar = returns.reduce((s, r) => s + (r - returns.reduce((a, b) => a + b, 0) / returns.length) ** 2, 0) / returns.length;
+  const globalMean = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const totalVar = returns.reduce((s, r) => s + (r - globalMean) ** 2, 0) / returns.length;
 
   const means: number[] = [];
   const variances: number[] = [];
 
-  if (nStates === 3) {
-    const q1 = sorted[Math.floor(sorted.length * 0.2)];
-    const q3 = sorted[Math.floor(sorted.length * 0.8)];
-    const med = sorted[Math.floor(sorted.length * 0.5)];
-    means.push(q3, q1, med);
-    variances.push(totalVar * 0.5, totalVar * 2.0, totalVar * 0.8);
-  } else {
-    const q1 = sorted[Math.floor(sorted.length * 0.25)];
-    const q3 = sorted[Math.floor(sorted.length * 0.75)];
-    means.push(q3, q1);
-    variances.push(totalVar * 0.6, totalVar * 1.5);
+  for (let i = 0; i < nStates; i++) {
+    const frac = (i + 0.5) / nStates;
+    const idx = Math.floor(frac * (sorted.length - 1));
+    means.push(sorted[idx]);
+    const center = (nStates - 1) / 2;
+    const distFromCenter = center > 0 ? Math.abs(i - center) / center : 0;
+    variances.push(totalVar * (0.5 + distFromCenter * 1.5));
   }
 
   const transmat = Array.from({ length: nStates }, (_, i) =>
@@ -251,26 +248,47 @@ function viterbi(obs: number[], params: HmmParams): number[] {
   return states;
 }
 
+function getStateLabels(n: number): string[] {
+  if (n === 2) return ["Bull", "Bear"];
+  if (n === 3) return ["Bull", "Flat", "Bear"];
+  if (n === 4) return ["Strong Bull", "Mild Bull", "Mild Bear", "Strong Bear"];
+  if (n === 5) return ["Strong Bull", "Bull", "Flat", "Bear", "Strong Bear"];
+  const labels: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const pos = i / (n - 1);
+    if (pos < 0.2) labels.push("Strong Bull");
+    else if (pos < 0.4) labels.push("Bull");
+    else if (pos < 0.6) labels.push("Flat");
+    else if (pos < 0.8) labels.push("Bear");
+    else labels.push("Strong Bear");
+  }
+  return labels;
+}
+
+function getStateColors(n: number): string[] {
+  if (n === 2) return ["#10b981", "#ef4444"];
+  if (n === 3) return ["#10b981", "#f59e0b", "#ef4444"];
+  if (n === 4) return ["#10b981", "#84cc16", "#f97316", "#ef4444"];
+  if (n === 5) return ["#10b981", "#84cc16", "#f59e0b", "#f97316", "#ef4444"];
+  const palette = ["#10b981", "#34d399", "#84cc16", "#f59e0b", "#f97316", "#ef4444", "#dc2626"];
+  const colors: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.round((i / (n - 1)) * (palette.length - 1));
+    colors.push(palette[idx]);
+  }
+  return colors;
+}
+
 function orderStates(params: HmmParams): { mapping: Map<number, number>; labels: string[]; colors: string[] } {
   const { nStates, means } = params;
   const indices = means.map((_, i) => i).sort((a, b) => means[b] - means[a]);
 
   const mapping = new Map<number, number>();
-  const labels = nStates === 3 ? ["Bull", "Bear", "Flat"] : ["Bull", "Bear"];
-  const colors = nStates === 3
-    ? ["#10b981", "#ef4444", "#f59e0b"]
-    : ["#10b981", "#ef4444"];
-
-  if (nStates === 3) {
-    mapping.set(indices[0], 0); // highest mean = Bull
-    mapping.set(indices[2], 1); // lowest mean = Bear
-    mapping.set(indices[1], 2); // middle = Flat
-  } else {
-    mapping.set(indices[0], 0);
-    mapping.set(indices[1], 1);
+  for (let newIdx = 0; newIdx < nStates; newIdx++) {
+    mapping.set(indices[newIdx], newIdx);
   }
 
-  return { mapping, labels, colors };
+  return { mapping, labels: getStateLabels(nStates), colors: getStateColors(nStates) };
 }
 
 function reorderParams(params: HmmParams, mapping: Map<number, number>): HmmParams {
@@ -329,8 +347,7 @@ function backtestStrategies(
 
     let momR = 0, mrR = 0;
     if (s === 0) { momR = r; mrR = -r; }
-    else if (s === 1) { momR = -r; mrR = r; }
-    // Flat: cash (0)
+    else if (s === nStates - 1) { momR = -r; mrR = r; }
 
     eqMom.push(eqMom[i] * (1 + momR));
     eqMR.push(eqMR[i] * (1 + mrR));
@@ -367,20 +384,21 @@ export function fitHmm(
   prices: number[],
   dates: string[],
   nStates: number = 3,
-  nFits: number = 10
+  nFits?: number
 ): HmmResult {
+  const actualFits = nFits ?? Math.max(10, nStates * 4);
   const logReturns = prices.slice(1).map((p, i) => Math.log(p / prices[i]));
 
   let bestParams: HmmParams | null = null;
   let bestLL = -Infinity;
 
-  for (let seed = 0; seed < nFits; seed++) {
+  for (let seed = 0; seed < actualFits; seed++) {
     try {
       const init = initializeParams(logReturns, nStates);
       // Add small random perturbation per seed
       for (let i = 0; i < nStates; i++) {
-        init.means[i] += (seed * 0.0001 - nFits * 0.00005);
-        init.variances[i] *= (0.8 + seed * 0.04);
+        init.means[i] += (seed * 0.0001 - actualFits * 0.00005);
+        init.variances[i] *= (0.8 + seed * (0.4 / actualFits));
       }
       const fitted = baumWelch(logReturns, init);
       const { logLikelihood } = forward(logReturns, fitted);
