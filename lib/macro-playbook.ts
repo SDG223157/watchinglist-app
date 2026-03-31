@@ -333,7 +333,9 @@ async function runRegression(
   }
 
   const weeklyCloses = new Map<string, Map<string, number>>();
-  for (const [tk, hist] of allHist.entries()) {
+  for (const tk of allTickers) {
+    const hist = allHist.get(tk);
+    if (!hist || hist.length === 0) continue;
     const byWeek = new Map<string, number>();
     for (const r of hist) {
       const d = new Date(r.date);
