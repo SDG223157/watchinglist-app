@@ -1,15 +1,97 @@
 import { cachedHistorical, yahooFinance } from "./yf-cache";
+import { readFileSync, writeFileSync, existsSync } from "fs";
+import { join } from "path";
 
-// M2 Money Supply (FRED, quarterly updates)
-const M2: Record<number, number> = {
+// ─── M2 Money Supply (FRED auto-fetch + hardcoded fallback) ──────────────
+
+const M2_FALLBACK: Record<number, number> = {
   2006: 6.8, 2007: 7.4, 2008: 7.8, 2009: 8.4, 2010: 8.8,
   2011: 9.6, 2012: 10.4, 2013: 10.9, 2014: 11.4, 2015: 12.0,
   2016: 12.9, 2017: 13.7, 2018: 14.3, 2019: 15.3, 2020: 19.1,
   2021: 21.6, 2022: 21.4, 2023: 20.9, 2024: 21.2, 2025: 22.0,
   2026: 22.5,
 };
-const M2_CURRENT = M2[Math.max(...Object.keys(M2).map(Number))];
-const M2_BASELINE = M2[2019];
+
+const M2_CACHE_PATH = join(process.cwd(), ".m2_cache.json");
+const M2_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+async function fetchM2FromFred(): Promise<Record<number, number>> {
+  const apiKey = process.env.FRED_API_KEY ?? "";
+  if (!apiKey) return {};
+  try {
+    const url =
+      `https://api.stlouisfed.org/fred/series/observations` +
+      `?series_id=M2SL&api_key=${apiKey}&file_type=json` +
+      `&frequency=a&aggregation_method=avg&sort_order=asc`;
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "macro-playbook/1.0" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const data = await resp.json();
+    const result: Record<number, number> = {};
+    for (const obs of data.observations ?? []) {
+      const yr = parseInt(obs.date.slice(0, 4));
+      if (obs.value !== ".") {
+        result[yr] = Math.round((parseFloat(obs.value) / 1000) * 10) / 10;
+      }
+    }
+    return Object.keys(result).length > 10 ? result : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadM2Cache(): Record<number, number> | null {
+  try {
+    if (!existsSync(M2_CACHE_PATH)) return null;
+    const cache = JSON.parse(readFileSync(M2_CACHE_PATH, "utf-8"));
+    if (Date.now() - (cache.ts ?? 0) < M2_CACHE_TTL) {
+      const out: Record<number, number> = {};
+      for (const [k, v] of Object.entries(cache.data)) out[parseInt(k)] = v as number;
+      return out;
+    }
+  } catch { /* ignore corrupt cache */ }
+  return null;
+}
+
+function saveM2Cache(data: Record<number, number>) {
+  try {
+    writeFileSync(M2_CACHE_PATH, JSON.stringify({ ts: Date.now(), source: "FRED M2SL", data }));
+  } catch { /* non-critical */ }
+}
+
+let _m2Loaded: Record<number, number> | null = null;
+
+async function getM2(): Promise<Record<number, number>> {
+  if (_m2Loaded) return _m2Loaded;
+
+  const cached = loadM2Cache();
+  if (cached) { _m2Loaded = cached; return cached; }
+
+  const fred = await fetchM2FromFred();
+  if (Object.keys(fred).length > 10) {
+    const merged = { ...M2_FALLBACK, ...fred };
+    saveM2Cache(merged);
+    _m2Loaded = merged;
+    return merged;
+  }
+
+  _m2Loaded = M2_FALLBACK;
+  return M2_FALLBACK;
+}
+
+// Synchronous accessors (use fallback until async load completes)
+let M2: Record<number, number> = loadM2Cache() ?? M2_FALLBACK;
+let M2_CURRENT = M2[Math.max(...Object.keys(M2).map(Number))];
+let M2_BASELINE = M2[2019];
+
+// Kick off async FRED fetch in background; update globals when done
+getM2().then((fresh) => {
+  M2 = fresh;
+  M2_CURRENT = M2[Math.max(...Object.keys(M2).map(Number))];
+  M2_BASELINE = M2[2019];
+});
+
 const SPY_PE_HIST = 19.0;
 
 interface AssetDef {
