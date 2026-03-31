@@ -319,6 +319,61 @@ export async function runPlaybook() {
     crypto:      { range: bs < 40 ? "5-10%"  : bs < 65 ? "2-5%"   : "0-2%",  score: bs },
   };
 
+  // Reflexivity map
+  const REFLEXIVITY: Record<string, Record<string, string>> = {
+    gold: {
+      oil: "Oil↑ → inflation → gold hedge demand↑, but Fed hawkish → real rates hurt gold",
+      spy: "SPY↓ → flight to safety → gold↑; SPY↑ → risk-on → gold relatively weaker",
+      btc: "Gold↑ → validates hard-money thesis → BTC follows with lag",
+      usd: "Gold↑ ↔ USD↓ (inverse); but both can rise in systemic panic",
+    },
+    oil: {
+      gold: "Oil↑ → inflation → gold hedge demand↑ (THE key transmission mechanism)",
+      spy: "Oil↑ → cost push → margin compression → SPY earnings↓ → SPY↓",
+      usd: "Oil↑ → terms of trade shift → petrodollar recycling → USD mixed",
+    },
+    spy: {
+      gold: "SPY↓ → risk-off → gold↑; SPY↑ → risk-on → gold relative underperform",
+      oil: "SPY↓ → demand destruction fears → oil↓; SPY↑ → growth → oil demand↑",
+      btc: "SPY↓ → risk-off → BTC↓ (correlated in stress); SPY↑ → BTC↑ (risk-on)",
+    },
+    btc: {
+      gold: "BTC↑ → validates hard-money → gold narrative strengthened",
+      spy: "BTC moves with SPY in stress (correlation→1); leads SPY in risk-on",
+      usd: "BTC↑ ↔ USD↓ in monetary easing cycles",
+    },
+    silver: {
+      gold: "Silver follows gold with higher beta (2-3x); Gold/Silver ratio is key",
+      spy: "Silver has industrial demand component → partially correlated with SPY",
+    },
+    usd: {
+      gold: "USD↑ → gold↓ (inverse); USD↓ → gold↑ (primary channel)",
+      oil: "USD↑ → oil cheaper for US, expensive for world → demand shifts",
+      spy: "USD↑ → multinational earnings translation loss → SPY headwind",
+    },
+  };
+
+  const reflexivity: { source: string; target: string; state: string; strength: string; mechanism: string }[] = [];
+  for (const [key, entry] of Object.entries(assets)) {
+    const def = ASSETS[key];
+    const refMap = REFLEXIVITY[key];
+    if (!refMap) continue;
+    const prem = entry.hedge.m2Premium;
+    let state: string, strength: string;
+    if (prem > 50) { state = "HOT"; strength = "strong"; }
+    else if (prem > 20) { state = "ACTIVE"; strength = "moderate"; }
+    else if (prem > 0) { state = "WARMING"; strength = "weak"; }
+    else { state = "DORMANT"; strength = "minimal"; }
+
+    for (const [target, mechanism] of Object.entries(refMap)) {
+      if (!(target in assets)) continue;
+      reflexivity.push({
+        source: def.name, target: ASSETS[target].name,
+        state, strength, mechanism,
+      });
+    }
+  }
+
   const result = {
     timestamp: new Date().toISOString(),
     assets: assetList,
@@ -326,7 +381,7 @@ export async function runPlaybook() {
     regime,
     spread,
     allocation,
-    reflexivity: [] as { source: string; target: string; state: string; strength: string; mechanism: string }[],
+    reflexivity,
     verify: { rules: [], performance: verify },
   };
 
