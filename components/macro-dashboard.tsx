@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 interface Asset {
   key: string;
@@ -215,6 +216,40 @@ const CATEGORY_LABELS: Record<string, string> = {
   factors: "Factors & Thematic",
 };
 
+function StockSearchBar() {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+
+  const go = () => {
+    const sym = query.trim().toUpperCase();
+    if (sym) {
+      router.push(`/stock/${encodeURIComponent(sym)}`);
+      setQuery("");
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && go()}
+        placeholder="Analyze any stock → type ticker (e.g. GOOG, TSLA, NVDA)"
+        className="flex-1 px-3 py-2 rounded-lg text-sm"
+        style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+      />
+      <button
+        onClick={go}
+        className="px-4 py-2 rounded-lg text-sm font-semibold shrink-0 cursor-pointer"
+        style={{ background: "var(--blue)", color: "#000" }}
+      >
+        4-Layer Analysis →
+      </button>
+    </div>
+  );
+}
+
 export function MacroDashboard() {
   const [data, setData] = useState<PlaybookData | null>(null);
   const [crossData, setCrossData] = useState<CrossSectionData | null>(null);
@@ -289,6 +324,9 @@ export function MacroDashboard() {
 
   return (
     <div>
+      {/* Stock Search */}
+      <StockSearchBar />
+
       {/* Tab Bar */}
       <div className="flex gap-1 mb-6 p-1 rounded-lg w-fit" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
         {tabs.map((t) => (

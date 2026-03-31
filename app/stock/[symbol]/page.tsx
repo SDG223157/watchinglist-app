@@ -9,6 +9,7 @@ import { AnalyzeButton } from "@/components/analyze-button";
 import { RefreshButton } from "@/components/refresh-button";
 import { StockSearch } from "@/components/stock-search";
 import { HmmRegimeChart } from "@/components/hmm-regime-chart";
+import { StockMacroCard } from "@/components/stock-macro-card";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
 import { diagnoseCapm, detectPhaseFromCapm } from "@/lib/capm-diagnostic";
@@ -694,6 +695,9 @@ export default async function StockDetail({
           </>
         );
       })()}
+
+      {/* Macro Playbook — 4-Layer Analysis */}
+      <StockMacroCard symbol={stock.symbol} />
 
       {/* Markov Regime Model (HMM) */}
       <div
