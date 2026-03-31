@@ -50,6 +50,13 @@ export default async function Dashboard() {
             >
               α·β·R²
             </Link>
+            <Link
+              href="/macro"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+            >
+              Macro
+            </Link>
             <AddStock />
             {session.user.image && (
               <img
