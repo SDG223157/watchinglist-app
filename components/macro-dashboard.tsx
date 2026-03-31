@@ -70,6 +70,31 @@ interface Reflexivity {
   mechanism: string;
 }
 
+interface RegressionFactor {
+  name: string;
+  category: string;
+  beta: number;
+  t_stat: number;
+  significant: boolean;
+  desc: string;
+}
+
+interface RegressionResult {
+  asset: string;
+  ticker: string;
+  n_obs: number;
+  alpha: number;
+  r2: number;
+  adj_r2: number;
+  hedge_r2: number;
+  arb_r2: number;
+  structural_r2: number;
+  unexplained: number;
+  orthogonalized?: boolean;
+  r2_oos?: number;
+  factors: RegressionFactor[];
+}
+
 interface PlaybookData {
   timestamp: string;
   assets: Asset[];
@@ -82,6 +107,26 @@ interface PlaybookData {
     rules: unknown[];
     performance: Record<string, PerfEntry>;
   };
+  regression?: Record<string, RegressionResult>;
+}
+
+interface StockCrossSection {
+  symbol: string;
+  name: string;
+  alpha10y: number;
+  blueprintScore: number;
+  opMargin: number;
+  roic: number;
+  fcfYield: number;
+  revGrowth: number;
+  grossMargin: number;
+}
+
+interface CrossSectionData {
+  stocks: StockCrossSection[];
+  regression: { r2: number; beta: number; intercept: number; tStat: number };
+  factorBetas: { name: string; beta: number; tStat: number; significant: boolean }[];
+  computed_at: string;
 }
 
 function scoreColor(score: number) {
@@ -172,9 +217,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function MacroDashboard() {
   const [data, setData] = useState<PlaybookData | null>(null);
+  const [crossData, setCrossData] = useState<CrossSectionData | null>(null);
+  const [crossLoading, setCrossLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "sectors" | "verify" | "reflexivity">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "sectors" | "verify" | "reflexivity" | "regression" | "crossSection">("overview");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -193,7 +240,19 @@ export function MacroDashboard() {
     }
   }, []);
 
+  const fetchCrossSection = useCallback(async () => {
+    if (crossData || crossLoading) return;
+    setCrossLoading(true);
+    try {
+      const res = await fetch("/api/cross-section");
+      if (res.ok) setCrossData(await res.json());
+    } catch { /* silent */ } finally {
+      setCrossLoading(false);
+    }
+  }, [crossData, crossLoading]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { if (activeTab === "crossSection") fetchCrossSection(); }, [activeTab, fetchCrossSection]);
 
   if (loading) {
     return (
@@ -222,6 +281,8 @@ export function MacroDashboard() {
   const tabs = [
     { key: "overview" as const, label: "Overview" },
     { key: "sectors" as const, label: "Sectors" },
+    { key: "regression" as const, label: "Regression" },
+    { key: "crossSection" as const, label: "Cross-Section" },
     { key: "verify" as const, label: "Performance" },
     { key: "reflexivity" as const, label: "Reflexivity" },
   ];
@@ -247,6 +308,8 @@ export function MacroDashboard() {
 
       {activeTab === "overview" && <OverviewTab data={data} />}
       {activeTab === "sectors" && <SectorsTab data={data} />}
+      {activeTab === "regression" && <RegressionTab data={data} />}
+      {activeTab === "crossSection" && <CrossSectionTab data={crossData} loading={crossLoading} />}
       {activeTab === "verify" && <VerifyTab data={data} />}
       {activeTab === "reflexivity" && <ReflexivityTab data={data} />}
 
@@ -527,6 +590,375 @@ function VerifyTab({ data }: { data: PlaybookData }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function DecompBar({ hedge, arb, structural, unexplained }: { hedge: number; arb: number; structural: number; unexplained: number }) {
+  const total = hedge + arb + structural + unexplained;
+  if (total === 0) return null;
+  const hPct = (hedge / total) * 100;
+  const aPct = (arb / total) * 100;
+  const sPct = (structural / total) * 100;
+  return (
+    <div className="flex h-3 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+      {hPct > 0.5 && <div style={{ width: `${hPct}%`, background: "#3b82f6" }} title={`Hedge ${(hedge * 100).toFixed(1)}%`} />}
+      {aPct > 0.5 && <div style={{ width: `${aPct}%`, background: "#f59e0b" }} title={`Arb ${(arb * 100).toFixed(1)}%`} />}
+      {sPct > 0.5 && <div style={{ width: `${sPct}%`, background: "#10b981" }} title={`Structural ${(structural * 100).toFixed(1)}%`} />}
+    </div>
+  );
+}
+
+function RegressionTab({ data }: { data: PlaybookData }) {
+  const reg = data.regression;
+  if (!reg || Object.keys(reg).length === 0) {
+    return (
+      <div className="rounded-lg p-6 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>No regression data available</p>
+      </div>
+    );
+  }
+
+  const sorted = Object.entries(reg).sort(([, a], [, b]) => b.r2 - a.r2);
+
+  return (
+    <div className="space-y-4">
+      {/* Cross-asset comparison */}
+      <div className="rounded-lg p-5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-3 mb-1">
+          <h3 className="text-sm font-bold uppercase tracking-wider">Factor Regression (APT-Style V2)</h3>
+          <span className="text-[10px] px-2 py-0.5 rounded font-bold" style={{ color: "#a78bfa", background: "color-mix(in srgb, #a78bfa 12%, transparent)" }}>
+            Orthogonalized
+          </span>
+        </div>
+        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
+          Weekly returns regressed against Hedge, Arb &amp; Credit, and Structural macro factors · Non-SPY factors orthogonalized via Frisch-Waugh-Lovell
+        </p>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                <th className="text-left py-2 pr-3 font-medium" style={{ color: "var(--muted)" }}>Asset</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>R²</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>OOS R²</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "#3b82f6" }}>Hedge</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "#f59e0b" }}>Arb</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "#10b981" }}>Struct</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Unexpl</th>
+                <th className="text-center py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Dominant</th>
+                <th className="py-2 pl-3 font-medium w-40" style={{ color: "var(--muted)" }}>Decomposition</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(([key, res]) => {
+                const dominant = res.hedge_r2 >= res.arb_r2 && res.hedge_r2 >= res.structural_r2 ? "HEDGE"
+                  : res.arb_r2 >= res.structural_r2 ? "ARB" : "STRUCT";
+                const domColor = dominant === "HEDGE" ? "#3b82f6" : dominant === "ARB" ? "#f59e0b" : "#10b981";
+                const oosR2 = res.r2_oos;
+                const oosColor = oosR2 != null
+                  ? oosR2 > 0.3 ? "var(--green)" : oosR2 > 0 ? "var(--yellow)" : "var(--red)"
+                  : "var(--muted)";
+                return (
+                  <tr key={key} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td className="py-2.5 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold">{res.asset}</span>
+                        <span className="text-[10px] font-mono" style={{ color: "var(--muted)" }}>{res.ticker}</span>
+                        {res.orthogonalized && (
+                          <span className="text-[8px] px-1 rounded" style={{ color: "#a78bfa", background: "color-mix(in srgb, #a78bfa 10%, transparent)" }}>⊥</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="text-right py-2 px-2 font-mono font-bold" style={{ color: res.r2 > 0.4 ? "var(--text)" : "var(--muted)" }}>
+                      {(res.r2 * 100).toFixed(1)}%
+                    </td>
+                    <td className="text-right py-2 px-2 font-mono" style={{ color: oosColor }}>
+                      {oosR2 != null ? `${(oosR2 * 100).toFixed(1)}%` : "—"}
+                    </td>
+                    <td className="text-right py-2 px-2 font-mono" style={{ color: "#3b82f6" }}>{(res.hedge_r2 * 100).toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2 font-mono" style={{ color: "#f59e0b" }}>{(res.arb_r2 * 100).toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2 font-mono" style={{ color: "#10b981" }}>{(res.structural_r2 * 100).toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2 font-mono" style={{ color: "var(--muted)" }}>{(res.unexplained * 100).toFixed(1)}%</td>
+                    <td className="text-center py-2 px-2">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ color: domColor, background: `color-mix(in srgb, ${domColor} 15%, transparent)` }}>
+                        {dominant}
+                      </span>
+                    </td>
+                    <td className="py-2 pl-3">
+                      <DecompBar hedge={res.hedge_r2} arb={res.arb_r2} structural={res.structural_r2} unexplained={res.unexplained} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap gap-4 mt-3 pt-3 text-[10px]" style={{ borderTop: "1px solid var(--border)", color: "var(--muted)" }}>
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: "#3b82f6" }} />Hedge (VIX, DXY, Gold, TIPS)</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: "#f59e0b" }} />Arb (SPY, 10Y, BTC, Credit)</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: "#10b981" }} />Structural (Oil, Silver)</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: "#a78bfa" }} />⊥ = Orthogonalized vs SPY</span>
+        </div>
+      </div>
+
+      {/* Per-asset detail cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {sorted.map(([key, res]) => (
+          <div key={key} className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="font-bold text-sm">{res.asset}</span>
+                <span className="ml-2 text-[10px] font-mono" style={{ color: "var(--muted)" }}>R²={(res.r2 * 100).toFixed(1)}%</span>
+              </div>
+              <span className="text-[10px] font-mono" style={{ color: "var(--muted)" }}>α={res.alpha > 0 ? "+" : ""}{res.alpha}%/wk</span>
+            </div>
+
+            <DecompBar hedge={res.hedge_r2} arb={res.arb_r2} structural={res.structural_r2} unexplained={res.unexplained} />
+
+            <div className="grid grid-cols-4 gap-1 text-[10px] mt-2 mb-3">
+              <div className="text-center"><span style={{ color: "#3b82f6" }}>{(res.hedge_r2 * 100).toFixed(0)}%</span><div style={{ color: "var(--muted)" }}>Hedge</div></div>
+              <div className="text-center"><span style={{ color: "#f59e0b" }}>{(res.arb_r2 * 100).toFixed(0)}%</span><div style={{ color: "var(--muted)" }}>Arb</div></div>
+              <div className="text-center"><span style={{ color: "#10b981" }}>{(res.structural_r2 * 100).toFixed(0)}%</span><div style={{ color: "var(--muted)" }}>Struct</div></div>
+              <div className="text-center"><span style={{ color: "var(--muted)" }}>{(res.unexplained * 100).toFixed(0)}%</span><div style={{ color: "var(--muted)" }}>Idio</div></div>
+            </div>
+
+            <div className="text-[10px]" style={{ borderTop: "1px solid var(--border)" }}>
+              <div className="grid grid-cols-4 gap-1 py-1.5 font-medium" style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+                <span>Factor</span><span className="text-right">Beta</span><span className="text-right">t-stat</span><span className="text-center">Sig</span>
+              </div>
+              {res.factors.map((f) => {
+                const catColor = f.category === "hedge" ? "#3b82f6" : f.category === "arb" ? "#f59e0b" : "#10b981";
+                return (
+                  <div key={f.name} className="grid grid-cols-4 gap-1 py-1" style={{ borderBottom: "1px solid color-mix(in srgb, var(--border) 50%, transparent)" }}>
+                    <span style={{ color: catColor }}>{f.name}</span>
+                    <span className="text-right font-mono">{f.beta > 0 ? "+" : ""}{f.beta.toFixed(3)}</span>
+                    <span className="text-right font-mono" style={{ color: Math.abs(f.t_stat) > 1.96 ? "var(--text)" : "var(--muted)" }}>
+                      {f.t_stat > 0 ? "+" : ""}{f.t_stat.toFixed(1)}
+                    </span>
+                    <span className="text-center font-bold" style={{ color: Math.abs(f.t_stat) > 2.58 ? "var(--green)" : Math.abs(f.t_stat) > 1.96 ? "var(--yellow)" : "var(--muted)" }}>
+                      {Math.abs(f.t_stat) > 2.58 ? "***" : Math.abs(f.t_stat) > 1.96 ? "**" : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScatterChart({ stocks, regression }: { stocks: StockCrossSection[]; regression: CrossSectionData["regression"] }) {
+  if (stocks.length === 0) return null;
+
+  const alphas = stocks.map((s) => s.alpha10y);
+  const scores = stocks.map((s) => s.blueprintScore);
+  const minA = Math.min(...alphas) - 2;
+  const maxA = Math.max(...alphas) + 2;
+  const minS = Math.min(...scores) - 0.5;
+  const maxS = Math.max(...scores) + 0.5;
+
+  const W = 600, H = 360, PAD = 50, R_PAD = 20, T_PAD = 20;
+  const plotW = W - PAD - R_PAD;
+  const plotH = H - PAD - T_PAD;
+  const x = (s: number) => PAD + ((s - minS) / (maxS - minS)) * plotW;
+  const y = (a: number) => T_PAD + plotH - ((a - minA) / (maxA - minA)) * plotH;
+
+  // Regression line
+  const lineX1 = minS;
+  const lineX2 = maxS;
+  const lineY1 = regression.intercept + regression.beta * lineX1;
+  const lineY2 = regression.intercept + regression.beta * lineX2;
+
+  // Grid lines
+  const yTicks: number[] = [];
+  const step = Math.ceil((maxA - minA) / 5);
+  for (let v = Math.ceil(minA / step) * step; v <= maxA; v += step) yTicks.push(v);
+  const xTicks: number[] = [];
+  for (let v = Math.ceil(minS); v <= maxS; v++) xTicks.push(v);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[700px]" style={{ fontFamily: "ui-monospace, monospace" }}>
+      {/* Grid */}
+      {yTicks.map((v) => (
+        <g key={`gy${v}`}>
+          <line x1={PAD} y1={y(v)} x2={W - R_PAD} y2={y(v)} stroke="var(--border)" strokeWidth={0.5} />
+          <text x={PAD - 6} y={y(v) + 3} textAnchor="end" fill="var(--muted)" fontSize={9}>{v}%</text>
+        </g>
+      ))}
+      {xTicks.map((v) => (
+        <g key={`gx${v}`}>
+          <line x1={x(v)} y1={T_PAD} x2={x(v)} y2={H - PAD} stroke="var(--border)" strokeWidth={0.5} />
+          <text x={x(v)} y={H - PAD + 14} textAnchor="middle" fill="var(--muted)" fontSize={9}>{v}</text>
+        </g>
+      ))}
+
+      {/* Regression line */}
+      <line
+        x1={x(lineX1)} y1={y(lineY1)} x2={x(lineX2)} y2={y(lineY2)}
+        stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.7}
+      />
+
+      {/* Axis labels */}
+      <text x={W / 2} y={H - 4} textAnchor="middle" fill="var(--muted)" fontSize={10}>Blueprint Score</text>
+      <text x={12} y={H / 2} textAnchor="middle" fill="var(--muted)" fontSize={10} transform={`rotate(-90 12 ${H / 2})`}>10Y Ann. Alpha (%)</text>
+
+      {/* Data points */}
+      {stocks.map((s) => {
+        const cx = x(s.blueprintScore);
+        const cy = y(s.alpha10y);
+        const col = s.alpha10y > 5 ? "#10b981" : s.alpha10y > 0 ? "#4ade80" : s.alpha10y > -5 ? "#f59e0b" : "#ef4444";
+        return (
+          <g key={s.symbol}>
+            <circle cx={cx} cy={cy} r={5} fill={col} opacity={0.8} stroke="var(--card)" strokeWidth={1} />
+            <text x={cx + 7} y={cy + 3} fill="var(--text)" fontSize={8} fontWeight={600}>{s.symbol}</text>
+          </g>
+        );
+      })}
+
+      {/* R² label */}
+      <text x={W - R_PAD - 4} y={T_PAD + 14} textAnchor="end" fill="#f59e0b" fontSize={10} fontWeight={700}>
+        R² = {(regression.r2 * 100).toFixed(1)}%
+      </text>
+    </svg>
+  );
+}
+
+function CrossSectionTab({ data, loading }: { data: CrossSectionData | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#f59e0b", borderTopColor: "transparent" }} />
+        <p className="text-xs" style={{ color: "var(--muted)" }}>Computing cross-sectional alpha for ~28 stocks (10Y data + fundamentals)...</p>
+        <p className="text-[10px]" style={{ color: "var(--border)" }}>This takes 2-3 minutes on first load, then caches for 24 hours</p>
+      </div>
+    );
+  }
+
+  if (!data || data.stocks.length === 0) {
+    return (
+      <div className="rounded-lg p-6 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>No cross-section data available</p>
+      </div>
+    );
+  }
+
+  const { stocks, regression, factorBetas } = data;
+
+  return (
+    <div className="space-y-4">
+      {/* Scatter chart + regression summary */}
+      <div className="rounded-lg p-5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-3 mb-1">
+          <h3 className="text-sm font-bold uppercase tracking-wider">Cross-Sectional: Alpha ~ Blueprint Score</h3>
+          <span className="text-[10px] px-2 py-0.5 rounded font-bold" style={{
+            color: regression.r2 > 0.3 ? "var(--green)" : "var(--yellow)",
+            background: `color-mix(in srgb, ${regression.r2 > 0.3 ? "var(--green)" : "var(--yellow)"} 12%, transparent)`,
+          }}>
+            R² = {(regression.r2 * 100).toFixed(1)}%
+          </span>
+        </div>
+        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
+          10-year macro-adjusted annualized alpha regressed against Long Bull Blueprint quality score across {stocks.length} stocks
+        </p>
+
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-1">
+            <ScatterChart stocks={stocks} regression={regression} />
+          </div>
+          <div className="lg:w-64 space-y-4">
+            <div>
+              <h4 className="text-[10px] font-bold uppercase mb-2" style={{ color: "var(--muted)" }}>Simple Regression</h4>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>R²</span><span className="font-mono font-bold">{(regression.r2 * 100).toFixed(1)}%</span></div>
+                <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>β (Score)</span><span className="font-mono">{regression.beta > 0 ? "+" : ""}{regression.beta.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>t-stat</span><span className="font-mono" style={{ color: Math.abs(regression.tStat) > 1.96 ? "var(--green)" : "var(--muted)" }}>{regression.tStat.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>Intercept</span><span className="font-mono">{regression.intercept.toFixed(2)}%</span></div>
+              </div>
+              <p className="text-[10px] mt-2" style={{ color: "var(--muted)" }}>
+                Each +1 Blueprint Score → {regression.beta > 0 ? "+" : ""}{regression.beta.toFixed(1)}% annualized alpha
+              </p>
+            </div>
+
+            {factorBetas.length > 0 && (
+              <div>
+                <h4 className="text-[10px] font-bold uppercase mb-2" style={{ color: "var(--muted)" }}>Multi-Factor Betas</h4>
+                <div className="space-y-1">
+                  {factorBetas.map((f) => (
+                    <div key={f.name} className="flex items-center justify-between text-xs">
+                      <span style={{ color: f.significant ? "var(--text)" : "var(--muted)" }}>{f.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">{f.beta > 0 ? "+" : ""}{f.beta.toFixed(3)}</span>
+                        <span className="font-mono text-[10px]" style={{ color: Math.abs(f.tStat) > 1.96 ? "var(--green)" : "var(--muted)" }}>
+                          t={f.tStat.toFixed(1)}
+                        </span>
+                        {f.significant && <span style={{ color: "var(--green)" }}>**</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Stock data table */}
+      <div className="rounded-lg p-5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <h3 className="text-sm font-bold uppercase tracking-wider mb-4">Stock-by-Stock Data</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                <th className="text-left py-2 pr-3 font-medium" style={{ color: "var(--muted)" }}>Stock</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>10Y α</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "#f59e0b" }}>Score</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>OpMgn</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>ROIC</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>FCFYld</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>RevGr</th>
+                <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>GrsMgn</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stocks.map((s) => {
+                const alphaColor = s.alpha10y > 10 ? "var(--green)" : s.alpha10y > 0 ? "#4ade80" : s.alpha10y > -5 ? "var(--yellow)" : "var(--red)";
+                const scoreColor = s.blueprintScore >= 5 ? "var(--green)" : s.blueprintScore >= 3 ? "var(--yellow)" : "var(--red)";
+                return (
+                  <tr key={s.symbol} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td className="py-2 pr-3">
+                      <span className="font-bold">{s.symbol}</span>
+                      <span className="ml-1 text-[10px]" style={{ color: "var(--muted)" }}>{s.name}</span>
+                    </td>
+                    <td className="text-right py-2 px-2 font-mono font-bold" style={{ color: alphaColor }}>
+                      {s.alpha10y > 0 ? "+" : ""}{s.alpha10y.toFixed(1)}%
+                    </td>
+                    <td className="text-right py-2 px-2">
+                      <span className="font-mono font-bold px-1.5 py-0.5 rounded" style={{ color: scoreColor, background: `color-mix(in srgb, ${scoreColor} 12%, transparent)` }}>
+                        {s.blueprintScore}/6
+                      </span>
+                    </td>
+                    <td className="text-right py-2 px-2 font-mono">{s.opMargin.toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2 font-mono">{s.roic.toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2 font-mono">{s.fcfYield.toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2 font-mono" style={{ color: s.revGrowth > 10 ? "var(--green)" : s.revGrowth < 0 ? "var(--red)" : "var(--muted)" }}>
+                      {s.revGrowth > 0 ? "+" : ""}{s.revGrowth.toFixed(1)}%
+                    </td>
+                    <td className="text-right py-2 px-2 font-mono">{s.grossMargin.toFixed(1)}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="text-[10px] text-center" style={{ color: "var(--border)" }}>
+        Cross-section computed: {data.computed_at}
+      </div>
     </div>
   );
 }

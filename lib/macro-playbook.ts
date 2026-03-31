@@ -168,6 +168,316 @@ function computeArb(
   return { score: Math.round(avgPct), fairValue: round(fairValue), premium: round(premium), signal };
 }
 
+// ─── Factor Regression (APT-style) ──────────────────────────
+
+interface FactorDef {
+  ticker: string;
+  category: "hedge" | "arb" | "structural";
+  desc: string;
+}
+
+const REGRESSION_FACTORS: Record<string, FactorDef> = {
+  VIX:    { ticker: "^VIX",     category: "hedge",      desc: "Fear / implied volatility" },
+  DXY:    { ticker: "DX-Y.NYB", category: "hedge",      desc: "Dollar strength" },
+  "10Y":  { ticker: "^TNX",     category: "arb",        desc: "Treasury yield" },
+  SPY:    { ticker: "SPY",      category: "arb",        desc: "Equity market beta" },
+  Oil:    { ticker: "CL=F",     category: "structural", desc: "Energy / inflation" },
+  Gold:   { ticker: "GC=F",     category: "hedge",      desc: "Monetary debasement hedge" },
+  TIPS:   { ticker: "TIP",      category: "hedge",      desc: "Real rate proxy" },
+  BTC:    { ticker: "BTC-USD",  category: "arb",        desc: "Risk appetite" },
+  Credit: { ticker: "HYG",      category: "arb",        desc: "Credit spread / risk appetite" },
+  Silver: { ticker: "SI=F",     category: "structural", desc: "Industrial + monetary" },
+};
+
+const REGRESSION_TARGETS: Record<string, string> = {
+  gold: "GC=F", oil: "CL=F", spy: "SPY", btc: "BTC-USD", silver: "SI=F", usd: "DX-Y.NYB",
+};
+
+function matMul(A: number[][], B: number[][]): number[][] {
+  const m = A.length, n = B[0].length, p = B.length;
+  const C: number[][] = Array.from({ length: m }, () => new Array(n).fill(0));
+  for (let i = 0; i < m; i++)
+    for (let j = 0; j < n; j++)
+      for (let k = 0; k < p; k++)
+        C[i][j] += A[i][k] * B[k][j];
+  return C;
+}
+
+function matTranspose(A: number[][]): number[][] {
+  const m = A.length, n = A[0].length;
+  const T: number[][] = Array.from({ length: n }, () => new Array(m).fill(0));
+  for (let i = 0; i < m; i++)
+    for (let j = 0; j < n; j++)
+      T[j][i] = A[i][j];
+  return T;
+}
+
+function matInverse(M: number[][]): number[][] | null {
+  const n = M.length;
+  const aug: number[][] = M.map((row, i) => {
+    const r = [...row];
+    for (let j = 0; j < n; j++) r.push(i === j ? 1 : 0);
+    return r;
+  });
+  for (let col = 0; col < n; col++) {
+    let maxRow = col;
+    for (let row = col + 1; row < n; row++)
+      if (Math.abs(aug[row][col]) > Math.abs(aug[maxRow][col])) maxRow = row;
+    [aug[col], aug[maxRow]] = [aug[maxRow], aug[col]];
+    const pivot = aug[col][col];
+    if (Math.abs(pivot) < 1e-12) return null;
+    for (let j = 0; j < 2 * n; j++) aug[col][j] /= pivot;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const f = aug[row][col];
+      for (let j = 0; j < 2 * n; j++) aug[row][j] -= f * aug[col][j];
+    }
+  }
+  return aug.map((row) => row.slice(n));
+}
+
+function olsRegress(X: number[][], y: number[]) {
+  const n = X.length, k = X[0].length;
+  const XtX: number[][] = Array.from({ length: k }, () => new Array(k).fill(0));
+  for (let i = 0; i < k; i++)
+    for (let j = 0; j < k; j++)
+      for (let r = 0; r < n; r++)
+        XtX[i][j] += X[r][i] * X[r][j];
+  const XtXInv = matInverse(XtX);
+  if (!XtXInv) return null;
+
+  const Xty: number[] = new Array(k).fill(0);
+  for (let i = 0; i < k; i++)
+    for (let r = 0; r < n; r++)
+      Xty[i] += X[r][i] * y[r];
+
+  const betas: number[] = new Array(k).fill(0);
+  for (let i = 0; i < k; i++)
+    for (let j = 0; j < k; j++)
+      betas[i] += XtXInv[i][j] * Xty[j];
+
+  const yHat = X.map((row) => row.reduce((s, v, i) => s + v * betas[i], 0));
+  const resid = y.map((v, i) => v - yHat[i]);
+  const ssRes = resid.reduce((s, v) => s + v * v, 0);
+  const yMean = y.reduce((s, v) => s + v, 0) / n;
+  const ssTot = y.reduce((s, v) => s + (v - yMean) ** 2, 0);
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  const adjR2 = n > k + 1 ? 1 - (1 - r2) * (n - 1) / (n - k - 1) : r2;
+  const sigma2 = n > k ? ssRes / (n - k) : 1e-10;
+  const tStats = betas.map((b, i) => {
+    const se = Math.sqrt(Math.max(0, XtXInv[i][i] * sigma2));
+    return se > 0 ? b / se : 0;
+  });
+
+  return { betas, tStats, r2, adjR2, yMean };
+}
+
+interface RegressionResult {
+  asset: string;
+  ticker: string;
+  n_obs: number;
+  alpha: number;
+  r2: number;
+  adj_r2: number;
+  hedge_r2: number;
+  arb_r2: number;
+  structural_r2: number;
+  unexplained: number;
+  orthogonalized: boolean;
+  r2_oos?: number;
+  factors: {
+    name: string;
+    category: string;
+    beta: number;
+    t_stat: number;
+    significant: boolean;
+    desc: string;
+  }[];
+}
+
+function orthogonalizeFactors(
+  factorReturns: Map<string, number[]>,
+  marketTicker: string,
+  nObs: number
+): Map<string, number[]> {
+  const spyRets = factorReturns.get(marketTicker);
+  if (!spyRets) return factorReturns;
+
+  const result = new Map<string, number[]>();
+  result.set(marketTicker, spyRets);
+
+  for (const [tk, rets] of factorReturns.entries()) {
+    if (tk === marketTicker) continue;
+    const X: number[][] = [];
+    for (let i = 0; i < nObs; i++) X.push([1, spyRets[i]]);
+    const reg = olsRegress(X, rets);
+    if (!reg) { result.set(tk, rets); continue; }
+    const residuals = rets.map((v, i) => v - (reg.betas[0] + reg.betas[1] * spyRets[i]));
+    result.set(tk, residuals);
+  }
+  return result;
+}
+
+async function runRegression(
+  allHist: Map<string, { close: number; date: Date }[]>
+): Promise<Record<string, RegressionResult>> {
+  const allTickers = new Set<string>();
+  for (const f of Object.values(REGRESSION_FACTORS)) allTickers.add(f.ticker);
+  for (const t of Object.values(REGRESSION_TARGETS)) allTickers.add(t);
+
+  for (const tk of allTickers) {
+    if (!allHist.has(tk)) {
+      const h = await getHistory(tk, 3);
+      if (h.length > 0) allHist.set(tk, h);
+    }
+  }
+
+  const weeklyCloses = new Map<string, Map<string, number>>();
+  for (const [tk, hist] of allHist.entries()) {
+    const byWeek = new Map<string, number>();
+    for (const r of hist) {
+      const d = new Date(r.date);
+      const fri = new Date(d);
+      fri.setDate(d.getDate() + (5 - d.getDay() + 7) % 7);
+      const key = fri.toISOString().split("T")[0];
+      byWeek.set(key, r.close);
+    }
+    weeklyCloses.set(tk, byWeek);
+  }
+
+  let commonWeeks: string[] | null = null;
+  for (const byWeek of weeklyCloses.values()) {
+    const weeks = [...byWeek.keys()].sort();
+    if (!commonWeeks) commonWeeks = weeks;
+    else commonWeeks = commonWeeks.filter((w) => byWeek.has(w));
+  }
+  if (!commonWeeks || commonWeeks.length < 30) return {};
+
+  const threeYearsAgo = new Date();
+  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+  const cutoff = threeYearsAgo.toISOString().split("T")[0];
+  commonWeeks = commonWeeks.filter((w) => w >= cutoff).sort();
+  if (commonWeeks.length < 30) return {};
+
+  const LEVEL_TICKERS = new Set(["^VIX", "^TNX"]);
+
+  const weeklyReturns = new Map<string, number[]>();
+  for (const [tk, byWeek] of weeklyCloses.entries()) {
+    const rets: number[] = [];
+    for (let i = 1; i < commonWeeks.length; i++) {
+      const prev = byWeek.get(commonWeeks[i - 1]);
+      const curr = byWeek.get(commonWeeks[i]);
+      if (prev == null || curr == null || prev === 0) { rets.push(0); continue; }
+      if (LEVEL_TICKERS.has(tk)) rets.push(curr - prev);
+      else rets.push((curr / prev - 1) * 100);
+    }
+    weeklyReturns.set(tk, rets);
+  }
+
+  const nObs = commonWeeks.length - 1;
+  const results: Record<string, RegressionResult> = {};
+
+  // Orthogonalize all non-SPY factors against SPY (Frisch-Waugh-Lovell)
+  const orthReturns = orthogonalizeFactors(weeklyReturns, "SPY", nObs);
+
+  for (const [assetKey, assetTicker] of Object.entries(REGRESSION_TARGETS)) {
+    const yRets = weeklyReturns.get(assetTicker);
+    if (!yRets || yRets.length !== nObs) continue;
+
+    const isSpy = assetTicker === "SPY";
+    const useReturns = isSpy ? weeklyReturns : orthReturns;
+
+    const factorNames: string[] = [];
+    const factorCats: ("hedge" | "arb" | "structural")[] = [];
+    const factorCols: number[][] = [];
+
+    for (const [fname, fdef] of Object.entries(REGRESSION_FACTORS)) {
+      if (fdef.ticker === assetTicker) continue;
+      const fRets = useReturns.get(fdef.ticker);
+      if (!fRets || fRets.length !== nObs) continue;
+      factorNames.push(fname);
+      factorCats.push(fdef.category);
+      factorCols.push(fRets);
+    }
+
+    if (factorCols.length === 0) continue;
+
+    const X: number[][] = [];
+    for (let i = 0; i < nObs; i++) {
+      const row = [1];
+      for (const col of factorCols) row.push(col[i]);
+      X.push(row);
+    }
+
+    const ols = olsRegress(X, yRets);
+    if (!ols) continue;
+
+    const { betas, tStats, r2, adjR2, yMean } = ols;
+    const alpha = betas[0];
+    const factorBetas = betas.slice(1);
+    const factorTStats = tStats.slice(1);
+
+    let hedgeR2 = 0, arbR2 = 0, structR2 = 0;
+    const ssTot = yRets.reduce((s, v) => s + (v - yMean) ** 2, 0);
+    if (ssTot > 0) {
+      for (let i = 0; i < factorNames.length; i++) {
+        const contribution = factorBetas[i] * factorCols[i].reduce((s, v, j) => s + v * (yRets[j] - yMean), 0);
+        const pctContrib = Math.max(0, contribution / ssTot) * r2;
+        if (factorCats[i] === "hedge") hedgeR2 += pctContrib;
+        else if (factorCats[i] === "arb") arbR2 += pctContrib;
+        else structR2 += pctContrib;
+      }
+      const totalDecomp = hedgeR2 + arbR2 + structR2;
+      if (totalDecomp > 0) {
+        const scale = r2 / totalDecomp;
+        hedgeR2 *= scale;
+        arbR2 *= scale;
+        structR2 *= scale;
+      }
+    }
+
+    // Out-of-sample validation (67% train / 33% test)
+    let r2Oos: number | undefined;
+    const trainN = Math.floor(nObs * 0.67);
+    const testN = nObs - trainN;
+    if (testN > 10) {
+      const xTrain = X.slice(0, trainN);
+      const yTrain = yRets.slice(0, trainN);
+      const olsTrain = olsRegress(xTrain, yTrain);
+      if (olsTrain) {
+        const xTest = X.slice(trainN);
+        const yTest = yRets.slice(trainN);
+        const yPred = xTest.map((row) => row.reduce((s, v, i) => s + v * olsTrain.betas[i], 0));
+        const ssResOos = yTest.reduce((s, v, i) => s + (v - yPred[i]) ** 2, 0);
+        const yTestMean = yTest.reduce((s, v) => s + v, 0) / testN;
+        const ssTotOos = yTest.reduce((s, v) => s + (v - yTestMean) ** 2, 0);
+        r2Oos = ssTotOos > 0 ? round(1 - ssResOos / ssTotOos, 4) : 0;
+      }
+    }
+
+    const factors = factorNames.map((fname, i) => ({
+      name: fname,
+      category: factorCats[i],
+      beta: round(factorBetas[i], 4),
+      t_stat: round(factorTStats[i]),
+      significant: Math.abs(factorTStats[i]) > 1.96,
+      desc: REGRESSION_FACTORS[fname].desc,
+    })).sort((a, b) => Math.abs(b.t_stat) - Math.abs(a.t_stat));
+
+    const assetName = ASSETS[assetKey]?.name ?? assetKey.toUpperCase();
+    results[assetKey] = {
+      asset: assetName, ticker: assetTicker, n_obs: nObs,
+      alpha: round(alpha, 4), r2: round(r2, 4), adj_r2: round(adjR2, 4),
+      hedge_r2: round(hedgeR2, 4), arb_r2: round(arbR2, 4),
+      structural_r2: round(structR2, 4), unexplained: round(1 - r2, 4),
+      orthogonalized: !isSpy, r2_oos: r2Oos,
+      factors,
+    };
+  }
+
+  return results;
+}
+
 // ─── public ─────────────────────────────────────────────────
 export async function runPlaybook() {
   const spyPE = await getSpyPE();
@@ -374,6 +684,9 @@ export async function runPlaybook() {
     }
   }
 
+  // Layer 4: Factor Regression
+  const regression = await runRegression(allHist);
+
   const result = {
     timestamp: new Date().toISOString(),
     assets: assetList,
@@ -383,6 +696,7 @@ export async function runPlaybook() {
     allocation,
     reflexivity,
     verify: { rules: [], performance: verify },
+    regression,
   };
 
   return result;
