@@ -1003,33 +1003,107 @@ export default async function StockDetail({
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Date</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Price</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Score</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Walls</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Extreme</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted)" }}>Ext</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Clock</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Geo</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Signal</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>HMM</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Moat</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Entropy</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted)" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((h, i) => (
-                  <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {new Date(h.created_at).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{N(h.price) ? `${cs}${N(h.price)!.toFixed(2)}` : "—"}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {h.green_walls || 0}G/{h.yellow_walls || 0}Y/{h.red_walls || 0}R
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{h.extreme_score}/20</td>
-                    <td className="px-3 py-2 text-xs">{h.clock_position}</td>
-                    <td className="px-3 py-2 text-xs">{h.trend_signal}</td>
-                    <td className="px-3 py-2 text-xs">{h.action}</td>
-                  </tr>
-                ))}
+                {history.map((h, i) => {
+                  const sc = computeCompositeScore(h);
+                  const analyzed = isAnalyzed(h);
+                  const geoLabel: Record<number, string> = { 0: "Anchor", 1: "Vel", 2: "Accel", 3: "Jerk" };
+                  return (
+                    <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {new Date(h.created_at).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{N(h.price) ? `${cs}${N(h.price)!.toFixed(2)}` : "—"}</td>
+                      <td className="px-3 py-2 text-right">
+                        {analyzed ? (
+                          <span className="font-mono text-xs font-bold" style={{ color: sc.gradeColor }}>
+                            {sc.total}
+                          </span>
+                        ) : (
+                          <span className="text-xs" style={{ color: "var(--muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {h.green_walls || 0}G/{h.yellow_walls || 0}Y/{h.red_walls || 0}R
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{h.extreme_score}/20</td>
+                      <td className="px-3 py-2 text-xs">{h.clock_position}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <span style={{
+                          color: (h.geometric_order ?? 0) >= 3 ? "var(--red)"
+                            : (h.geometric_order ?? 0) >= 2 ? "var(--yellow)"
+                            : (h.geometric_order ?? 0) >= 1 ? "var(--blue)" : "var(--muted)",
+                        }}>
+                          {h.geometric_order ?? 0} {geoLabel[h.geometric_order ?? 0]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        <span className={h.trend_signal === "Open" ? "signal-open" : "signal-closed"}>
+                          {h.trend_signal || "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {h.hmm_regime && h.hmm_regime !== "N/A" ? (
+                          <span style={{
+                            color: h.hmm_regime.toLowerCase().includes("bull") ? "var(--green)"
+                              : h.hmm_regime.toLowerCase().includes("bear") ? "var(--red)" : "var(--muted)",
+                          }}>
+                            {h.hmm_regime}
+                            {h.hmm_persistence != null && (
+                              <span className="font-mono" style={{ color: "var(--muted)" }}> {(h.hmm_persistence * 100).toFixed(0)}%</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {h.moat_width ? (
+                          <span style={{
+                            color: h.moat_width === "WIDE" ? "var(--green)"
+                              : h.moat_width === "NARROW" ? "var(--yellow)" : "var(--red)",
+                          }}>
+                            {h.moat_width}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {h.entropy_regime ? (
+                          <span style={{
+                            color: h.entropy_regime === "compressed" ? "var(--red)"
+                              : h.entropy_regime === "diverse" ? "var(--green)" : "var(--muted)",
+                          }}>
+                            {h.entropy_regime}
+                            {h.cog_gap != null && h.cog_gap > 0 && (
+                              <span className="font-mono" style={{ color: "var(--muted)" }}> {h.cog_gap}</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs">{h.action}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
