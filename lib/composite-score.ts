@@ -139,6 +139,17 @@ function gradeFromScore(total: number): { grade: string; gradeColor: string } {
   return { grade: "Avoid", gradeColor: "#ef4444" };
 }
 
+/**
+ * Composite score with hard-gate architecture.
+ *
+ * FAJ Q2 2026 (Jo & Kim, "Rethinking Variable Importance in ML") validates
+ * this design: unconstrained models overfit in-sample, microcaps inflate
+ * signals, and some predictors carry *negative* importance. Only with
+ * economic restrictions — our 7 buy conditions — can quantitative signals
+ * deliver robust, out-of-sample insights. The gating order (walls → trend
+ * → clock → moat → stage → geo → sector) mirrors the FAJ finding that
+ * economic filters must precede statistical scoring.
+ */
 export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
   const walls = scoreWalls(s.green_walls || 0, s.yellow_walls || 0, s.red_walls || 0);
   const trendwise = scoreTrendWise(s.trend_signal || "", s.action || "");

@@ -588,6 +588,11 @@ export default async function StockDetail({
           <div className="text-xs mt-0.5 font-mono" style={{ color: "var(--muted)" }}>
             {stock.geometric_details}
           </div>
+          {stock.market_cap != null && stock.market_cap < 2 && (stock.geometric_order ?? 0) >= 2 && (
+            <div className="text-[10px] mt-1.5 px-2 py-1 rounded" style={{ background: "rgba(234,179,8,0.1)", color: "#f59e0b" }}>
+              Microcap (&lt;$2B) — geo signals inflated by illiquidity (FAJ 2026)
+            </div>
+          )}
         </div>
         <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
           <div className="text-xs uppercase tracking-wider" style={{ color: "var(--muted)" }}>
@@ -599,6 +604,11 @@ export default async function StockDetail({
           {stock.trend_entry_date && (
             <div className="text-xs mt-0.5 font-mono" style={{ color: "var(--muted)" }}>
               Entry: {stock.trend_entry_date} @ {cs}{stock.trend_entry_price}
+            </div>
+          )}
+          {stock.trend_signal === "Open" && (
+            <div className="text-[10px] mt-1.5" style={{ color: "var(--muted)" }}>
+              Earnings-proximity crossovers carry higher conviction (FAJ 2026: stock-specific momentum doesn&apos;t reverse)
             </div>
           )}
         </div>
@@ -714,7 +724,17 @@ export default async function StockDetail({
       {/* Moat Analysis */}
       {(stock.moat_width || stock.moat_type) && (
         <>
-          <h2 className="text-lg font-bold mb-3">Competitive Moat</h2>
+          <div className="flex items-center gap-3 mb-3">
+            <h2 className="text-lg font-bold">Competitive Moat</h2>
+            {((stock.green_walls || 0) >= 4 || ((stock.green_walls || 0) >= 3 && (stock.moat_width || "").toUpperCase() === "WIDE")) && (
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(59,130,246,0.12)", color: "var(--blue)" }}
+              >
+                DAR ELIGIBLE — natural defensive allocation candidate (FAJ 2026)
+              </span>
+            )}
+          </div>
           <div
             className="rounded-lg p-5 mb-8"
             style={{ background: "var(--card)", border: "1px solid var(--border)" }}

@@ -312,10 +312,18 @@ export function EntropyDashboard() {
               Low entropy means one dominant force drives prices (panic, policy, narrative crowding).
               The edge is not in finding order — it is in finding <em>who mistakes compressed order for complete understanding</em>.
             </p>
-            <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+            <p className="text-xs leading-relaxed mb-2" style={{ color: "var(--muted)" }}>
               H = −Σ p(x)·log₂(p(x)), normalized to [0,1]. Percentile ranks current 60-day entropy against
               3-year rolling history. &quot;Cognitive Gap&quot; combines low entropy + falling trend + volume concentration
               + geometric order + regime stress.
+            </p>
+            <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+              <strong style={{ color: "var(--blue)" }}>FAJ 2026 validation:</strong>{" "}
+              Calomiris, Melek &amp; Mamaysky show NLP topic modeling on news produces predictive signals
+              <em> not spanned by existing variables</em> — when news topics compress to 1-2 themes (low topic entropy),
+              the market is in narrative compression. Return entropy and news topic entropy are independent
+              dimensions of the same phenomenon. Jo &amp; Kim confirm that without economic restrictions
+              (our 7-condition gating), quantitative signals overfit to noise.
             </p>
           </div>
         </div>
@@ -500,6 +508,9 @@ export function EntropyDashboard() {
             <span>Low entropy + price far from valuation anchors</span>
             <span>ATH &ge; -40%, PE &gt; 50x, DCF divergence &gt; 30%</span>
             <span>Red walls &ge; 2: fundamental stress under compression</span>
+            <span className="mt-1" style={{ color: "var(--blue)" }}>
+              NLP news topic concentration adds a parallel entropy dimension (FAJ Q1 2026)
+            </span>
           </div>
         </div>
       </div>

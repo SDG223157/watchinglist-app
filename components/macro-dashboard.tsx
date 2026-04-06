@@ -428,6 +428,46 @@ function OverviewTab({ data }: { data: PlaybookData }) {
         </div>
       </div>
 
+      {/* FAJ 2026 Defensive Strategy Insight */}
+      <div className="rounded-lg p-5 lg:col-span-3" style={{ background: "rgba(59,130,246,0.04)", border: "1px solid rgba(59,130,246,0.15)" }}>
+        <div className="flex items-center gap-3 mb-2">
+          <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--blue)" }}>
+            Defensive Strategy (FAJ Q1 2026)
+          </h3>
+          <span className="text-[10px] px-2 py-0.5 rounded font-bold" style={{ color: "var(--blue)", background: "color-mix(in srgb, var(--blue) 12%, transparent)" }}>
+            220 Years of Evidence
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div>
+            <div className="font-semibold mb-1" style={{ color: "#10b981" }}>Tier 1: DAR + Trend-Following</div>
+            <p style={{ color: "var(--muted)" }}>
+              Defensive Absolute Return (low-vol + quality + value factors) combined with trend-following
+              provides the most effective downside protection over 220 years. DAR protects early/mid drawdowns;
+              trend-following covers deep/prolonged drawdowns.
+            </p>
+          </div>
+          <div>
+            <div className="font-semibold mb-1" style={{ color: "var(--yellow)" }}>Tier 2: Short Treasuries</div>
+            <p style={{ color: "var(--muted)" }}>
+              Short-term Treasuries (SHV/BIL) for deflation and flight-to-quality scenarios.
+              Works as dry powder for rebalancing into weakness.
+            </p>
+          </div>
+          <div>
+            <div className="font-semibold mb-1" style={{ color: "var(--muted)" }}>Tier 3: Gold (Reduced)</div>
+            <p style={{ color: "var(--muted)" }}>
+              Gold is less drawdown-effective than DAR per dollar spent (Baltussen et al.).
+              Reduced from 5-10% to 3-5% max. Keep for geopolitical tail risk only.
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 pt-3 text-[10px]" style={{ borderTop: "1px solid rgba(59,130,246,0.15)", color: "var(--muted)" }}>
+          Source: Baltussen, Martens &amp; van der Linden, &quot;The Best Defensive Strategies: Two Centuries of Evidence&quot;, Financial Analysts Journal Q1 2026
+          &nbsp;·&nbsp; Stocks with 4 GREEN walls and WIDE moat are natural DAR candidates from your watchlist
+        </div>
+      </div>
+
       {/* Asset Detail Cards */}
       {data.assets.map((a) => (
         <div key={a.key} className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
