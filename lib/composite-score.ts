@@ -156,7 +156,9 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
     total = Math.max(0, Math.min(100, total + (lbAdj[lbs] ?? 0)));
   }
 
-  // HMM regime modifier: persistent bull = tailwind, persistent bear = headwind
+  // HMM regime modifier: persistent regime + trend direction = tailwind/headwind
+  // Fixed: "Flat" with high persistence in a trending stock (e.g. NVDA Flat 98.9%
+  // at +69% annualized) now gets credit — uses TrendWise as direction tiebreaker.
   const hmmRegime = (s.hmm_regime || "").toLowerCase();
   const hmmP = s.hmm_persistence;
   if (hmmRegime && hmmRegime !== "n/a" && hmmP != null) {
@@ -165,6 +167,14 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
       hmmAdj = hmmP >= 0.95 ? 5 : hmmP >= 0.90 ? 3 : 0;
     } else if (hmmRegime.includes("bear")) {
       hmmAdj = hmmP >= 0.95 ? -5 : hmmP >= 0.90 ? -3 : 0;
+    } else if (hmmRegime.includes("flat") && hmmP >= 0.90) {
+      const trendOpen = /open/i.test(s.trend_signal || "");
+      const trendClosed = /closed/i.test(s.trend_signal || "");
+      if (trendOpen) {
+        hmmAdj = hmmP >= 0.95 ? 3 : 2;
+      } else if (trendClosed) {
+        hmmAdj = hmmP >= 0.95 ? -2 : -1;
+      }
     }
     total = Math.max(0, Math.min(100, total + hmmAdj));
   }
