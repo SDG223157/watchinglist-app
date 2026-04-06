@@ -33,8 +33,11 @@ const NUM_BINS = 20;
 function shannonEntropy(values: number[], bins: number = NUM_BINS): number {
   if (values.length < 10) return 1;
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  let min = values[0], max = values[0];
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] < min) min = values[i];
+    if (values[i] > max) max = values[i];
+  }
   const range = max - min;
   if (range === 0) return 0;
 
