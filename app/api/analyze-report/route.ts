@@ -7,6 +7,7 @@ import type { WatchlistStock } from "@/lib/db";
 import { computeCompositeScore } from "@/lib/composite-score";
 import { cachedQuote, cachedSummary, cachedHistorical } from "@/lib/yf-cache";
 import { refreshStockData } from "@/lib/refresh-stock";
+import { computeEntropyProfile } from "@/lib/entropy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -45,7 +46,8 @@ function buildSectorBlock(hm: StockHeatmapContext): string {
 function buildPrompt(
   quote: Record<string, unknown>,
   hist: { close: number; date: string }[],
-  hm: StockHeatmapContext
+  hm: StockHeatmapContext,
+  entropyBlock: string = ""
 ): string {
   const symbol = quote.symbol;
   const price = quote.regularMarketPrice;
@@ -97,6 +99,8 @@ Debt/Equity: ${de}
 Revenue Growth: ${revGrowth}
 Earnings Growth: ${earnGrowth}
 
+=== SHANNON ENTROPY ===
+${entropyBlock}
 === SECTOR & INDUSTRY CONTEXT ===
 ${sectorBlock}
 Interpretation guide:
@@ -154,6 +158,20 @@ For EACH cycle, identify:
 
 This is the MOST IMPORTANT section — it reveals the company's structural trajectory and whether each crash destroyed or deposited value.
 
+**Shannon Entropy (Informational Compression Meta-Layer):**
+Shannon entropy measures the informational diversity of return distributions.
+- H(60d) normalized [0,1]: low = one dominant force, high = diverse information processing
+- Percentile ≤20th = "compressed" regime (narrative crowding or panic)
+- Percentile ≥80th = "diverse" regime (healthy information environment)
+- Cognitive Gap (0-10): how many "bits" the market leaves unprocessed. Score 7+ = severe.
+- Anchor Failure: low entropy + price far from valuation anchors = most actionable signal.
+
+How entropy modifies your analysis:
+- Compressed regime: walls/moat/clock may be TEMPORARILY IRRELEVANT — market not processing fundamentals. Recommend smaller sizing or patience.
+- Diverse regime: signals are reliable — full conviction from composite score is appropriate.
+- Anchor Failure = HIGHEST PRIORITY finding: call out prominently.
+- Cross-reference with HMM: Bull + compressed = fragile mania. Bear + compressed = potential reversal setup.
+
 **7 Buy Conditions:**
 1. >=3 GREEN walls
 2. Market Clock favorable
@@ -197,8 +215,17 @@ Table with GREEN/YELLOW/RED + data
 | Dimension | Score /5 | Evidence |
 Table
 
+### Shannon Entropy Analysis
+| Metric | Value | Interpretation |
+Analyze the entropy data provided. Include:
+- Entropy regime (compressed/normal/diverse) and what it means for this stock right now
+- Cognitive computation gap assessment
+- Anchor failure check (if applicable)
+- **Entropy × Framework Cross-Check:** Does entropy confirm or contradict the clock position? Does HMM + entropy indicate fragility?
+- **Signal Reliability Assessment:** Based on entropy, are fundamental signals currently being processed by the market?
+
 ### Position Assessment
-7 buy conditions check (including sector/industry), recommended action (buy/watch/avoid), position size suggestion.
+7 buy conditions check (including sector/industry and entropy regime), recommended action (buy/watch/avoid), position size suggestion.
 If sector/industry is a headwind, explicitly state how it modifies the position size or conviction level.
 
 ### Key Risks
@@ -289,6 +316,44 @@ export async function POST(req: NextRequest) {
       }));
     }
 
+    // Compute Shannon entropy from 3-year daily history
+    let entropyBlock = "Shannon Entropy: Not available (insufficient history)\n";
+    try {
+      const period3y = new Date();
+      period3y.setFullYear(period3y.getFullYear() - 3);
+      const dailyHist = await cachedHistorical(symbol, period3y.toISOString().split("T")[0], "1d") as { close: number; volume: number; date: Date }[];
+      if (dailyHist.length >= 120) {
+        const existingStock = await fetchStock(symbol);
+        const entropyProfile = computeEntropyProfile(
+          dailyHist.map(h => h.close),
+          dailyHist.map(h => h.volume),
+          dailyHist.map(h => h.date instanceof Date ? h.date.toISOString().split("T")[0] : String(h.date).split("T")[0]),
+          existingStock ? {
+            pe_ratio: existingStock.pe_ratio,
+            price_to_book: existingStock.price_to_book,
+            price: existingStock.price,
+            distance_from_ath: existingStock.distance_from_ath,
+            green_walls: existingStock.green_walls,
+            yellow_walls: existingStock.yellow_walls,
+            red_walls: existingStock.red_walls,
+            geometric_order: existingStock.geometric_order,
+            hmm_regime: existingStock.hmm_regime,
+          } : undefined
+        );
+        entropyBlock = `Shannon Entropy (informational compression analysis):
+  H(60d): ${entropyProfile.current60d?.toFixed(3) ?? "N/A"} (normalized [0,1])
+  H(120d): ${entropyProfile.current120d?.toFixed(3) ?? "N/A"}
+  H(252d): ${entropyProfile.current252d?.toFixed(3) ?? "N/A"}
+  Volume Entropy: ${entropyProfile.volumeEntropy60d?.toFixed(3) ?? "N/A"}
+  Percentile: ${entropyProfile.percentile?.toFixed(0) ?? "N/A"}% (vs 3-year rolling history)
+  Trend: ${entropyProfile.trend != null ? (entropyProfile.trend >= 0 ? "+" : "") + (entropyProfile.trend * 1000).toFixed(2) : "N/A"} (×1000, negative = compressing)
+  Regime: ${entropyProfile.regime}
+  Cognitive Gap: ${entropyProfile.cogGap}/10 (${entropyProfile.cogGapLabel})
+  Anchor Failure: ${entropyProfile.anchorFailure ? "YES — " + entropyProfile.anchorDetail : "No"}
+`;
+      }
+    } catch { /* entropy computation failed, use default block */ }
+
     const lookup = buildHeatmapLookup(heatmapRows);
     const stubStock = {
       symbol,
@@ -299,7 +364,7 @@ export async function POST(req: NextRequest) {
     } as unknown as WatchlistStock;
     const hm = matchStock(stubStock, lookup);
 
-    const prompt = buildPrompt(quote, hist, hm);
+    const prompt = buildPrompt(quote, hist, hm, entropyBlock);
 
     const llmRes = await fetch(OPENROUTER_URL, {
       method: "POST",
