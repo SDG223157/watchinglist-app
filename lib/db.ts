@@ -162,6 +162,17 @@ export interface WatchlistStock {
   capm_benchmark: string | null;
   capm_alpha_1y: number | null;
   capm_alpha_trend: string | null;
+  entropy_60d: number | null;
+  entropy_120d: number | null;
+  entropy_252d: number | null;
+  volume_entropy_60d: number | null;
+  entropy_percentile: number | null;
+  entropy_trend: number | null;
+  entropy_regime: string | null;
+  cog_gap: number | null;
+  cog_gap_label: string | null;
+  anchor_failure: boolean | null;
+  anchor_failure_detail: string | null;
   long_bull_score: number | null;
   capex_diagnosis: string | null;
   freeze_test: string | null;
