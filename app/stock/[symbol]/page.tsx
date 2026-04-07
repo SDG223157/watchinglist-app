@@ -7,6 +7,7 @@ import { buildHeatmapLookup, matchStock } from "@/lib/heatmap-match";
 import { fetchPeerComparison, type PeerMetrics, fetchRevenueSegmentation, type RevenueSegmentation } from "@/lib/fmp";
 import { AnalyzeButton } from "@/components/analyze-button";
 import { RefreshButton } from "@/components/refresh-button";
+import { DownloadReport } from "@/components/download-report";
 import { StockSearch } from "@/components/stock-search";
 import { HmmRegimeChart } from "@/components/hmm-regime-chart";
 import { StockMacroCard } from "@/components/stock-macro-card";
@@ -962,7 +963,10 @@ export default async function StockDetail({
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold">Analysis Report</h2>
-          <AnalyzeButton symbol={stock.symbol} />
+          <div className="flex items-center gap-2">
+            <DownloadReport stock={stock} />
+            <AnalyzeButton symbol={stock.symbol} />
+          </div>
         </div>
         {stock.analysis_report ? (
           <div className="analysis-report">
