@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { fetchStock, isAnalyzed } from "@/lib/db";
 import { computeCompositeScore } from "@/lib/composite-score";
 import { PrintButton } from "@/components/print-button";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export const dynamic = "force-dynamic";
 
@@ -43,17 +45,11 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
   const gc = sc.total >= 80 ? "#16a34a" : sc.total >= 65 ? "#22c55e" : sc.total >= 50 ? "#b45309" : sc.total >= 35 ? "#ea580c" : "#dc2626";
   const rating = sc.total >= 80 ? "STRONG BUY" : sc.total >= 65 ? "BUY" : sc.total >= 50 ? "WATCH" : sc.total >= 35 ? "CAUTION" : "AVOID";
 
-  const reportHtml = stock.analysis_report
+  const reportMd = stock.analysis_report
     ? stock.analysis_report
         .replace(/```[\s\S]*?```/g, "")
         .replace(/\{[\s\S]*\}$/m, "")
-        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/^### (.*$)/gm, '<h4 style="color:#003366;margin:12px 0 4px;font-size:11px">$1</h4>')
-        .replace(/^## (.*$)/gm, '<h3 style="color:#003366;margin:16px 0 6px;font-size:12px;border-bottom:1px solid #e2e8f0;padding-bottom:3px">$1</h3>')
-        .replace(/^# (.*$)/gm, '<h2 style="color:#003366;margin:20px 0 8px;font-size:13px">$1</h2>')
-        .replace(/^- (.*$)/gm, '<div style="padding-left:12px;margin:1px 0">\u2022 $1</div>')
-        .replace(/\n{2,}/g, '<br/><br/>')
-        .replace(/\n/g, '<br/>')
+        .trim()
     : null;
 
   return (
@@ -119,8 +115,21 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
           .score-bar .seg label { display: block; font-size: 5.5px; color: #94a3b8; text-transform: uppercase; }
           .score-bar .seg span { font-weight: 700; font-size: 8px; color: #0f172a; }
 
-          .report-text { font-size: 8px; line-height: 1.6; color: #334155; column-count: 2; column-gap: 16px; orphans: 3; widows: 3; }
-          .report-text h2, .report-text h3, .report-text h4 { column-span: all; }
+          .report-text { font-size: 8px; line-height: 1.6; color: #334155; }
+          .report-text h1 { font-size: 12px; color: #003366; margin: 14px 0 4px; font-weight: 700; }
+          .report-text h2 { font-size: 11px; color: #003366; margin: 12px 0 4px; font-weight: 700; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; }
+          .report-text h3 { font-size: 10px; color: #003366; margin: 10px 0 3px; font-weight: 700; }
+          .report-text h4 { font-size: 9px; color: #003366; margin: 8px 0 2px; font-weight: 600; }
+          .report-text p { margin: 3px 0; }
+          .report-text ul, .report-text ol { padding-left: 14px; margin: 2px 0; }
+          .report-text li { margin: 1px 0; }
+          .report-text strong { color: #0f172a; }
+          .report-text blockquote { border-left: 2px solid #2563eb; padding-left: 8px; margin: 4px 0; color: #475569; font-style: italic; }
+          .report-text table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 7px; }
+          .report-text th { background: #f1f5f9; color: #003366; font-weight: 700; padding: 2px 4px; text-align: left; border-bottom: 1.5px solid #cbd5e1; font-size: 6.5px; }
+          .report-text td { padding: 2px 4px; border-bottom: 0.5px solid #e2e8f0; }
+          .report-text tr:nth-child(even) { background: #fafbfc; }
+          .report-text hr { border: none; border-top: 0.5px solid #e2e8f0; margin: 8px 0; }
 
           .footer-end { padding: 12px 20px 8px; border-top: 0.5px solid #e2e8f0; font-size: 6px; color: #94a3b8; text-align: center; margin-top: 16px; }
 
@@ -305,10 +314,12 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
               </tbody>
             </table>
 
-          {reportHtml && (
+          {reportMd && (
             <>
               <div className="sec-title">Full Analysis Report</div>
-              <div className="report-text" dangerouslySetInnerHTML={{ __html: reportHtml }} />
+              <div className="report-text">
+                <Markdown remarkPlugins={[remarkGfm]}>{reportMd}</Markdown>
+              </div>
             </>
           )}
 
