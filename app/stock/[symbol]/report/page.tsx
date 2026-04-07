@@ -64,8 +64,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
           @page { size: A4; margin: 0; }
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1e293b; font-size: 9px; line-height: 1.5; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .page { width: 210mm; min-height: 297mm; padding: 0; position: relative; page-break-after: always; overflow: hidden; }
-          .page:last-child { page-break-after: auto; }
+          .page { width: 210mm; margin: 0 auto; padding: 0; }
 
           .header { background: #003366; color: white; padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; }
           .header-left h1 { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
@@ -123,7 +122,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
           .report-text { font-size: 8px; line-height: 1.6; color: #334155; column-count: 2; column-gap: 16px; orphans: 3; widows: 3; }
           .report-text h2, .report-text h3, .report-text h4 { column-span: all; }
 
-          .footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 4px 20px; border-top: 0.5px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 5.5px; color: #94a3b8; }
+          .footer-end { padding: 12px 20px 8px; border-top: 0.5px solid #e2e8f0; font-size: 6px; color: #94a3b8; text-align: center; margin-top: 16px; }
 
           @media print {
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -254,22 +253,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
               ))}
               <div className="seg total"><label>Total</label><span>{sc.total}/100</span></div>
             </div>
-          </div>
 
-          <div className="footer">
-            <span>The Research Desk &bull; For educational purposes only. Not financial advice. All investments carry risk.</span>
-            <span>Page 1</span>
-          </div>
-        </div>
-
-        {/* PAGE 2: FINANCIALS */}
-        <div className="page">
-          <div className="header">
-            <div className="header-left"><h1>THE RESEARCH DESK</h1><span>{stock.name} ({stock.symbol})</span></div>
-            <div className="header-right">{now}</div>
-          </div>
-          <div className="blue-bar" />
-          <div className="content">
             <div className="sec-title">Valuation</div>
             <table className="fin">
               <thead><tr><th>Metric</th><th>Value</th><th>Metric</th><th>Value</th><th>Metric</th><th>Value</th></tr></thead>
@@ -320,32 +304,19 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                 <tr><td className="label">EPS</td><td className="val">{stock.eps ? `${cs}${n(stock.eps, 2)}` : "\u2014"}</td><td className="label">Fwd EPS</td><td className="val">{stock.forward_eps ? `${cs}${n(stock.forward_eps, 2)}` : "\u2014"}</td><td className="label">Div Yield</td><td className="val">{stock.dividend_yield != null ? `${stock.dividend_yield}%` : "\u2014"}</td></tr>
               </tbody>
             </table>
-          </div>
 
-          <div className="footer">
-            <span>The Research Desk &bull; For educational purposes only. Not financial advice.</span>
-            <span>Page 2</span>
-          </div>
-        </div>
-
-        {/* PAGE 3+: ANALYSIS REPORT */}
-        {reportHtml && (
-          <div className="page">
-            <div className="header">
-              <div className="header-left"><h1>THE RESEARCH DESK</h1><span>{stock.name} ({stock.symbol})</span></div>
-              <div className="header-right">{now}</div>
-            </div>
-            <div className="blue-bar" />
-            <div className="content">
+          {reportHtml && (
+            <>
               <div className="sec-title">Full Analysis Report</div>
               <div className="report-text" dangerouslySetInnerHTML={{ __html: reportHtml }} />
-            </div>
-            <div className="footer">
-              <span>The Research Desk &bull; For educational purposes only. Not financial advice.</span>
-              <span>Page 3</span>
-            </div>
+            </>
+          )}
+
+          <div className="footer-end">
+            {"The Research Desk \u2022 For educational and informational purposes only. Not financial advice. All investments carry risk."}
           </div>
-        )}
+        </div>
+        </div>
       </body>
     </html>
   );
