@@ -39,8 +39,10 @@ export function DownloadReport({ stock }: Props) {
   async function generate() {
     setLoading(true);
     try {
-      const { jsPDF } = await import("jspdf");
-      await import("jspdf-autotable");
+      const jspdfModule = await import("jspdf");
+      const jsPDF = jspdfModule.jsPDF;
+      const autoTableModule = await import("jspdf-autotable");
+      const autoTable = autoTableModule.default;
 
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const W = doc.internal.pageSize.getWidth();
@@ -180,7 +182,7 @@ export function DownloadReport({ stock }: Props) {
         ["Action", stock.action || "—", ""],
       ];
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         head: [["Layer", "Value", "Detail"]],
         body: summaryData,
@@ -208,7 +210,7 @@ export function DownloadReport({ stock }: Props) {
         ["Discount Rates", stock.wall_discount || "—"],
       ];
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         head: [["Wall", "Assessment"]],
         body: wallData,
@@ -248,7 +250,7 @@ export function DownloadReport({ stock }: Props) {
       doc.text("VALUATION", 15, y);
       y += 6;
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         body: [
           ["PE (TTM)", fmt(stock.pe_ttm ?? stock.pe_ratio), "Forward PE", fmt(stock.forward_pe)],
@@ -271,7 +273,7 @@ export function DownloadReport({ stock }: Props) {
       doc.text("PROFITABILITY", 15, y);
       y += 6;
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         body: [
           ["ROIC", stock.roic != null ? `${stock.roic}%` : "—", "ROE", stock.roe != null ? `${stock.roe}%` : "—"],
@@ -292,7 +294,7 @@ export function DownloadReport({ stock }: Props) {
       doc.text("GROWTH", 15, y);
       y += 6;
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         body: [
           ["Rev Growth YoY", fmtPct(stock.revenue_growth_annual), "Earn Growth YoY", fmtPct(stock.earnings_growth_annual)],
@@ -313,7 +315,7 @@ export function DownloadReport({ stock }: Props) {
       doc.text("BALANCE SHEET & RISK", 15, y);
       y += 6;
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         body: [
           ["D/E", fmt(stock.debt_to_equity, 2), "Current Ratio", fmt(stock.current_ratio, 2)],
@@ -336,7 +338,7 @@ export function DownloadReport({ stock }: Props) {
       doc.text("COMPOSITE SCORE BREAKDOWN", 15, y);
       y += 6;
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: y,
         head: [["Component", "Score", "Max", "Grade"]],
         body: [
