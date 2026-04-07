@@ -964,7 +964,7 @@ export default async function StockDetail({
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold">Analysis Report</h2>
           <div className="flex items-center gap-2">
-            <DownloadReport stock={stock} />
+            <DownloadReport symbol={stock.symbol} />
             <AnalyzeButton symbol={stock.symbol} />
           </div>
         </div>
