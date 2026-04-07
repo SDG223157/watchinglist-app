@@ -796,12 +796,44 @@ export default async function StockDetail({
 
       {/* Walls */}
       <h2 className="text-lg font-bold mb-3">Gravity Walls (Damodaran)</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <WallCard label="Revenue Growth" text={stock.wall_revenue} color={wallColor(stock.wall_revenue)} />
         <WallCard label="Operating Margins" text={stock.wall_margins} color={wallColor(stock.wall_margins)} />
         <WallCard label="Capital Efficiency" text={stock.wall_capital} color={wallColor(stock.wall_capital)} />
         <WallCard label="Discount Rates" text={stock.wall_discount} color={wallColor(stock.wall_discount)} />
+        {stock.wall_fcf && (
+          <WallCard label="Cash Conversion" text={stock.wall_fcf} color={wallColor(stock.wall_fcf)} />
+        )}
       </div>
+
+      {/* FAJ Momentum & Regime */}
+      {(stock.momentum_type || stock.macro_regime) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+          {stock.momentum_type && (
+            <div className={`rounded-lg border p-3 ${stock.structural_winner ? "border-emerald-500/50 bg-emerald-500/5" : stock.momentum_type === "Factor-only" ? "border-amber-500/50 bg-amber-500/5" : "border-zinc-700 bg-zinc-800/50"}`}>
+              <div className="text-xs text-zinc-400 mb-1">Momentum Type</div>
+              <div className="font-semibold text-sm">{stock.momentum_type}{stock.structural_winner ? " ★" : ""}</div>
+              <div className="text-xs text-zinc-500 mt-1">
+                Earnings: {stock.earnings_momentum || "—"} · Factor: {stock.factor_momentum || "—"}
+              </div>
+            </div>
+          )}
+          {stock.macro_regime && (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-3">
+              <div className="text-xs text-zinc-400 mb-1">Macro Regime</div>
+              <div className="font-semibold text-sm">{stock.macro_regime}</div>
+              <div className="text-xs text-zinc-500 mt-1">{stock.macro_regime_details || ""}</div>
+            </div>
+          )}
+          {stock.emotion_beta != null && (
+            <div className={`rounded-lg border p-3 ${stock.emotion_signal === "High" ? "border-rose-500/50 bg-rose-500/5" : "border-zinc-700 bg-zinc-800/50"}`}>
+              <div className="text-xs text-zinc-400 mb-1">Emotion Beta</div>
+              <div className="font-semibold text-sm">{stock.emotion_beta?.toFixed(2)} ({stock.emotion_signal || "—"})</div>
+              <div className="text-xs text-zinc-500 mt-1">Vol-of-vol sensitivity</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sector & Industry Heatmap */}
       {(hm.sector || hm.industry || stock.sector_rank) && (

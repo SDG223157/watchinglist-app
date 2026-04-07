@@ -22,11 +22,13 @@ const MAX_GEO = 10;
 const MAX_SECTOR = 10;
 
 function scoreWalls(g: number, y: number, r: number): number {
-  if (g === 4) return 25;
-  if (g === 3 && r === 0) return 20;
-  if (g === 3) return 18;
-  if (g === 2 && y === 2) return 15;
-  if (g === 2 && y === 1) return 12;
+  // Updated for 5 walls including FCF (Foerster 2017)
+  if (g >= 5) return 25;
+  if (g === 4 && r === 0) return 23;
+  if (g === 4) return 20;
+  if (g === 3 && r === 0) return 18;
+  if (g === 3) return 16;
+  if (g === 2 && y >= 2) return 13;
   if (g === 2) return 10;
   if (g === 1 && r === 0) return 8;
   if (g === 1) return 5;
@@ -188,6 +190,20 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
       }
     }
     total = Math.max(0, Math.min(100, total + hmmAdj));
+  }
+
+  // FAJ: Structural winner + emotion modifier (Gérard/Jehl 2025, Hasan/Kumar/Taffler 2025)
+  if (s.structural_winner) {
+    total = Math.max(0, Math.min(100, total + 3));
+  }
+  if ((s.momentum_type || "") === "Factor-only") {
+    total = Math.max(0, Math.min(100, total - 2));
+  }
+
+  const emotionSig = (s.emotion_signal || "").toLowerCase();
+  const entropyReg = (s.entropy_regime || "").toLowerCase();
+  if (emotionSig === "high" && entropyReg.includes("compressed")) {
+    total = Math.max(0, Math.min(100, total + 2));
   }
 
   const { grade, gradeColor } = gradeFromScore(total);

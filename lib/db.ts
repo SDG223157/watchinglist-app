@@ -125,6 +125,7 @@ export interface WatchlistStock {
   wall_margins: string;
   wall_capital: string;
   wall_discount: string;
+  wall_fcf: string | null;
   sector_rank: string;
   industry_rank: string;
   sector_momentum: number;
@@ -176,6 +177,20 @@ export interface WatchlistStock {
   long_bull_score: number | null;
   capex_diagnosis: string | null;
   freeze_test: string | null;
+
+  // FAJ refinements (2026-04-07)
+  macro_regime: string | null;
+  macro_regime_details: string | null;
+  earnings_momentum: string | null;
+  factor_momentum: string | null;
+  momentum_type: string | null;
+  structural_winner: boolean | null;
+  emotion_beta: number | null;
+  emotion_signal: string | null;
+  wall_fcf_score: number | null;       // cash_conversion_score in DB
+  fcf_to_operating_income: number | null;
+  cash_conversion_score: number | null;
+
   data_sources: string;
   created_at: string;
 }

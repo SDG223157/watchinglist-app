@@ -194,6 +194,9 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                   ["HMM Regime", `${stock.hmm_regime || "\u2014"}${stock.hmm_persistence != null ? ` (${(stock.hmm_persistence * 100).toFixed(0)}% persistence)` : ""}`],
                   ["Moat", `${stock.moat_width || "\u2014"} ${stock.moat_trend ? `(${stock.moat_trend})` : ""} \u2014 ${stock.moat_type || ""}`],
                   ["Extreme Score", `${stock.extreme_score ?? "\u2014"}/20`],
+                  ...(stock.momentum_type ? [["Momentum", `${stock.momentum_type}${stock.structural_winner ? " \u2605" : ""} (E: ${stock.earnings_momentum || "\u2014"} / F: ${stock.factor_momentum || "\u2014"})`]] : []),
+                  ...(stock.macro_regime ? [["Macro Regime", `${stock.macro_regime} \u2014 ${stock.macro_regime_details || ""}`]] : []),
+                  ...(stock.emotion_beta != null ? [["Emotion Beta", `${stock.emotion_beta?.toFixed(2)} (${stock.emotion_signal || "\u2014"})`]] : []),
                   ["Action", stock.action || "\u2014"],
                 ].map(([label, value]) => (
                   <div key={label} className="fw-row">
@@ -208,6 +211,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                   ["Operating Margins", stock.wall_margins],
                   ["Capital Efficiency", stock.wall_capital],
                   ["Discount Rates", stock.wall_discount],
+                  ...(stock.wall_fcf ? [["Cash Conversion", stock.wall_fcf]] : []),
                 ].map(([label, value]) => (
                   <div key={label} className="wall-row">
                     <div className="wall-label">{label}</div>
