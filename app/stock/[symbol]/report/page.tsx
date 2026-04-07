@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { fetchStock, isAnalyzed } from "@/lib/db";
 import { computeCompositeScore } from "@/lib/composite-score";
+import { PrintButton } from "@/components/print-button";
 
 export const dynamic = "force-dynamic";
 
@@ -131,15 +132,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
         `}</style>
       </head>
       <body>
-        {/* Print button */}
-        <div className="no-print" style={{ position: "fixed", top: 10, right: 10, zIndex: 999 }}>
-          <button
-            onClick={() => window.print()}
-            style={{ background: "#003366", color: "white", border: "none", padding: "8px 20px", borderRadius: 4, fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-          >
-            Save as PDF
-          </button>
-        </div>
+        <PrintButton />
 
         {/* PAGE 1: COVER */}
         <div className="page">
