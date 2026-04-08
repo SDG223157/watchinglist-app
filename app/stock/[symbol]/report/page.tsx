@@ -199,6 +199,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                   ...(stock.emotion_beta != null ? [["Emotion Beta", `${stock.emotion_beta?.toFixed(2)} (${stock.emotion_signal || "\u2014"})`]] : []),
                   ...(stock.wall_combo && stock.wall_combo !== "Mixed" ? [["Wall Combo", `${stock.wall_combo}${stock.fundamental_growth_score != null ? ` \u2014 FG ${stock.fundamental_growth_score}/6` : ""}${stock.rd_intensity != null && stock.rd_intensity > 0 ? ` \u2014 R&D ${(stock.rd_intensity * 100).toFixed(1)}%` : ""}`]] : []),
                   ...(stock.capex_risk_flag ? [["CAPEX Risk", `\u26a0 ${stock.capex_risk_flag}`]] : []),
+                  ...(stock.te_causal_direction ? [["Info Flow", `${stock.te_causal_direction}${stock.mean_reversion_halflife != null ? ` \u2014 HL: ${stock.mean_reversion_halflife.toFixed(0)}d (${stock.halflife_regime || ""})` : ""}`]] : []),
                   ["Action", stock.action || "\u2014"],
                 ].map(([label, value]) => (
                   <div key={label} className="fw-row">

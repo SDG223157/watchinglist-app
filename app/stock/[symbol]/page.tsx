@@ -862,6 +862,16 @@ export default async function StockDetail({
               </div>
             </div>
           )}
+          {stock.te_causal_direction && (
+            <div className={`rounded-lg border p-3 ${stock.te_causal_direction === "Stock leads" ? "border-blue-500/50 bg-blue-500/5" : "border-zinc-700 bg-zinc-800/50"}`}>
+              <div className="text-xs text-zinc-400 mb-1">Information Flow</div>
+              <div className="font-semibold text-sm">{stock.te_causal_direction}</div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {stock.mean_reversion_halflife != null ? `Half-life: ${stock.mean_reversion_halflife.toFixed(0)}d` : ""}
+                {stock.halflife_regime ? ` (${stock.halflife_regime})` : ""}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -205,6 +205,14 @@ export interface WatchlistStock {
   empire_building: boolean | null;
   capex_risk_flag: string | null;
 
+  // Shannon: Transfer entropy + adaptive half-life
+  transfer_entropy_to_market: number | null;
+  transfer_entropy_from_market: number | null;
+  transfer_entropy_net: number | null;
+  te_causal_direction: string | null;
+  mean_reversion_halflife: number | null;
+  halflife_regime: string | null;
+
   // FAJ: Capital allocation quality (Straehl/Ibbotson, Bernstein/Arnott)
   buyback_adjusted_growth: number | null;
   share_dilution_rate: number | null;
