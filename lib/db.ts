@@ -205,6 +205,13 @@ export interface WatchlistStock {
   empire_building: boolean | null;
   capex_risk_flag: string | null;
 
+  // FAJ: Capital allocation quality (Straehl/Ibbotson, Bernstein/Arnott)
+  buyback_adjusted_growth: number | null;
+  share_dilution_rate: number | null;
+  sbc_as_pct_revenue: number | null;
+  leverage_quality: string | null;
+  cost_of_debt_proxy: number | null;
+
   data_sources: string;
   created_at: string;
 }

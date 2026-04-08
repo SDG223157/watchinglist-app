@@ -852,6 +852,16 @@ export default async function StockDetail({
               </div>
             </div>
           )}
+          {stock.leverage_quality && (
+            <div className={`rounded-lg border p-3 ${stock.leverage_quality === "High" || stock.leverage_quality === "No Debt" ? "border-emerald-500/50 bg-emerald-500/5" : stock.leverage_quality === "Distressed" ? "border-red-500/50 bg-red-500/5" : "border-zinc-700 bg-zinc-800/50"}`}>
+              <div className="text-xs text-zinc-400 mb-1">Capital Quality</div>
+              <div className="font-semibold text-sm">Leverage: {stock.leverage_quality}</div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {stock.sbc_as_pct_revenue != null ? `SBC: ${(stock.sbc_as_pct_revenue * 100).toFixed(1)}% of rev` : ""}
+                {stock.share_dilution_rate != null ? ` · Dilution: ${(stock.share_dilution_rate * 100).toFixed(1)}%` : ""}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
