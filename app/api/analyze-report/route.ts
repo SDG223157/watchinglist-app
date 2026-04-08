@@ -123,13 +123,21 @@ Interpretation guide:
 **Corporate Clock (Damodaran Stages 1-6):**
 1-Startup, 2-Young Growth, 3-High Growth, 4-Mature Growth, 5-Mature Stable, 6-Decline
 
-**Damodaran Four Walls (trend-based):**
+**Damodaran Five Walls (FAJ: Foerster 2017 — FCF elevated to primary wall):**
 - Revenue Growth: >10% good, 5-10% mediocre, <5% bad
 - Operating Margins: >15% good, 8-15% mediocre, <8% bad
 - Capital Efficiency (ROIC): >12% good, 6-12% mediocre, <6% bad
 - Discount Rates (PE): trend inverted — lower PE = favorable
+- Cash Conversion (FCF): FCF/Revenue >15% good, 8-15% mediocre, <8% bad
 
 Color each: GREEN (good+stable/accel), YELLOW (mixed), RED (bad+stable/decel)
+
+**FAJ Momentum Decomposition (Gérard/Jehl 2025):**
+Earnings-driven momentum NEVER reverses (30yr evidence). Factor-only momentum DOES reverse.
+- Earnings growth >5% TTM + price rising → "Structural" winner (high conviction)
+- Price rising but earnings <5% → "Factor-only" (crowding risk)
+- Earnings >5% but price not rising → "Fundamental" (market late)
+Comment on momentum type in your buy_reason.
 
 **Extreme Scan (score each 1-5, total /20):**
 - Industry bubble, Macro & valuation, Liquidity, Sentiment
@@ -245,6 +253,7 @@ Also output a JSON block at the end (fenced with \`\`\`json) containing:
   "wall_margins": "... (GREEN/YELLOW/RED)",
   "wall_capital": "... (GREEN/YELLOW/RED)",
   "wall_discount": "... (GREEN/YELLOW/RED)",
+  "wall_fcf": "FCF/Rev X% + trend (GREEN/YELLOW/RED)",
   "green_walls": N,
   "yellow_walls": N,
   "red_walls": N,
@@ -432,6 +441,7 @@ export async function POST(req: NextRequest) {
         wall_margins = COALESCE(${(parsed.wall_margins as string) || null}, wall_margins),
         wall_capital = COALESCE(${(parsed.wall_capital as string) || null}, wall_capital),
         wall_discount = COALESCE(${(parsed.wall_discount as string) || null}, wall_discount),
+        wall_fcf = COALESCE(${(parsed.wall_fcf as string) || null}, wall_fcf),
         green_walls = COALESCE(${parsed.green_walls as number || null}, green_walls),
         yellow_walls = COALESCE(${parsed.yellow_walls as number || null}, yellow_walls),
         red_walls = COALESCE(${parsed.red_walls as number || null}, red_walls),
