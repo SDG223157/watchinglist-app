@@ -65,6 +65,13 @@ export default async function Dashboard() {
             >
               Entropy
             </Link>
+            <Link
+              href="/portfolio"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "#2563eb", border: "1px solid #2563eb", color: "#fff" }}
+            >
+              Portfolio
+            </Link>
             <RefreshAllButton stockCount={stocks.length} />
             <AddStock />
             {session.user.image && (
