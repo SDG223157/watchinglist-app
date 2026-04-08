@@ -205,7 +205,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                   </div>
                 ))}
 
-                <div className="sec-title" style={{ marginTop: 10 }}>Gravity Walls (Damodaran)</div>
+                <div className="sec-title" style={{ marginTop: 10 }}>Gravity Walls (Damodaran Five Walls)</div>
                 {[
                   ["Revenue Growth", stock.wall_revenue],
                   ["Operating Margins", stock.wall_margins],
@@ -285,6 +285,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                 <tr><td className="label">ROIC</td><td className="val">{stock.roic != null ? `${stock.roic}%` : "\u2014"}</td><td className="label">ROE</td><td className="val">{stock.roe != null ? `${stock.roe}%` : "\u2014"}</td><td className="label">ROA</td><td className="val">{stock.roa != null ? `${stock.roa}%` : "\u2014"}</td></tr>
                 <tr><td className="label">Gross Mgn</td><td className="val">{stock.gross_margin != null ? `${stock.gross_margin}%` : "\u2014"}</td><td className="label">Op Mgn</td><td className="val">{stock.operating_margin != null ? `${stock.operating_margin}%` : "\u2014"}</td><td className="label">Net Mgn</td><td className="val">{stock.net_margin != null ? `${stock.net_margin}%` : "\u2014"}</td></tr>
                 <tr><td className="label">EBITDA Mgn</td><td className="val">{stock.ebitda_margin != null ? `${stock.ebitda_margin}%` : "\u2014"}</td><td className="label">FCF Yield</td><td className="val">{stock.fcf_yield ? `${stock.fcf_yield}%` : "\u2014"}</td><td className="label">SH Yield</td><td className="val">{stock.shareholder_yield ? `${stock.shareholder_yield}%` : "\u2014"}</td></tr>
+                <tr><td className="label">FCF/OI</td><td className="val">{n(stock.fcf_to_operating_income, 2)}</td><td className="label">Cash Conv</td><td className="val">{stock.cash_conversion_score != null ? `${stock.cash_conversion_score}/7` : "\u2014"}</td><td className="label">LBB Score</td><td className="val">{stock.long_bull_score != null ? `${stock.long_bull_score}/6` : "\u2014"}</td></tr>
               </tbody>
             </table>
 
