@@ -139,6 +139,14 @@ Earnings-driven momentum NEVER reverses (30yr evidence). Factor-only momentum DO
 - Earnings >5% but price not rising → "Fundamental" (market late)
 Comment on momentum type in your buy_reason.
 
+**FAJ Fundamental Growth (Arnott/Harvey 2026):**
+R&D growth > CAPEX growth for identifying true growth companies (alpha 1.9% vs 0.7%).
+Gross profit growth > net income growth (alpha 1.4% vs 0.7%).
+Revenue × Discount wall interaction matters:
+- Both GREEN = "Best Quadrant" (cheap + fast-growing, strongest expected returns)
+- Both RED = "Worst Quadrant" (expensive + slow-growing, t-stat = -2.9, avoid)
+Assess the wall_combo in your analysis and flag Best/Worst Quadrant prominently.
+
 **Extreme Scan (score each 1-5, total /20):**
 - Industry bubble, Macro & valuation, Liquidity, Sentiment
 
@@ -254,6 +262,7 @@ Also output a JSON block at the end (fenced with \`\`\`json) containing:
   "wall_capital": "... (GREEN/YELLOW/RED)",
   "wall_discount": "... (GREEN/YELLOW/RED)",
   "wall_fcf": "FCF/Rev X% + trend (GREEN/YELLOW/RED)",
+  "wall_combo": "Best Quadrant / Worst Quadrant / Growth Overpriced / Value Trap Risk / Mixed",
   "green_walls": N,
   "yellow_walls": N,
   "red_walls": N,
@@ -442,6 +451,7 @@ export async function POST(req: NextRequest) {
         wall_capital = COALESCE(${(parsed.wall_capital as string) || null}, wall_capital),
         wall_discount = COALESCE(${(parsed.wall_discount as string) || null}, wall_discount),
         wall_fcf = COALESCE(${(parsed.wall_fcf as string) || null}, wall_fcf),
+        wall_combo = COALESCE(${(parsed.wall_combo as string) || null}, wall_combo),
         green_walls = COALESCE(${parsed.green_walls as number || null}, green_walls),
         yellow_walls = COALESCE(${parsed.yellow_walls as number || null}, yellow_walls),
         red_walls = COALESCE(${parsed.red_walls as number || null}, red_walls),
