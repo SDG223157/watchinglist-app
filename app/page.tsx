@@ -72,7 +72,7 @@ export default async function Dashboard() {
             >
               Portfolio
             </Link>
-            <RefreshAllButton stockCount={stocks.length} />
+            <RefreshAllButton stockCount={stocks.length} symbols={stocks.map(s => s.symbol)} />
             <AddStock />
             {session.user.image && (
               <img
