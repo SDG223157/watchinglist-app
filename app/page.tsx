@@ -4,6 +4,7 @@ import { buildHeatmapLookup, matchStock, type StockHeatmapContext } from "@/lib/
 import { StatCards } from "@/components/stat-cards";
 import { WatchlistTable } from "@/components/watchlist-table";
 import { AddStock } from "@/components/add-stock";
+import { RefreshAllButton } from "@/components/refresh-all-button";
 import { auth, signOut } from "@/auth";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,7 @@ export default async function Dashboard() {
             >
               Entropy
             </Link>
+            <RefreshAllButton stockCount={stocks.length} />
             <AddStock />
             {session.user.image && (
               <img
