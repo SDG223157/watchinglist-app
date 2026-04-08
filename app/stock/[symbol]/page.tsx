@@ -832,6 +832,16 @@ export default async function StockDetail({
               <div className="text-xs text-zinc-500 mt-1">Vol-of-vol sensitivity</div>
             </div>
           )}
+          {stock.wall_combo && stock.wall_combo !== "Mixed" && (
+            <div className={`rounded-lg border p-3 ${stock.wall_combo === "Best Quadrant" ? "border-emerald-500/50 bg-emerald-500/5" : stock.wall_combo === "Worst Quadrant" ? "border-red-500/50 bg-red-500/5" : "border-zinc-700 bg-zinc-800/50"}`}>
+              <div className="text-xs text-zinc-400 mb-1">Wall Combo</div>
+              <div className="font-semibold text-sm">{stock.wall_combo}</div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {stock.fundamental_growth_score != null ? `FG Score: ${stock.fundamental_growth_score}/6` : ""}
+                {stock.rd_intensity != null && stock.rd_intensity > 0 ? ` · R&D: ${(stock.rd_intensity * 100).toFixed(1)}%` : ""}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

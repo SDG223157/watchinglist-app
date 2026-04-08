@@ -206,6 +206,19 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
     total = Math.max(0, Math.min(100, total + 2));
   }
 
+  // FAJ: Wall combo (Arnott/Harvey 2026 — Revenue × Discount interaction)
+  const wc = s.wall_combo || "";
+  if (wc === "Best Quadrant") {
+    total = Math.max(0, Math.min(100, total + 3));
+  } else if (wc === "Worst Quadrant") {
+    total = Math.max(0, Math.min(100, total - 3));
+  }
+
+  // FAJ: Fundamental growth score bonus (Arnott/Harvey 2026)
+  if (s.fundamental_growth_score != null && s.fundamental_growth_score >= 5) {
+    total = Math.max(0, Math.min(100, total + 2));
+  }
+
   const { grade, gradeColor } = gradeFromScore(total);
 
   return { walls, trendwise, clock, moat, stage, geo, sector, total, grade, gradeColor };

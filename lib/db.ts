@@ -191,6 +191,13 @@ export interface WatchlistStock {
   fcf_to_operating_income: number | null;
   cash_conversion_score: number | null;
 
+  // FAJ: Arnott/Harvey "Fundamental Growth" 2026
+  rd_intensity: number | null;
+  rd_growth_5y: number | null;
+  gross_profit_growth_annual: number | null;
+  fundamental_growth_score: number | null;
+  wall_combo: string | null;
+
   data_sources: string;
   created_at: string;
 }
