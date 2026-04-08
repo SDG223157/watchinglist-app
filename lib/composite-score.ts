@@ -219,6 +219,18 @@ export function computeCompositeScore(s: WatchlistStock): ScoreBreakdown {
     total = Math.max(0, Math.min(100, total + 2));
   }
 
+  // FAJ: CAPEX quality penalties (Titman 2004, Cooper 2008, Wei/Xie 2008)
+  const crf = s.capex_risk_flag || "";
+  if (crf.includes("AssetGrowth>20%")) {
+    total = Math.max(0, Math.min(100, total - 3));
+  }
+  if (crf.includes("PoorAccruals")) {
+    total = Math.max(0, Math.min(100, total - 2));
+  }
+  if (crf.includes("EmpireBuilding")) {
+    total = Math.max(0, Math.min(100, total - 2));
+  }
+
   const { grade, gradeColor } = gradeFromScore(total);
 
   return { walls, trendwise, clock, moat, stage, geo, sector, total, grade, gradeColor };

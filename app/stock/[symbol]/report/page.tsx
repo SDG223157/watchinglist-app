@@ -198,6 +198,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                   ...(stock.macro_regime ? [["Macro Regime", `${stock.macro_regime} \u2014 ${stock.macro_regime_details || ""}`]] : []),
                   ...(stock.emotion_beta != null ? [["Emotion Beta", `${stock.emotion_beta?.toFixed(2)} (${stock.emotion_signal || "\u2014"})`]] : []),
                   ...(stock.wall_combo && stock.wall_combo !== "Mixed" ? [["Wall Combo", `${stock.wall_combo}${stock.fundamental_growth_score != null ? ` \u2014 FG ${stock.fundamental_growth_score}/6` : ""}${stock.rd_intensity != null && stock.rd_intensity > 0 ? ` \u2014 R&D ${(stock.rd_intensity * 100).toFixed(1)}%` : ""}`]] : []),
+                  ...(stock.capex_risk_flag ? [["CAPEX Risk", `\u26a0 ${stock.capex_risk_flag}`]] : []),
                   ["Action", stock.action || "\u2014"],
                 ].map(([label, value]) => (
                   <div key={label} className="fw-row">
@@ -308,6 +309,7 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
                 <tr><td className="label">D/E</td><td className="val">{n(stock.debt_to_equity, 2)}</td><td className="label">Current</td><td className="val">{n(stock.current_ratio, 2)}</td><td className="label">Int Coverage</td><td className="val">{n(stock.interest_coverage)}</td></tr>
                 <tr><td className="label">Debt/EBITDA</td><td className="val">{n(stock.debt_to_ebitda, 2)}</td><td className="label">Altman Z</td><td className="val">{n(stock.altman_z_score, 2)}</td><td className="label">Piotroski</td><td className="val">{stock.piotroski_score != null ? `${stock.piotroski_score}/9` : "\u2014"}</td></tr>
                 <tr><td className="label">Beta</td><td className="val">{n(stock.beta, 2)}</td><td className="label">52W Low</td><td className="val">{stock.low_52w ? `${cs}${n(stock.low_52w)}` : "\u2014"}</td><td className="label">52W High</td><td className="val">{stock.high_52w ? `${cs}${n(stock.high_52w)}` : "\u2014"}</td></tr>
+                <tr><td className="label">Accrual Q</td><td className="val">{stock.accrual_quality != null ? `${stock.accrual_quality}x (${stock.accrual_flag || ""})` : "\u2014"}</td><td className="label">TA Growth</td><td className="val">{stock.total_asset_growth != null ? `${(stock.total_asset_growth * 100).toFixed(1)}%` : "\u2014"}</td><td className="label">Empire</td><td className="val">{stock.empire_building ? "\u26a0 Yes" : "\u2014"}</td></tr>
               </tbody>
             </table>
 

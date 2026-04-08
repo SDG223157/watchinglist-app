@@ -842,6 +842,16 @@ export default async function StockDetail({
               </div>
             </div>
           )}
+          {stock.capex_risk_flag && (
+            <div className="rounded-lg border border-red-500/50 bg-red-500/5 p-3">
+              <div className="text-xs text-zinc-400 mb-1">CAPEX Risk</div>
+              <div className="font-semibold text-sm text-red-400">{stock.capex_risk_flag}</div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {stock.accrual_flag ? `Accruals: ${stock.accrual_flag}` : ""}
+                {stock.total_asset_growth != null ? ` · TA Growth: ${(stock.total_asset_growth * 100).toFixed(0)}%` : ""}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

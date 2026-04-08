@@ -147,6 +147,12 @@ Revenue × Discount wall interaction matters:
 - Both RED = "Worst Quadrant" (expensive + slow-growing, t-stat = -2.9, avoid)
 Assess the wall_combo in your analysis and flag Best/Worst Quadrant prominently.
 
+**FAJ CAPEX Quality (Titman 2004, Cooper 2008, Wei/Xie 2008):**
+- Total asset growth >20% YoY = strongest negative predictor of future returns (Cooper: -20%/yr)
+- High CAPEX + high FCF + low debt = empire building risk (Titman: managers overinvest)
+- Low accrual quality (OCF/NI < 0.5) + high CAPEX = worst combination (Wei/Xie: -12% alpha)
+Flag any CAPEX risk concerns prominently in your analysis.
+
 **Extreme Scan (score each 1-5, total /20):**
 - Industry bubble, Macro & valuation, Liquidity, Sentiment
 

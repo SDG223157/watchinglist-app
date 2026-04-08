@@ -198,6 +198,13 @@ export interface WatchlistStock {
   fundamental_growth_score: number | null;
   wall_combo: string | null;
 
+  // FAJ: CAPEX quality flags (Titman 2004, Cooper 2008, Wei/Xie 2008)
+  total_asset_growth: number | null;
+  accrual_quality: number | null;
+  accrual_flag: string | null;
+  empire_building: boolean | null;
+  capex_risk_flag: string | null;
+
   data_sources: string;
   created_at: string;
 }
