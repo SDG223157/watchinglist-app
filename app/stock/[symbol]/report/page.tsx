@@ -62,9 +62,9 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
           body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1e293b; font-size: 9px; line-height: 1.5; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .page { width: 210mm; margin: 0 auto; padding: 0; }
 
-          .header { background: #003366; color: white; padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; }
-          .header-left h1 { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-          .header-left span { font-size: 7px; opacity: 0.7; display: block; margin-top: 1px; }
+          .header { background: #003366; color: white; padding: 6px 20px; display: flex; justify-content: space-between; align-items: center; }
+          .header-left { display: flex; align-items: center; }
+          .header-left img { height: 32px; margin-right: 10px; }
           .header-right { text-align: right; font-size: 7px; opacity: 0.8; }
           .blue-bar { height: 2px; background: #2563eb; }
 
@@ -146,8 +146,8 @@ export default async function ReportPage({ params }: { params: Promise<{ symbol:
         <div className="page">
           <div className="header">
             <div className="header-left">
-              <h1>THE RESEARCH DESK</h1>
-              <span>Equity Research Report</span>
+              <img src="/research-desk-logo.png" alt="The Research Desk" style={{ height: "32px", marginRight: "10px", verticalAlign: "middle" }} />
+              <span style={{ fontSize: "7px", opacity: 0.7, verticalAlign: "middle" }}>Equity Research Report</span>
             </div>
             <div className="header-right">
               {now}<br />{stock.symbol} &bull; {stock.sector}
