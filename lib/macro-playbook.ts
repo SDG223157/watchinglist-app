@@ -146,7 +146,10 @@ async function getHistory(ticker: string, years = 10) {
   return rows
     .map((r: Record<string, unknown>) => ({
       date: r.date as Date,
-      close: (r.close ?? r.adjClose ?? r.adjclose) as number | null,
+      close: (r.close ?? r.adjClose ?? r.adjclose
+        ?? r.open
+        ?? (r.high != null && r.low != null ? ((r.high as number) + (r.low as number)) / 2 : null)
+      ) as number | null,
     }))
     .filter((r: { close: number | null }) => r.close != null) as { date: Date; close: number }[];
 }

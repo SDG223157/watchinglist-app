@@ -74,7 +74,9 @@ export async function cachedHistorical(
     });
     const data = (raw || []).map((r: Record<string, unknown>) => ({
       ...r,
-      close: r.close ?? r.adjClose ?? r.adjclose ?? null,
+      close: r.close ?? r.adjClose ?? r.adjclose
+        ?? (r.open != null ? r.open : null)
+        ?? (r.high != null && r.low != null ? ((r.high as number) + (r.low as number)) / 2 : null),
     }));
     histCache.set(key, { data, ts: Date.now() });
     return data;
