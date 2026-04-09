@@ -67,16 +67,21 @@ export async function cachedHistorical(
   if (isValid(cached, HIST_TTL)) return cached.data;
 
   try {
+    // Use yesterday as period2 to avoid null close on today's intraday bar.
+    // yahoo-finance2 throws "SOME null values" error if today's bar is included
+    // while market is open (close=null). Yesterday always has a valid close.
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const p2 = yesterday.toISOString().split("T")[0];
+
     const raw = await yahooFinance.historical(symbol.toUpperCase(), {
       period1,
-      period2: new Date().toISOString().split("T")[0],
+      period2: p2,
       interval,
     });
     const data = (raw || []).map((r: Record<string, unknown>) => ({
       ...r,
-      close: r.close ?? r.adjClose ?? r.adjclose
-        ?? (r.open != null ? r.open : null)
-        ?? (r.high != null && r.low != null ? ((r.high as number) + (r.low as number)) / 2 : null),
+      close: r.close ?? r.adjClose ?? r.adjclose ?? r.open ?? null,
     }));
     histCache.set(key, { data, ts: Date.now() });
     return data;
