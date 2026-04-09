@@ -12,7 +12,17 @@ const MARKETS = [
   { value: "CN", label: "A-Shares (CSI300)" },
 ];
 
-type Tab = "stocks" | "sectors" | "macro";
+type Tab = "stocks" | "sectors" | "macro" | "entropy";
+
+interface EntropyHolding {
+  symbol: string; name: string; sector: string; price: number;
+  weight_pct: number; amount: number; shares: number;
+  hmm_regime: string; hmm_persistence: number;
+  entropy_regime: string; entropy_percentile: number;
+  cog_gap: number; anchor_failure: boolean;
+  geometric_order: number; trend_signal: string;
+  conviction: string; kelly_fraction: number; notes: string;
+}
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -324,6 +334,9 @@ export default function PortfolioPage() {
   const [macroLoading, setMacroLoading] = useState(false);
   const [sectorResult, setSectorResult] = useState<SectorPortfolio | null>(null);
   const [sectorLoading, setSectorLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [entropyResult, setEntropyResult] = useState<any>(null);
+  const [entropyLoading, setEntropyLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function build() {
@@ -392,9 +405,28 @@ export default function PortfolioPage() {
     }
   }
 
+  async function buildEntropy() {
+    setEntropyLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/entropy-portfolio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capital, market, maxHoldings }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || `Failed (${res.status})`); return; }
+      setEntropyResult(await res.json());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setEntropyLoading(false);
+    }
+  }
+
   const s = result?.summary;
   const mp = macroResult;
   const sp = sectorResult;
+  const ep = entropyResult;
 
   return (
     <main className="max-w-[1400px] mx-auto px-4 py-8">
@@ -412,7 +444,7 @@ export default function PortfolioPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6">
-        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
+        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -656,6 +688,103 @@ export default function PortfolioPage() {
                     <td className="px-3 py-2.5 text-center"><span className="font-mono font-bold text-xs" style={{ color: arbCol }}>{h.arb_score}</span></td>
                     <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ color: qCol, background: `${qCol}10` }}>{h.quadrant}</span></td>
                     <td className="px-3 py-2.5 text-xs text-zinc-500">{h.peak_phase}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>}
+      </>}
+
+      {/* ===== ENTROPY TAB ===== */}
+      {tab === "entropy" && <>
+      <div className="rounded-lg p-4 mb-6 flex flex-wrap items-end gap-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Capital ($)</label>
+          <input type="number" value={capital} onChange={(e) => setCapital(Number(e.target.value))} className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white" />
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Market</label>
+          <select value={market} onChange={(e) => setMarket(e.target.value)} className="px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white">
+            {MARKETS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+        <button onClick={buildEntropy} disabled={entropyLoading}
+          className="px-5 py-2 rounded-md text-sm font-semibold cursor-pointer hover:brightness-125 disabled:opacity-50"
+          style={{ background: "#7c3aed", color: "#fff" }}>
+          {entropyLoading ? <span className="flex items-center gap-2"><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Building...</span> : "Build HMM × Entropy Portfolio"}
+        </button>
+        {error && <span className="text-xs text-red-400">{error}</span>}
+      </div>
+
+      {/* Methodology */}
+      <div className="rounded-lg p-4 mb-6 text-xs" style={{ background: "rgba(124,58,237,0.06)", border: "1px solid rgba(124,58,237,0.15)" }}>
+        <h3 className="font-bold text-sm mb-2" style={{ color: "#a78bfa" }}>HMM × Entropy Portfolio Theory</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-zinc-400">
+          <div><strong className="text-zinc-200">HMM Regime Filter:</strong> Only hold stocks in Bull regime (high persistence) or Flat regime with TrendWise confirmation. Skip Bear + high persistence. Skip Geometric Order 3 (fragile).</div>
+          <div><strong className="text-zinc-200">Shannon Entropy Sizing:</strong> Compressed entropy + high cognitive gap = market under-processing = increase conviction. Anchor failure (compressed + valuation divergence) = maximum signal.</div>
+          <div><strong className="text-zinc-200">Kelly Fraction:</strong> Position size = edge / variance. Edge from composite score, variance from regime uncertainty. Quarter-Kelly cap prevents overbetting on imprecise estimates.</div>
+        </div>
+      </div>
+
+      {ep && <>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+          {[
+            { label: "Holdings", value: ep.summary.count },
+            { label: "Invested", value: `$${fmt(ep.summary.invested)}` },
+            { label: "Cash", value: `$${fmt(ep.summary.cash)} (${ep.summary.cash_pct}%)` },
+            { label: "Avg Kelly", value: `${ep.summary.avg_kelly}%` },
+            { label: "Bull", value: ep.summary.regime_mix.bull, color: "#16a34a" },
+            { label: "Flat", value: ep.summary.regime_mix.flat, color: "#b45309" },
+            { label: "Compressed", value: ep.summary.entropy_mix.compressed, color: "#7c3aed" },
+            { label: "Anchor Fail", value: ep.summary.anchor_failures, color: "#dc2626" },
+          ].map((c) => (
+            <div key={c.label} className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{c.label}</div>
+              <div className="text-lg font-bold mt-0.5" style={{ color: "color" in c ? c.color : undefined }}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: "var(--card)" }}>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Symbol</th>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Name</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Weight</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Amount</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">HMM</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Persist</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Entropy</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Cog Gap</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Conviction</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Kelly</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Geo</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ep.holdings.map((h: EntropyHolding, i: number) => {
+                const hmmCol = h.hmm_regime.toLowerCase().includes("bull") ? "#16a34a" : h.hmm_regime.toLowerCase().includes("bear") ? "#dc2626" : "#b45309";
+                const entCol = h.entropy_regime.includes("compressed") ? "#7c3aed" : h.entropy_regime.includes("diverse") ? "#3b82f6" : "var(--muted)";
+                const convCol = h.conviction === "MAXIMUM" ? "#dc2626" : h.conviction === "HIGH" ? "#f59e0b" : h.conviction === "ELEVATED" ? "#7c3aed" : "var(--muted)";
+                const geoCol = h.geometric_order === 0 ? "#16a34a" : h.geometric_order === 1 ? "#22c55e" : h.geometric_order === 2 ? "#b45309" : "#dc2626";
+                return (
+                  <tr key={h.symbol} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                    <td className="px-3 py-2.5 font-mono font-bold"><Link href={`/stock/${h.symbol}`} className="hover:text-purple-400">{h.symbol}</Link></td>
+                    <td className="px-3 py-2.5 text-xs text-zinc-400 max-w-[150px] truncate">{h.name}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold">{h.weight_pct.toFixed(1)}%</td>
+                    <td className="px-3 py-2.5 text-right text-zinc-400">${fmt(h.amount)}</td>
+                    <td className="px-3 py-2.5 text-center"><span className="text-xs font-bold" style={{ color: hmmCol }}>{h.hmm_regime}</span></td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs">{(h.hmm_persistence * 100).toFixed(0)}%</td>
+                    <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: entCol, background: `${entCol}15` }}>{h.entropy_regime}</span></td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs">{h.cog_gap}/10{h.anchor_failure ? " ⚠" : ""}</td>
+                    <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-bold" style={{ color: convCol }}>{h.conviction}</span></td>
+                    <td className="px-3 py-2.5 text-right font-mono text-xs">{h.kelly_fraction.toFixed(1)}%</td>
+                    <td className="px-3 py-2.5 text-center"><span className="font-mono text-xs font-bold" style={{ color: geoCol }}>{h.geometric_order}</span></td>
+                    <td className="px-3 py-2.5 text-center text-xs">{h.trend_signal === "Open" ? "🟢" : "⬜"}</td>
                   </tr>
                 );
               })}
