@@ -371,12 +371,22 @@ export default function PortfolioPage() {
     setSectorLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/macro-playbook");
-      if (!res.ok) { setError("Macro API failed"); return; }
+      const res = await fetch("/api/macro-playbook", { signal: AbortSignal.timeout(120000) });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || d.detail || `Macro API failed (${res.status})`);
+        return;
+      }
       const data = await res.json();
-      setSectorResult(buildSectorPortfolio(data.sectors || [], data.regime || "TRANSITION", data.spread || 0, capital));
+      const sectors = data.sectors || [];
+      if (sectors.length === 0) {
+        setError(`Macro API returned 0 sectors (regime: ${data.regime || "unknown"}). The API may need more time to fetch price history. Try again.`);
+        return;
+      }
+      setSectorResult(buildSectorPortfolio(sectors, data.regime || "TRANSITION", data.spread || 0, capital));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Network error");
+      const msg = err instanceof Error ? err.message : "Network error";
+      setError(msg.includes("timeout") ? "Macro API timed out (2min). Try again — data may be cached on second attempt." : msg);
     } finally {
       setSectorLoading(false);
     }
