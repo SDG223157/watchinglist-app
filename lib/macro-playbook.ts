@@ -637,11 +637,23 @@ export async function runPlaybook() {
     ret_1m: number; ret_3m: number; ret_6m: number; ret_12m: number; alpha_3m: number;
     hedge_demand: number; arb_score: number; pe: number | null; div_yield: number | null;
   }[] = [];
-  if (spyHist && spyHist.length > 126) {
+  // Sectors need less history — fetch 2Y if missing from the 10Y batch
+  for (const [, def] of Object.entries(SECTORS)) {
+    if (!allHist.has(def.etf) || (allHist.get(def.etf)?.length ?? 0) < 60) {
+      const h = await getHistory(def.etf, 2);
+      if (h.length > 0) allHist.set(def.etf, h);
+    }
+  }
+  if (!allHist.has("SPY") || (allHist.get("SPY")?.length ?? 0) < 60) {
+    const h = await getHistory("SPY", 2);
+    if (h.length > 0) allHist.set("SPY", h);
+  }
+
+  if (spyHist && spyHist.length > 60) {
     const spyRet3m = retFromHist(spyHist, 63);
     for (const [key, def] of Object.entries(SECTORS)) {
       const hist = allHist.get(def.etf);
-      if (!hist || hist.length < 126) continue;
+      if (!hist || hist.length < 60) continue;
       const ret1m = round(retFromHist(hist, 21));
       const ret3m = round(retFromHist(hist, 63));
       const ret6m = round(retFromHist(hist, 126));
