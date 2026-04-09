@@ -143,7 +143,12 @@ async function getHistory(ticker: string, years = 10) {
   const d = new Date();
   d.setFullYear(d.getFullYear() - years);
   const rows = await cachedHistorical(ticker, d.toISOString().split("T")[0]);
-  return rows.filter((r: { close?: number }) => r.close != null) as { date: Date; close: number }[];
+  return rows
+    .map((r: Record<string, unknown>) => ({
+      date: r.date as Date,
+      close: (r.close ?? r.adjClose ?? r.adjclose) as number | null,
+    }))
+    .filter((r: { close: number | null }) => r.close != null) as { date: Date; close: number }[];
 }
 
 function retFromHist(hist: { close: number }[], days: number) {

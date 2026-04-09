@@ -67,13 +67,17 @@ export async function cachedHistorical(
   if (isValid(cached, HIST_TTL)) return cached.data;
 
   try {
-    const data = await yahooFinance.historical(symbol.toUpperCase(), {
+    const raw = await yahooFinance.historical(symbol.toUpperCase(), {
       period1,
       period2: new Date().toISOString().split("T")[0],
       interval,
     });
-    histCache.set(key, { data: data || [], ts: Date.now() });
-    return data || [];
+    const data = (raw || []).map((r: Record<string, unknown>) => ({
+      ...r,
+      close: r.close ?? r.adjClose ?? r.adjclose ?? null,
+    }));
+    histCache.set(key, { data, ts: Date.now() });
+    return data;
   } catch {
     return [];
   }
