@@ -12,6 +12,8 @@ const MARKETS = [
   { value: "CN", label: "A-Shares (CSI300)" },
 ];
 
+type Tab = "stocks" | "macro";
+
 function fmt(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
@@ -55,12 +57,148 @@ function WallComboBadge({ combo }: { combo: string }) {
   );
 }
 
+interface MacroAsset {
+  name: string;
+  ticker: string;
+  price: number;
+  combined_score: number;
+  net_signal: string;
+  weight: string;
+  hedge_score: number;
+  arb_score: number;
+  m2_floor: number;
+  arb_fair_value: number;
+}
+
+interface MacroAllocation {
+  equities: { range: string; score: number };
+  hard_assets: { range: string; score: number };
+  cash_usd: { range: string; score: number };
+  crypto: { range: string; score: number };
+}
+
+interface MacroHolding {
+  name: string;
+  etf: string;
+  category: string;
+  weight_pct: number;
+  amount: number;
+  score: number;
+  signal: string;
+}
+
+interface MacroPortfolio {
+  holdings: MacroHolding[];
+  allocation: MacroAllocation;
+  assets: MacroAsset[];
+  regime: string;
+  capital: number;
+  cash: number;
+  cash_pct: number;
+}
+
+function buildMacroPortfolio(assets: MacroAsset[], alloc: MacroAllocation, capital: number): MacroPortfolio {
+  const parseRange = (r: string): [number, number] => {
+    const m = r.match(/(\d+)-(\d+)/);
+    return m ? [parseInt(m[1]), parseInt(m[2])] : [0, 0];
+  };
+
+  const etfMap: Record<string, { etf: string; category: string }[]> = {
+    equities: [
+      { etf: "SPY", category: "US Large Cap" },
+      { etf: "QQQ", category: "US Tech/Growth" },
+      { etf: "VWO", category: "Emerging Markets" },
+    ],
+    hard_assets: [
+      { etf: "GLD", category: "Gold" },
+      { etf: "SLV", category: "Silver" },
+      { etf: "USO", category: "Oil" },
+    ],
+    cash_usd: [
+      { etf: "SHV", category: "Short-Term Treasury" },
+      { etf: "UUP", category: "US Dollar Bull" },
+      { etf: "TLT", category: "Long-Term Treasury" },
+    ],
+    crypto: [
+      { etf: "IBIT", category: "Bitcoin ETF" },
+    ],
+  };
+
+  const scoreForAsset = (name: string): number => {
+    const a = assets.find((x) => x.name.toLowerCase().includes(name.toLowerCase()));
+    return a?.combined_score ?? 50;
+  };
+  const signalForAsset = (name: string): string => {
+    const a = assets.find((x) => x.name.toLowerCase().includes(name.toLowerCase()));
+    return a?.net_signal ?? "HOLD";
+  };
+
+  const holdings: MacroHolding[] = [];
+
+  const categories: { key: keyof MacroAllocation; label: string }[] = [
+    { key: "equities", label: "Equities" },
+    { key: "hard_assets", label: "Hard Assets" },
+    { key: "cash_usd", label: "Cash / USD" },
+    { key: "crypto", label: "Crypto" },
+  ];
+
+  for (const cat of categories) {
+    const [lo, hi] = parseRange(alloc[cat.key].range);
+    const midPct = (lo + hi) / 2;
+    const score = alloc[cat.key].score;
+    const adjPct = score < 30 ? hi : score > 70 ? lo : midPct;
+    const etfs = etfMap[cat.key] || [];
+    const perEtf = etfs.length > 0 ? adjPct / etfs.length : 0;
+
+    for (const e of etfs) {
+      const assetName = e.category.includes("Gold") ? "gold" : e.category.includes("Silver") ? "silver"
+        : e.category.includes("Oil") ? "oil" : e.category.includes("Bitcoin") ? "bitcoin"
+        : e.category.includes("Dollar") ? "dollar" : "s&p";
+      const sc = scoreForAsset(assetName);
+      const sig = signalForAsset(assetName);
+
+      let wt = perEtf;
+      if (sig.includes("TRIM") || sig.includes("SELL")) wt = Math.max(0, perEtf * 0.5);
+      else if (sig.includes("STRONG BUY")) wt = Math.min(perEtf * 1.3, hi);
+
+      if (wt < 1) continue;
+      wt = Math.round(wt * 2) / 2;
+
+      holdings.push({
+        name: e.category,
+        etf: e.etf,
+        category: cat.label,
+        weight_pct: wt,
+        amount: Math.round(capital * wt / 100),
+        score: sc,
+        signal: sig,
+      });
+    }
+  }
+
+  const totalInvested = holdings.reduce((s, h) => s + h.amount, 0);
+  const cash = capital - totalInvested;
+
+  return {
+    holdings,
+    allocation: alloc,
+    assets,
+    regime: "",
+    capital,
+    cash,
+    cash_pct: Math.round((cash / capital) * 1000) / 10,
+  };
+}
+
 export default function PortfolioPage() {
+  const [tab, setTab] = useState<Tab>("stocks");
   const [capital, setCapital] = useState(1_000_000);
   const [market, setMarket] = useState("ALL");
   const [maxHoldings, setMaxHoldings] = useState(25);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PortfolioResult | null>(null);
+  const [macroResult, setMacroResult] = useState<MacroPortfolio | null>(null);
+  const [macroLoading, setMacroLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function build() {
@@ -85,7 +223,27 @@ export default function PortfolioPage() {
     }
   }
 
+  async function buildMacro() {
+    setMacroLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/macro-playbook");
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error || `Failed (${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      setMacroResult(buildMacroPortfolio(data.assets || [], data.allocation || {}, capital));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setMacroLoading(false);
+    }
+  }
+
   const s = result?.summary;
+  const mp = macroResult;
 
   return (
     <main className="max-w-[1400px] mx-auto px-4 py-8">
@@ -96,12 +254,31 @@ export default function PortfolioPage() {
           </Link>
           <h1 className="text-2xl font-bold tracking-tight mt-1">Portfolio Builder</h1>
           <p className="text-xs text-zinc-500 mt-1">
-            FAJ-enhanced position sizing · 5 Gravity Walls · Momentum decomposition · CAPEX quality · Transfer entropy
+            FAJ-enhanced position sizing · Hedge + Arbitrage macro allocation · 5 Gravity Walls
           </p>
         </div>
       </header>
 
-      {/* Controls */}
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6">
+        {(["stocks", "macro"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+            style={{
+              background: tab === t ? "var(--card)" : "transparent",
+              borderBottom: tab === t ? "2px solid #2563eb" : "2px solid transparent",
+              color: tab === t ? "#fff" : "var(--muted)",
+            }}
+          >
+            {t === "stocks" ? "Stock Portfolio" : "Macro Allocation"}
+          </button>
+        ))}
+      </div>
+
+      {/* ===== STOCK TAB ===== */}
+      {tab === "stocks" && <>
       <div
         className="rounded-lg p-4 mb-6 flex flex-wrap items-end gap-4"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
@@ -257,6 +434,138 @@ export default function PortfolioPage() {
           No stocks passed the hard gates. Try relaxing criteria or adding more analyzed stocks.
         </div>
       )}
+      </>}
+
+      {/* ===== MACRO TAB ===== */}
+      {tab === "macro" && <>
+      <div
+        className="rounded-lg p-4 mb-6 flex flex-wrap items-end gap-4"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Capital ($)</label>
+          <input
+            type="number"
+            value={capital}
+            onChange={(e) => setCapital(Number(e.target.value))}
+            className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          />
+        </div>
+        <button
+          onClick={buildMacro}
+          disabled={macroLoading}
+          className="px-5 py-2 rounded-md text-sm font-semibold transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50"
+          style={{ background: "#2563eb", color: "#fff" }}
+        >
+          {macroLoading ? (
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Loading Macro...
+            </span>
+          ) : (
+            "Build Macro Portfolio"
+          )}
+        </button>
+        {error && <span className="text-xs text-red-400">{error}</span>}
+      </div>
+
+      {mp && (
+        <>
+        {/* Macro Summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: "Capital", value: `$${fmt(mp.capital)}` },
+            { label: "Invested", value: `$${fmt(mp.capital - mp.cash)}` },
+            { label: "Cash Buffer", value: `$${fmt(mp.cash)} (${mp.cash_pct}%)` },
+            { label: "Positions", value: mp.holdings.length },
+          ].map((c) => (
+            <div key={c.label} className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{c.label}</div>
+              <div className="text-lg font-bold mt-0.5">{c.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Cross-Asset Signals */}
+        <div className="rounded-lg overflow-hidden mb-6" style={{ border: "1px solid var(--border)" }}>
+          <div className="px-4 py-2.5" style={{ background: "var(--card)" }}>
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Cross-Asset Signals (Hedge + Arbitrage)</h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: "var(--card)" }}>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Asset</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Price</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Hedge</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Arb</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Score</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Signal</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">M2 Floor</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Fair Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mp.assets.map((a, i) => {
+                const sc = a.combined_score;
+                const col = sc <= 30 ? "#16a34a" : sc <= 50 ? "#22c55e" : sc <= 65 ? "#b45309" : "#dc2626";
+                const sigCol = a.net_signal.includes("BUY") ? "#16a34a" : a.net_signal.includes("TRIM") ? "#dc2626" : "#b45309";
+                return (
+                  <tr key={a.ticker} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                    <td className="px-3 py-2 font-bold">{a.name}<span className="text-zinc-500 text-xs ml-2">{a.ticker}</span></td>
+                    <td className="px-3 py-2 text-right font-mono">${a.price > 999 ? fmt(a.price) : a.price.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{a.hedge_score}</td>
+                    <td className="px-3 py-2 text-right font-mono">{a.arb_score}</td>
+                    <td className="px-3 py-2 text-center"><span className="font-bold font-mono" style={{ color: col }}>{sc}</span></td>
+                    <td className="px-3 py-2 text-center"><span className="text-xs font-bold px-2 py-0.5 rounded" style={{ color: sigCol, background: `${sigCol}15` }}>{a.net_signal}</span></td>
+                    <td className="px-3 py-2 text-right text-zinc-400 font-mono">${a.m2_floor > 999 ? fmt(Math.round(a.m2_floor)) : a.m2_floor.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right text-zinc-400 font-mono">${a.arb_fair_value > 999 ? fmt(Math.round(a.arb_fair_value)) : a.arb_fair_value.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ETF Allocation Table */}
+        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <div className="px-4 py-2.5" style={{ background: "var(--card)" }}>
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">ETF Portfolio Allocation</h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: "var(--card)" }}>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">ETF</th>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Category</th>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Asset Class</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Weight</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Amount</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Score</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Signal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mp.holdings.map((h, i) => {
+                const sigCol = h.signal.includes("BUY") ? "#16a34a" : h.signal.includes("TRIM") ? "#dc2626" : "#b45309";
+                const sc = h.score;
+                const col = sc <= 30 ? "#16a34a" : sc <= 50 ? "#22c55e" : sc <= 65 ? "#b45309" : "#dc2626";
+                return (
+                  <tr key={h.etf} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                    <td className="px-3 py-2 font-mono font-bold">{h.etf}</td>
+                    <td className="px-3 py-2 text-xs">{h.name}</td>
+                    <td className="px-3 py-2 text-xs text-zinc-500">{h.category}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{h.weight_pct.toFixed(1)}%</td>
+                    <td className="px-3 py-2 text-right text-zinc-400">${fmt(h.amount)}</td>
+                    <td className="px-3 py-2 text-center"><span className="font-bold font-mono text-xs" style={{ color: col }}>{sc}</span></td>
+                    <td className="px-3 py-2 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: sigCol, background: `${sigCol}15` }}>{h.signal}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        </>
+      )}
+      </>}
     </main>
   );
 }
