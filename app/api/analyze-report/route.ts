@@ -421,7 +421,9 @@ export async function POST(req: NextRequest) {
   H(120d): ${entropyProfile.current120d?.toFixed(3) ?? "N/A"}
   H(252d): ${entropyProfile.current252d?.toFixed(3) ?? "N/A"}
   Volume Entropy: ${entropyProfile.volumeEntropy60d?.toFixed(3) ?? "N/A"}
-  Percentile: ${entropyProfile.percentile?.toFixed(0) ?? "N/A"}% (vs 3-year rolling history)
+  Percentile (full): ${entropyProfile.percentile?.toFixed(0) ?? "N/A"}%
+  Percentile (1Y): ${entropyProfile.percentile1y?.toFixed(0) ?? "N/A"}% (vs last 252 trading days)
+  Percentile (3Y): ${entropyProfile.percentile3y?.toFixed(0) ?? "N/A"}% (vs last 756 trading days)
   Trend: ${entropyProfile.trend != null ? (entropyProfile.trend >= 0 ? "+" : "") + (entropyProfile.trend * 1000).toFixed(2) : "N/A"} (×1000, negative = compressing)
   Regime: ${entropyProfile.regime}
   Cognitive Gap: ${entropyProfile.cogGap}/10 (${entropyProfile.cogGapLabel})

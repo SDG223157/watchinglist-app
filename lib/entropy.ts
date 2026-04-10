@@ -17,7 +17,9 @@ export interface EntropyProfile {
   current120d: number;      // Normalized entropy of last 120 trading days
   current252d: number;      // Normalized entropy of last 252 trading days
   volumeEntropy60d: number; // Volume distribution entropy (60d)
-  percentile: number;       // Current 60d entropy vs 3-year rolling history (0-100)
+  percentile: number;       // Current 60d entropy vs full rolling history (0-100)
+  percentile1y: number;     // Current 60d entropy vs 1-year rolling history (0-100)
+  percentile3y: number;     // Current 60d entropy vs 3-year rolling history (0-100)
   trend: number;            // Entropy slope over last 60 days (negative = compressing)
   regime: "compressed" | "normal" | "diverse";
   regimeColor: string;
@@ -140,6 +142,11 @@ export function computeEntropyProfile(
   // Rolling 60d entropy over full history for percentile
   const rolling = rollingEntropy(returns, 60, 1);
   const percentile = percentileOf(current60d, rolling);
+  // 1-year and 3-year lookback percentiles
+  const rolling1y = rolling.slice(-252);
+  const rolling3y = rolling.slice(-756);
+  const percentile1y = percentileOf(current60d, rolling1y.length > 0 ? rolling1y : rolling);
+  const percentile3y = percentileOf(current60d, rolling3y.length > 0 ? rolling3y : rolling);
 
   // Entropy trend: slope of last 12 rolling windows (60 days of daily rolling)
   const recentRolling = rolling.slice(-60);
@@ -249,6 +256,8 @@ export function computeEntropyProfile(
     current252d,
     volumeEntropy60d,
     percentile,
+    percentile1y,
+    percentile3y,
     trend,
     regime,
     regimeColor,
