@@ -194,6 +194,16 @@ How entropy modifies your analysis:
 - Anchor Failure = HIGHEST PRIORITY finding: call out prominently.
 - Cross-reference with HMM: Bull + compressed = fragile mania. Bear + compressed = potential reversal setup.
 
+**HMM × Entropy Portfolio Sizing (backtest-validated):**
+The HMM regime determines IF to hold. Entropy conviction determines HOW MUCH.
+Kelly fraction = edge / variance, quarter-Kelly cap.
+- STANDARD conviction: normal position size (1.0x)
+- ELEVATED: slightly larger (1.1x) — mild entropy edge
+- HIGH: 1.3x AND can enter 1/4 position even without TrendWise (tiered entry)
+- MAXIMUM: 1.5x AND can enter 1/2 position without TrendWise — strongest signal
+TrendWise lags ~40 days (backtest on 002475.SZ). HIGH conviction signals averaged +32.9% in 60d but TW was always Closed at the bottom. Tiered entry fixes this.
+Include a "Portfolio Sizing Recommendation" in your analysis that states the conviction level, whether this is an early or confirmed entry, and the recommended size fraction.
+
 **7 Buy Conditions:**
 1. >=3 GREEN walls
 2. Market Clock favorable
@@ -237,18 +247,29 @@ Table with GREEN/YELLOW/RED + data
 | Dimension | Score /5 | Evidence |
 Table
 
-### Shannon Entropy Analysis
+### Shannon Entropy × HMM Analysis
 | Metric | Value | Interpretation |
-Analyze the entropy data provided. Include:
+Analyze the entropy AND HMM data provided together. Include:
 - Entropy regime (compressed/normal/diverse) and what it means for this stock right now
-- Cognitive computation gap assessment
-- Anchor failure check (if applicable)
-- **Entropy × Framework Cross-Check:** Does entropy confirm or contradict the clock position? Does HMM + entropy indicate fragility?
+- HMM regime (Bull/Flat/Bear) and persistence — is the neighborhood safe?
+- Cognitive computation gap assessment — how many bits is the market ignoring?
+- Anchor failure check (if applicable) — is the market blind AND the price wrong?
+- **Conviction Level:** State MAXIMUM/HIGH/ELEVATED/STANDARD and the multiplier
+- **HMM × Entropy Cross-Reference:** Use the exact cross-reference provided (fragile mania / potential reversal / healthy bull / hidden opportunity)
 - **Signal Reliability Assessment:** Based on entropy, are fundamental signals currently being processed by the market?
 
+### Portfolio Sizing Recommendation
+Based on the HMM × Entropy analysis:
+- State the conviction level and multiplier (e.g. "HIGH conviction → 1.3x")
+- State the entry type: Confirmed (TW Open), Early tiered (HIGH/MAXIMUM without TW), or Wait
+- State the recommended position size fraction (full / 1/2 / 1/4 / wait)
+- If anchor failure: flag as MAXIMUM priority — "the market is blind AND the price is wrong"
+- If TrendWise is Closed but conviction is HIGH+: recommend tiered early entry with specific size
+
 ### Position Assessment
-7 buy conditions check (including sector/industry and entropy regime), recommended action (buy/watch/avoid), position size suggestion.
+7 buy conditions check (including sector/industry, entropy regime, and HMM regime), recommended action (buy/watch/avoid), position size suggestion.
 If sector/industry is a headwind, explicitly state how it modifies the position size or conviction level.
+If entropy is compressed, explicitly state whether this creates opportunity (conviction HIGH+) or danger (fragile mania).
 
 ### Key Risks
 Top 3 risks (include sector/industry risk if applicable)
@@ -364,6 +385,37 @@ export async function POST(req: NextRequest) {
             hmm_regime: existingStock.hmm_regime,
           } : undefined
         );
+        // Compute conviction level
+        const eRegime = entropyProfile.regime || "normal";
+        const eCog = entropyProfile.cogGap || 0;
+        const eAnchor = entropyProfile.anchorFailure || false;
+        let conviction = "STANDARD";
+        let convMultiplier = "1.0x";
+        if (eRegime === "compressed" && eAnchor) { conviction = "MAXIMUM"; convMultiplier = "1.5x"; }
+        else if (eRegime === "compressed" && eCog >= 5) { conviction = "HIGH"; convMultiplier = "1.3x"; }
+        else if (eRegime === "compressed") { conviction = "ELEVATED"; convMultiplier = "1.1x"; }
+        else if (eRegime === "diverse") { conviction = "NORMAL"; convMultiplier = "1.0x"; }
+
+        // HMM data from existing DB record
+        const hmmRegime = existingStock?.hmm_regime || "N/A";
+        const hmmPersist = existingStock?.hmm_persistence;
+        const hmmStr = hmmPersist != null ? `${hmmRegime} (${(hmmPersist * 100).toFixed(0)}% persistence)` : hmmRegime;
+
+        // Tiered entry assessment
+        const twSignal = existingStock?.trend_signal || "N/A";
+        const twOpen = (twSignal || "").toLowerCase().includes("open");
+        let entryType = "Standard";
+        let entrySize = "Full";
+        if (twOpen) {
+          entryType = "Confirmed"; entrySize = "Full position";
+        } else if (conviction === "MAXIMUM") {
+          entryType = "Early (tiered)"; entrySize = "1/2 position — MAXIMUM conviction overrides TW lag";
+        } else if (conviction === "HIGH") {
+          entryType = "Early (tiered)"; entrySize = "1/4 position — HIGH conviction overrides TW lag";
+        } else {
+          entryType = "Wait"; entrySize = "No entry — wait for TrendWise confirmation";
+        }
+
         entropyBlock = `Shannon Entropy (informational compression analysis):
   H(60d): ${entropyProfile.current60d?.toFixed(3) ?? "N/A"} (normalized [0,1])
   H(120d): ${entropyProfile.current120d?.toFixed(3) ?? "N/A"}
@@ -374,6 +426,20 @@ export async function POST(req: NextRequest) {
   Regime: ${entropyProfile.regime}
   Cognitive Gap: ${entropyProfile.cogGap}/10 (${entropyProfile.cogGapLabel})
   Anchor Failure: ${entropyProfile.anchorFailure ? "YES — " + entropyProfile.anchorDetail : "No"}
+
+HMM Regime: ${hmmStr}
+TrendWise: ${twSignal}
+Conviction Level: ${conviction} (${convMultiplier} position size multiplier)
+Entry Assessment: ${entryType} — ${entrySize}
+
+Cross-Reference:
+  HMM ${hmmRegime} + Entropy ${eRegime} = ${
+    hmmRegime === "Bull" && eRegime === "compressed" ? "FRAGILE MANIA — Bull trend but narrative crowded. Proceed with caution, size via Kelly."
+    : hmmRegime === "Bear" && eRegime === "compressed" ? "POTENTIAL REVERSAL — everyone positioned the same way. Watch for TrendWise Open."
+    : hmmRegime === "Bull" && eRegime === "diverse" ? "HEALTHY BULL — market processing information well. Full conviction from composite score."
+    : hmmRegime === "Flat" && eRegime === "compressed" ? "HIDDEN OPPORTUNITY — market blind in uncertain regime. Tiered entry if conviction is HIGH+."
+    : "Standard environment — no special entropy/regime interaction."
+  }
 `;
       }
     } catch { /* entropy computation failed, use default block */ }
