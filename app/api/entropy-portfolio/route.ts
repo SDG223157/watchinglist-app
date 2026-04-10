@@ -45,9 +45,14 @@ function kellyFraction(s: WatchlistStock): number {
 
 /**
  * Entropy-based conviction: how much to trust your signal.
- * - Compressed entropy + high cog_gap = market under-processing → high conviction
- * - Diverse entropy = healthy market → normal conviction
- * - Compressed entropy + anchor failure = maximum signal
+ *
+ * v3: Adds crowded-trade detection. Compressed entropy at ATH with
+ * high PE = everyone bought for one reason (crowded), NOT "nobody is
+ * looking" (hidden gem). Downgrades conviction for expensive + compressed.
+ *
+ * The key distinction:
+ *   Compressed + far from ATH + reasonable PE = HIDDEN GEM → upgrade
+ *   Compressed + near ATH + extreme PE = CROWDED TRADE → downgrade
  */
 function entropyConviction(s: WatchlistStock): { level: string; multiplier: number } {
   const regime = (s.entropy_regime || "normal").toLowerCase();
@@ -55,19 +60,53 @@ function entropyConviction(s: WatchlistStock): { level: string; multiplier: numb
   const anchor = s.anchor_failure || false;
   const pctile = s.entropy_percentile || 50;
 
-  if (anchor && regime.includes("compressed")) {
+  if (!regime.includes("compressed")) {
+    if (regime.includes("diverse") && pctile > 80) {
+      return { level: "NORMAL", multiplier: 1.0 };
+    }
+    return { level: "STANDARD", multiplier: 1.0 };
+  }
+
+  // --- Compressed regime: is this a hidden gem or a crowded trade? ---
+
+  // Parse ATH distance
+  const athStr = s.distance_from_ath || "";
+  const athMatch = athStr.match(/-?([\d.]+)%/);
+  const athDist = athMatch ? -Math.abs(parseFloat(athMatch[1])) : 0;
+  const pe = s.pe_ratio || s.pe_ttm || 0;
+
+  const nearATH = athDist > -15;       // within 15% of ATH
+  const expensivePE = pe > 40;         // PE > 40x
+  const cheapPE = pe > 0 && pe < 20;   // PE < 20x (genuinely cheap)
+  const farFromATH = athDist <= -25;    // 25%+ below ATH
+
+  // Crowded trade detection: compressed + near ATH + expensive
+  if (nearATH && expensivePE && cog >= 5) {
+    // Everyone bought for one reason. This is NOT "nobody is looking."
+    // Downgrade from HIGH/MAXIMUM to ELEVATED with warning.
+    return { level: "CROWDED", multiplier: 0.7 };
+  }
+  if (nearATH && expensivePE) {
+    return { level: "CROWDED", multiplier: 0.8 };
+  }
+
+  // Hidden gem: compressed + far from ATH = real opportunity
+  if (anchor && farFromATH) {
     return { level: "MAXIMUM", multiplier: 1.5 };
   }
-  if (regime.includes("compressed") && cog >= 5) {
+  if (anchor) {
+    return { level: "MAXIMUM", multiplier: 1.4 };
+  }
+  if (cog >= 5 && farFromATH) {
+    return { level: "HIGH", multiplier: 1.4 };
+  }
+  if (cog >= 5) {
     return { level: "HIGH", multiplier: 1.3 };
   }
-  if (regime.includes("compressed")) {
-    return { level: "ELEVATED", multiplier: 1.1 };
+  if (farFromATH && cheapPE) {
+    return { level: "HIGH", multiplier: 1.3 };
   }
-  if (regime.includes("diverse") && pctile > 80) {
-    return { level: "NORMAL", multiplier: 1.0 };
-  }
-  return { level: "STANDARD", multiplier: 1.0 };
+  return { level: "ELEVATED", multiplier: 1.1 };
 }
 
 /**

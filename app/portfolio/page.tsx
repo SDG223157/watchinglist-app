@@ -723,7 +723,7 @@ export default function PortfolioPage() {
         <h3 className="font-bold text-sm mb-2" style={{ color: "#a78bfa" }}>HMM × Entropy Portfolio Theory</h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-zinc-400">
           <div><strong className="text-zinc-200">HMM Regime Filter:</strong> Only hold stocks in Bull regime (high persistence) or Flat regime with TrendWise confirmation. Skip Bear + high persistence. Skip Geometric Order 3 (fragile).</div>
-          <div><strong className="text-zinc-200">Shannon Entropy Sizing:</strong> Compressed entropy + high cognitive gap = market under-processing = increase conviction. Anchor failure (compressed + valuation divergence) = maximum signal.</div>
+          <div><strong className="text-zinc-200">Shannon Entropy Sizing:</strong> Compressed + far from ATH = hidden gem (increase conviction). Compressed + at ATH + high PE = CROWDED trade (decrease to 0.7x). Anchor failure = maximum signal.</div>
           <div><strong className="text-zinc-200">Kelly Fraction:</strong> Position size = edge / variance. Edge from composite score, variance from regime uncertainty. Quarter-Kelly cap prevents overbetting on imprecise estimates.</div>
           <div><strong className="text-zinc-200">Tiered Entry (v2):</strong> HIGH conviction + TW Closed → 1/3 early entry. MAXIMUM + TW Closed → 1/2 early entry. Backtest showed TrendWise lags ~40d, missing +32.9% avg returns at HIGH conviction.</div>
         </div>
@@ -770,7 +770,7 @@ export default function PortfolioPage() {
               {ep.holdings.map((h: EntropyHolding, i: number) => {
                 const hmmCol = h.hmm_regime.toLowerCase().includes("bull") ? "#16a34a" : h.hmm_regime.toLowerCase().includes("bear") ? "#dc2626" : "#b45309";
                 const entCol = h.entropy_regime.includes("compressed") ? "#7c3aed" : h.entropy_regime.includes("diverse") ? "#3b82f6" : "var(--muted)";
-                const convCol = h.conviction === "MAXIMUM" ? "#dc2626" : h.conviction === "HIGH" ? "#f59e0b" : h.conviction === "ELEVATED" ? "#7c3aed" : "var(--muted)";
+                const convCol = h.conviction === "CROWDED" ? "#ef4444" : h.conviction === "MAXIMUM" ? "#dc2626" : h.conviction === "HIGH" ? "#f59e0b" : h.conviction === "ELEVATED" ? "#7c3aed" : "var(--muted)";
                 const geoCol = h.geometric_order === 0 ? "#16a34a" : h.geometric_order === 1 ? "#22c55e" : h.geometric_order === 2 ? "#b45309" : "#dc2626";
                 return (
                   <tr key={h.symbol} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
