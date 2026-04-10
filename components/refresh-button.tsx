@@ -14,34 +14,54 @@ export function RefreshButton({ symbol }: { symbol: string }) {
     setError("");
     setDone(false);
 
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol }),
+          signal: AbortSignal.timeout(60000),
+        });
 
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+        const text = await res.text();
+        if (text.startsWith("<!") || text.startsWith("<html")) {
+          if (attempt === 0) {
+            setError("Waking up database... retrying");
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
+          setError("Server returned HTML — redeploy may be needed");
+          break;
+        }
 
-      const data = await res.json();
+        const data = JSON.parse(text);
+        if (!res.ok) {
+          if (attempt === 0 && res.status >= 500) {
+            setError("Retrying...");
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
+          setError(data.error || `Failed (${res.status})`);
+          break;
+        }
 
-      if (!res.ok) {
-        setError(data.error || `Failed (${res.status})`);
-        return;
+        setDone(true);
+        setError("");
+        router.refresh();
+        setTimeout(() => setDone(false), 3000);
+        break;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Network error";
+        if (attempt === 0) {
+          setError("Retrying...");
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        setError(msg.includes("timeout") || msg.includes("abort") ? "Request timed out (60s)" : msg);
       }
-
-      setDone(true);
-      router.refresh();
-      setTimeout(() => setDone(false), 3000);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Network error";
-      setError(msg.includes("abort") ? "Request timed out (60s)" : msg);
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   }
 
   return (
