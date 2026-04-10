@@ -71,47 +71,75 @@ function entropyConviction(s: WatchlistStock): { level: string; multiplier: numb
 }
 
 /**
- * HMM regime filter: which stocks to include and how to size.
- * - Bull + high persistence: full position
- * - Flat + TrendWise Open: half position (use trend as tiebreaker)
- * - Bear + high persistence: SHORT or SKIP
- * - Low persistence: reduce size (uncertain regime)
+ * HMM regime filter with TIERED ENTRY (v2 — backtest-informed).
+ *
+ * Key insight from 002475.SZ backtest: TrendWise is a lagging indicator.
+ * HIGH conviction signals averaged +32.9% in 60d but were never bought
+ * because TrendWise was Closed. By the time TW fired Open (~40d later),
+ * 30-50% of the move was done and the entropy edge had evaporated.
+ *
+ * Fix: Allow early partial entry when conviction is HIGH or MAXIMUM,
+ * even with TrendWise Closed. Full position when TW confirms.
+ *
+ * Tiered entry:
+ *   STANDARD + TW Closed  → SKIP (no edge, no momentum)
+ *   ELEVATED + TW Closed  → SKIP (mild edge, not enough)
+ *   HIGH     + TW Closed  → ENTER 1/3 position (strong edge, accept lag)
+ *   MAXIMUM  + TW Closed  → ENTER 1/2 position (strongest edge, worth it)
+ *   Any      + TW Open    → Full position (momentum confirmed)
  */
-function hmmSizing(s: WatchlistStock): { include: boolean; multiplier: number; reason: string } {
+function hmmSizing(
+  s: WatchlistStock,
+  conviction: { level: string; multiplier: number },
+): { include: boolean; multiplier: number; reason: string } {
   const regime = (s.hmm_regime || "").toLowerCase();
   const p = s.hmm_persistence || 0;
   const trend = (s.trend_signal || "").toLowerCase();
   const geo = s.geometric_order ?? 2;
+  const twOpen = trend.includes("open");
 
-  // Bear regime with high persistence: skip
+  // Geometric order filter: skip Order 3 (jerk — fragile) always
+  if (geo >= 3) {
+    return { include: false, multiplier: 0, reason: "Geometric Order 3 (fragile)" };
+  }
+
+  // Bear regime with high persistence: skip (unless MAXIMUM conviction)
   if (regime.includes("bear") && p > 0.85) {
+    if (conviction.level === "MAXIMUM" && twOpen) {
+      return { include: true, multiplier: 0.3, reason: `Bear ${(p*100).toFixed(0)}% BUT MAXIMUM conviction + TW Open → 1/3` };
+    }
     return { include: false, multiplier: 0, reason: "Bear regime, high persistence" };
   }
 
   // Bull regime
   if (regime.includes("bull")) {
-    if (p > 0.95) return { include: true, multiplier: 1.2, reason: `Bull ${(p*100).toFixed(0)}% — full conviction` };
-    if (p > 0.85) return { include: true, multiplier: 1.0, reason: `Bull ${(p*100).toFixed(0)}%` };
-    return { include: true, multiplier: 0.8, reason: `Bull but low persistence ${(p*100).toFixed(0)}%` };
-  }
-
-  // Flat regime — use TrendWise as tiebreaker
-  if (regime.includes("flat")) {
-    if (trend.includes("open")) {
-      return { include: true, multiplier: p > 0.9 ? 0.8 : 0.6, reason: `Flat + TrendWise Open` };
+    if (twOpen) {
+      if (p > 0.95) return { include: true, multiplier: 1.2, reason: `Bull ${(p*100).toFixed(0)}% + TW Open — full` };
+      if (p > 0.85) return { include: true, multiplier: 1.0, reason: `Bull ${(p*100).toFixed(0)}% + TW Open` };
+      return { include: true, multiplier: 0.8, reason: `Bull low-p ${(p*100).toFixed(0)}% + TW Open` };
     }
-    return { include: false, multiplier: 0, reason: "Flat regime, TrendWise closed" };
+    // Bull but TW Closed — tiered by conviction
+    if (conviction.level === "MAXIMUM") return { include: true, multiplier: 0.5, reason: `Bull ${(p*100).toFixed(0)}% TW Closed → 1/2 (MAXIMUM)` };
+    if (conviction.level === "HIGH") return { include: true, multiplier: 0.33, reason: `Bull ${(p*100).toFixed(0)}% TW Closed → 1/3 (HIGH)` };
+    return { include: false, multiplier: 0, reason: `Bull ${(p*100).toFixed(0)}% TW Closed — wait for TW` };
   }
 
-  // Geometric order filter: skip Order 3 (jerk — fragile)
-  if (geo >= 3) {
-    return { include: false, multiplier: 0, reason: "Geometric Order 3 (fragile)" };
+  // Flat regime — tiered entry
+  if (regime.includes("flat")) {
+    if (twOpen) {
+      return { include: true, multiplier: p > 0.9 ? 0.8 : 0.6, reason: `Flat + TW Open` };
+    }
+    // Flat + TW Closed — tiered by conviction
+    if (conviction.level === "MAXIMUM") return { include: true, multiplier: 0.4, reason: `Flat TW Closed → 2/5 (MAXIMUM — early entry)` };
+    if (conviction.level === "HIGH") return { include: true, multiplier: 0.25, reason: `Flat TW Closed → 1/4 (HIGH — early entry)` };
+    return { include: false, multiplier: 0, reason: "Flat TW Closed — wait for TW" };
   }
 
-  // Default: include with reduced size
-  if (trend.includes("open")) {
-    return { include: true, multiplier: 0.7, reason: "Unknown regime, TrendWise Open" };
+  // Default
+  if (twOpen) {
+    return { include: true, multiplier: 0.7, reason: "Unknown regime, TW Open" };
   }
+  if (conviction.level === "MAXIMUM") return { include: true, multiplier: 0.3, reason: "Unknown regime, MAXIMUM conviction → 1/3 early" };
   return { include: false, multiplier: 0, reason: "No clear regime signal" };
 }
 
@@ -145,13 +173,12 @@ export async function POST(req: NextRequest) {
   }[] = [];
 
   for (const s of filtered) {
-    const hmm = hmmSizing(s);
+    const conviction = entropyConviction(s);
+    const hmm = hmmSizing(s, conviction);
     if (!hmm.include) continue;
 
     const kelly = kellyFraction(s);
     if (kelly <= 0) continue;
-
-    const conviction = entropyConviction(s);
 
     const weight = kelly * hmm.multiplier * conviction.multiplier * 100;
     if (weight < 1.5) continue;
