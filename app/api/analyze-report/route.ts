@@ -13,7 +13,7 @@ import { computeTailDependence } from "@/lib/copula";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const OPENAI_MODEL = "gpt-4.1";
+const OPENAI_MODEL = "gpt-5.4";
 const EDENAI_MODEL = "openai/gpt-5.4";
 const OPENROUTER_MODEL = "openai/gpt-5.4";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
@@ -511,7 +511,7 @@ Cross-Reference:
             body: JSON.stringify({
               model: OPENAI_MODEL,
               messages: [{ role: "user", content: prompt }],
-              max_tokens: 8000,
+              max_completion_tokens: 8000,
               temperature: 0.2,
             }),
           });
