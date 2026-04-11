@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const OPENAI_MODEL = "gpt-4.1";
-const EDENAI_MODEL = "openai/gpt-4.1";
+const EDENAI_MODEL = "openai/gpt-5.4";
 const OPENROUTER_MODEL = "openai/gpt-5.4";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const EDENAI_URL = "https://api.edenai.run/v3/llm/chat/completions";
