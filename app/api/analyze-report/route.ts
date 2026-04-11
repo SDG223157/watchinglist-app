@@ -12,7 +12,9 @@ import { computeEntropyProfile } from "@/lib/entropy";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MODEL = "openai/gpt-5.4";
+const OPENAI_MODEL = "gpt-4.1";
+const OPENROUTER_MODEL = "openai/gpt-5.4";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 function fmtReturn(v: number | null): string {
@@ -312,10 +314,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openaiKey && !openrouterKey) {
     return NextResponse.json(
-      { error: "OPENROUTER_API_KEY not configured" },
+      { error: "Neither OPENAI_API_KEY nor OPENROUTER_API_KEY configured" },
       { status: 500 }
     );
   }
@@ -458,24 +461,48 @@ Cross-Reference:
 
     const prompt = buildPrompt(quote, hist, hm, entropyBlock);
 
-    const llmRes = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://watchinglist.app",
-        "X-Title": "WatchingList",
-        "Content-Type": "application/json",
-        "User-Agent": "WatchingList/1.0",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 8000,
-        temperature: 0.2,
-      }),
-    });
+    async function callLlm(): Promise<{ res: Response; text: string }> {
+      if (openaiKey) {
+        const res = await fetch(OPENAI_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openaiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: OPENAI_MODEL,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 8000,
+            temperature: 0.2,
+          }),
+        });
+        const text = await res.text();
+        if (res.ok) return { res, text };
+        console.warn(`OpenAI direct failed (${res.status}), falling back to OpenRouter...`);
+      }
+      if (openrouterKey) {
+        const res = await fetch(OPENROUTER_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openrouterKey}`,
+            "HTTP-Referer": "https://watchinglist.app",
+            "X-Title": "WatchingList",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: OPENROUTER_MODEL,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 8000,
+            temperature: 0.2,
+          }),
+        });
+        const text = await res.text();
+        return { res, text };
+      }
+      throw new Error("No LLM provider available");
+    }
 
-    const llmText = await llmRes.text();
+    const { res: llmRes, text: llmText } = await callLlm();
 
     if (!llmRes.ok) {
       const isHtml = llmText.trimStart().startsWith("<");
