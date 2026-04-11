@@ -8,6 +8,7 @@ import { computeCompositeScore } from "@/lib/composite-score";
 import { cachedQuote, cachedSummary, cachedHistorical } from "@/lib/yf-cache";
 import { refreshStockData } from "@/lib/refresh-stock";
 import { computeEntropyProfile } from "@/lib/entropy";
+import { computeTailDependence } from "@/lib/copula";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -260,13 +261,23 @@ Analyze the entropy AND HMM data provided together. Include:
 - **HMM × Entropy Cross-Reference:** Use the exact cross-reference provided (fragile mania / potential reversal / healthy bull / hidden opportunity)
 - **Signal Reliability Assessment:** Based on entropy, are fundamental signals currently being processed by the market?
 
+### Copula Tail Dependence
+If copula data is provided, analyze:
+- Lower tail λL (co-crash probability): how much does this stock amplify market crashes?
+- Asymmetry (λL − λU): is crash coupling worse than rally coupling?
+- Tail regime: crash-coupled / symmetric / rally-coupled / independent
+- **If crash-coupled AND near ATH:** explicitly flag as elevated risk — diversification fails when you need it most
+- **If independent (low λL + λU):** flag as genuine diversifier — holds up in drawdowns
+- Compare Pearson ρ (linear) vs λL (tail): if λL >> ρ, the stock looks safe on normal days but amplifies crashes
+
 ### Portfolio Sizing Recommendation
-Based on the HMM × Entropy analysis:
+Based on the HMM × Entropy + Copula analysis:
 - State the conviction level and multiplier (e.g. "HIGH conviction → 1.3x")
 - State the entry type: Confirmed (TW Open), Early tiered (HIGH/MAXIMUM without TW), or Wait
 - State the recommended position size fraction (full / 1/2 / 1/4 / wait)
 - If anchor failure: flag as MAXIMUM priority — "the market is blind AND the price is wrong"
 - If TrendWise is Closed but conviction is HIGH+: recommend tiered early entry with specific size
+- If crash-coupled: reduce position by 15% ("tail risk haircut")
 
 ### Position Assessment
 7 buy conditions check (including sector/industry, entropy regime, and HMM regime), recommended action (buy/watch/avoid), position size suggestion.
@@ -446,6 +457,29 @@ Cross-Reference:
     : "Standard environment — no special entropy/regime interaction."
   }
 `;
+
+        // Copula tail dependence
+        try {
+          const benchSymbol = symbol.endsWith(".HK") ? "^HSI" : symbol.endsWith(".SS") || symbol.endsWith(".SZ") ? "000300.SS" : "SPY";
+          const benchHist = await cachedHistorical(benchSymbol, period3y.toISOString().split("T")[0], "1d") as { close: number; date: Date }[];
+          const stockPrices = dailyHist.map(h => h.close).filter((v): v is number => v != null && !Number.isNaN(v));
+          const benchPrices = benchHist.map(h => h.close).filter((v): v is number => v != null && !Number.isNaN(v));
+          const stockRet = stockPrices.slice(1).map((v, i) => Math.log(v / stockPrices[i]));
+          const benchRet = benchPrices.slice(1).map((v, i) => Math.log(v / benchPrices[i]));
+          if (stockRet.length > 60 && benchRet.length > 60) {
+            const tail = computeTailDependence(stockRet, benchRet);
+            entropyBlock += `\nCopula Tail Dependence (how stock co-moves with benchmark in extreme tails):
+  Lower tail λL: ${tail.lowerTail.toFixed(3)} (co-crash probability — Clayton copula)
+  Upper tail λU: ${tail.upperTail.toFixed(3)} (co-rally probability — Gumbel copula)
+  Asymmetry: ${tail.asymmetry > 0 ? "+" : ""}${tail.asymmetry.toFixed(3)} (positive = crashes more correlated than rallies)
+  Tail ratio: ${tail.tailRatio.toFixed(1)}x (crash amplification vs rally)
+  Pearson ρ: ${tail.pearsonRho.toFixed(2)} (linear correlation for reference)
+  Tail regime: ${tail.regime}
+  Risk: ${tail.riskLabel}
+  NOTE: λL > 0.3 means diversification fails during crashes. If crash-coupled AND near ATH, reduce position.
+`;
+          }
+        } catch { /* copula computation failed, skip */ }
       }
     } catch { /* entropy computation failed, use default block */ }
 
