@@ -12,6 +12,7 @@ import { StockSearch } from "@/components/stock-search";
 import { HmmRegimeChart } from "@/components/hmm-regime-chart";
 import { StockMacroCard } from "@/components/stock-macro-card";
 import { StockEntropyCard } from "@/components/stock-entropy-card";
+import { StockHmmEntropyCard } from "@/components/stock-hmm-entropy-card";
 import { computeCompositeScore, SCORE_MAXES } from "@/lib/composite-score";
 import { detectTriggers, type Trigger } from "@/lib/reanalysis-triggers";
 import { diagnoseCapm, detectPhaseFromCapm } from "@/lib/capm-diagnostic";
@@ -721,6 +722,9 @@ export default async function StockDetail({
 
       {/* Shannon Entropy */}
       <StockEntropyCard symbol={stock.symbol} />
+
+      {/* HMM × Entropy synthesis */}
+      <StockHmmEntropyCard symbol={stock.symbol} />
 
       {/* Moat Analysis */}
       {(stock.moat_width || stock.moat_type) && (

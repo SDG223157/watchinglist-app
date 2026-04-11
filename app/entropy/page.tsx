@@ -29,14 +29,23 @@ export default async function EntropyPage() {
             Informational compression, narrative crowding & cognitive computation gaps
           </p>
         </div>
-        {session.user.image && (
-          <img
-            src={session.user.image}
-            alt=""
-            className="w-8 h-8 rounded-full"
-            referrerPolicy="no-referrer"
-          />
-        )}
+        <div className="flex items-center gap-3">
+          <Link
+            href="/entropy/analyze"
+            className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+            style={{ background: "#7c3aed", color: "#fff" }}
+          >
+            Analyze Ticker
+          </Link>
+          {session.user.image && (
+            <img
+              src={session.user.image}
+              alt=""
+              className="w-8 h-8 rounded-full"
+              referrerPolicy="no-referrer"
+            />
+          )}
+        </div>
       </header>
 
       <EntropyDashboard />
