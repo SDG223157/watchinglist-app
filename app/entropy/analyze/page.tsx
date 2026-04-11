@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { StockHmmEntropyCard } from "@/components/stock-hmm-entropy-card";
 
-export default function HmmEntropyAnalyzePage() {
+function HmmEntropyAnalyzePageInner() {
   const searchParams = useSearchParams();
   const initial = (searchParams.get("symbol") || "AAPL").toUpperCase();
   const [input, setInput] = useState(initial);
@@ -60,5 +60,13 @@ export default function HmmEntropyAnalyzePage() {
 
       {symbol && <StockHmmEntropyCard symbol={symbol} />}
     </main>
+  );
+}
+
+export default function HmmEntropyAnalyzePage() {
+  return (
+    <Suspense fallback={<main className="max-w-[1200px] mx-auto px-4 py-8">Loading analyzer...</main>}>
+      <HmmEntropyAnalyzePageInner />
+    </Suspense>
   );
 }
