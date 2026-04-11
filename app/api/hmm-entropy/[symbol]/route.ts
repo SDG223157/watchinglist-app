@@ -238,6 +238,12 @@ export async function GET(
         cogGapLabel: entropy.cogGapLabel,
         anchorFailure: entropy.anchorFailure,
         anchorDetail: entropy.anchorDetail,
+        history: entropy.history.slice(-180),
+      },
+      hmmHistory: {
+        states: hmm.states.slice(-180),
+        labels: hmm.stateLabels,
+        dates: hmm.dates.slice(-180),
       },
       transferEntropy: {
         toBenchmark: teTo,

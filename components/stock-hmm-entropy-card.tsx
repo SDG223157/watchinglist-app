@@ -22,6 +22,12 @@ interface HmmEntropyData {
     cogGapLabel: string;
     anchorFailure: boolean;
     anchorDetail: string;
+    history: { date: string; entropy: number }[];
+  };
+  hmmHistory: {
+    states: number[];
+    labels: string[];
+    dates: string[];
   };
   transferEntropy: {
     toBenchmark: number;
@@ -45,6 +51,62 @@ function Pill({ text, color }: { text: string; color: string }) {
     >
       {text}
     </span>
+  );
+}
+
+function HmmEntropyMiniChart({
+  history,
+  hmmHistory,
+}: {
+  history: { date: string; entropy: number }[];
+  hmmHistory: { states: number[]; labels: string[]; dates: string[] };
+}) {
+  if (!history || history.length < 2) return null;
+  const W = 560;
+  const H = 120;
+  const PAD = { top: 10, right: 10, bottom: 26, left: 36 };
+  const values = history.map((h) => h.entropy);
+  const min = Math.min(...values) * 0.95;
+  const max = Math.max(...values) * 1.05;
+  const range = max - min || 0.01;
+  const cw = W - PAD.left - PAD.right;
+  const ch = H - PAD.top - PAD.bottom;
+
+  const points = values.map((v, i) => {
+    const x = PAD.left + (i / (values.length - 1)) * cw;
+    const y = PAD.top + ch - ((v - min) / range) * ch;
+    return { x, y };
+  });
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const latest = values[values.length - 1];
+  const lineColor = latest <= 0.7 ? "#7c3aed" : latest >= 0.85 ? "#3b82f6" : "#94a3b8";
+
+  const stateColors = ["#16a34a", "#b45309", "#dc2626", "#16a34a", "#dc2626"];
+  const ribbonY = H - 14;
+  const boxW = cw / Math.max(hmmHistory.states.length, 1);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 140 }}>
+      {[0.7, 0.85].map((t) => {
+        if (t < min || t > max) return null;
+        const y = PAD.top + ch - ((t - min) / range) * ch;
+        return <line key={t} x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="4,4" />;
+      })}
+      <path d={pathD} fill="none" stroke={lineColor} strokeWidth="1.5" />
+      <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r="3" fill={lineColor} />
+      {hmmHistory.states.map((s, i) => (
+        <rect
+          key={i}
+          x={PAD.left + i * boxW}
+          y={ribbonY}
+          width={Math.max(boxW - 0.5, 1)}
+          height={8}
+          fill={stateColors[s] || "#64748b"}
+          opacity={0.85}
+        />
+      ))}
+      <text x={PAD.left} y={H - 2} fill="rgba(255,255,255,0.45)" fontSize="9">HMM ribbon: green=bull, amber=flat, red=bear</text>
+    </svg>
   );
 }
 
@@ -115,10 +177,17 @@ export function StockHmmEntropyCard({ symbol }: { symbol: string }) {
             Regime filter + informational compression + tiered entry
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <Pill text={`${data.hmm.regime} ${(data.hmm.persistence * 100).toFixed(0)}%`} color={hmmColor} />
           <Pill text={`${data.entropy.regime}`} color={entropyColor} />
           <Pill text={`${data.conviction.level} ${data.conviction.multiplier.toFixed(1)}x`} color={convictionColor} />
+          <a
+            href={`/entropy/analyze?symbol=${encodeURIComponent(symbol)}`}
+            className="text-[10px] px-2 py-1 rounded font-semibold uppercase tracking-wider hover:brightness-125"
+            style={{ background: "#7c3aed", color: "#fff" }}
+          >
+            Open Analyzer
+          </a>
         </div>
       </div>
 
@@ -157,6 +226,13 @@ export function StockHmmEntropyCard({ symbol }: { symbol: string }) {
             <div><strong>TrendWise window:</strong> Position {data.trendwise.position.toFixed(1)}% vs Retracement {data.trendwise.retracement.toFixed(1)}%</div>
           </div>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+        <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "#7c3aed" }}>
+          Entropy History + HMM Ribbon
+        </div>
+        <HmmEntropyMiniChart history={data.entropy.history} hmmHistory={data.hmmHistory} />
       </div>
     </div>
   );

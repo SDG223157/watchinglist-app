@@ -1,12 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { StockHmmEntropyCard } from "@/components/stock-hmm-entropy-card";
 
 export default function HmmEntropyAnalyzePage() {
-  const [input, setInput] = useState("AAPL");
-  const [symbol, setSymbol] = useState("AAPL");
+  const searchParams = useSearchParams();
+  const initial = (searchParams.get("symbol") || "AAPL").toUpperCase();
+  const [input, setInput] = useState(initial);
+  const [symbol, setSymbol] = useState(initial);
+
+  useEffect(() => {
+    const q = (searchParams.get("symbol") || "").toUpperCase();
+    if (q) {
+      setInput(q);
+      setSymbol(q);
+    }
+  }, [searchParams]);
 
   return (
     <main className="max-w-[1200px] mx-auto px-4 py-8">
