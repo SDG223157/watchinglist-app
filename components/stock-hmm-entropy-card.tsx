@@ -62,6 +62,7 @@ function HmmEntropyMiniChart({
   hmmHistory: { states: number[]; labels: string[]; dates: string[] };
 }) {
   if (!history || history.length < 2) return null;
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const W = 560;
   const H = 120;
   const PAD = { top: 10, right: 10, bottom: 26, left: 36 };
@@ -84,29 +85,72 @@ function HmmEntropyMiniChart({
   const stateColors = ["#16a34a", "#b45309", "#dc2626", "#16a34a", "#dc2626"];
   const ribbonY = H - 14;
   const boxW = cw / Math.max(hmmHistory.states.length, 1);
+  const activeIndex = hoveredIdx ?? values.length - 1;
+  const activePoint = points[activeIndex];
+  const activeHistory = history[activeIndex];
+  const hmmIndex =
+    hmmHistory.states.length > 1
+      ? Math.round((activeIndex / Math.max(values.length - 1, 1)) * (hmmHistory.states.length - 1))
+      : 0;
+  const activeHmmState = hmmHistory.states[hmmIndex] ?? hmmHistory.states[hmmHistory.states.length - 1] ?? 0;
+  const activeHmmLabel = hmmHistory.labels[activeHmmState] || `State ${activeHmmState}`;
+  const activeHmmColor = stateColors[activeHmmState] || "#64748b";
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 140 }}>
-      {[0.7, 0.85].map((t) => {
-        if (t < min || t > max) return null;
-        const y = PAD.top + ch - ((t - min) / range) * ch;
-        return <line key={t} x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="4,4" />;
-      })}
-      <path d={pathD} fill="none" stroke={lineColor} strokeWidth="1.5" />
-      <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r="3" fill={lineColor} />
-      {hmmHistory.states.map((s, i) => (
-        <rect
-          key={i}
-          x={PAD.left + i * boxW}
-          y={ribbonY}
-          width={Math.max(boxW - 0.5, 1)}
-          height={8}
-          fill={stateColors[s] || "#64748b"}
-          opacity={0.85}
-        />
-      ))}
-      <text x={PAD.left} y={H - 2} fill="rgba(255,255,255,0.45)" fontSize="9">HMM ribbon: green=bull, amber=flat, red=bear</text>
-    </svg>
+    <div className="relative">
+      <div
+        className="absolute right-2 top-2 z-10 rounded-md px-2 py-1 text-[10px] font-medium"
+        style={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.92)" }}
+      >
+        <span className="font-mono">{activeHistory.date}</span>
+        <span className="mx-2">|</span>
+        <span>H {activeHistory.entropy.toFixed(3)}</span>
+        <span className="mx-2">|</span>
+        <span style={{ color: activeHmmColor }}>{activeHmmLabel}</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ maxHeight: 140 }}
+        onMouseLeave={() => setHoveredIdx(null)}
+      >
+        {[0.7, 0.85].map((t) => {
+          if (t < min || t > max) return null;
+          const y = PAD.top + ch - ((t - min) / range) * ch;
+          return <line key={t} x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="4,4" />;
+        })}
+        <path d={pathD} fill="none" stroke={lineColor} strokeWidth="1.5" />
+        <line x1={activePoint.x} x2={activePoint.x} y1={PAD.top} y2={ribbonY + 8} stroke="rgba(255,255,255,0.16)" strokeDasharray="3,3" />
+        <circle cx={activePoint.x} cy={activePoint.y} r="4" fill={lineColor} stroke="rgba(255,255,255,0.85)" strokeWidth="1" />
+        {hmmHistory.states.map((s, i) => (
+          <rect
+            key={i}
+            x={PAD.left + i * boxW}
+            y={ribbonY}
+            width={Math.max(boxW - 0.5, 1)}
+            height={8}
+            fill={stateColors[s] || "#64748b"}
+            opacity={0.85}
+          />
+        ))}
+        {points.map((p, i) => (
+          <rect
+            key={`hover-${i}`}
+            x={i === 0 ? PAD.left : (points[i - 1].x + p.x) / 2}
+            y={PAD.top}
+            width={
+              i === points.length - 1
+                ? W - PAD.right - (i === 0 ? PAD.left : (points[i - 1].x + p.x) / 2)
+                : ((p.x + points[i + 1].x) / 2) - (i === 0 ? PAD.left : (points[i - 1].x + p.x) / 2)
+            }
+            height={ribbonY + 8 - PAD.top}
+            fill="transparent"
+            onMouseEnter={() => setHoveredIdx(i)}
+          />
+        ))}
+        <text x={PAD.left} y={H - 2} fill="rgba(255,255,255,0.45)" fontSize="9">HMM ribbon: green=bull, amber=flat, red=bear</text>
+      </svg>
+    </div>
   );
 }
 
