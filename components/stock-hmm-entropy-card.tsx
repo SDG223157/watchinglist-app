@@ -35,6 +35,15 @@ interface HmmEntropyData {
     net: number;
     direction: string;
   };
+  tailDependence: {
+    lowerTail: number;
+    upperTail: number;
+    asymmetry: number;
+    tailRatio: number;
+    regime: string;
+    riskLabel: string;
+    pearsonRho: number;
+  };
   halfLife: { full: number | null; recent120d: number | null; regime: string };
   trendwise: { position: number; retracement: number; open: boolean };
   conviction: { level: string; multiplier: number };
@@ -242,9 +251,11 @@ export function StockHmmEntropyCard({ symbol }: { symbol: string }) {
         <div><div className="text-[10px] uppercase tracking-wider text-zinc-500">TrendWise</div><div className="font-mono text-lg">{data.trendwise.open ? "Open 🟢" : "Closed ⬜"}</div></div>
         <div><div className="text-[10px] uppercase tracking-wider text-zinc-500">Transfer Entropy</div><div className="font-mono text-sm">{data.transferEntropy.direction}</div></div>
         <div><div className="text-[10px] uppercase tracking-wider text-zinc-500">Half-Life</div><div className="font-mono text-sm">{data.halfLife.recent120d ? `${data.halfLife.recent120d.toFixed(0)}d` : "N/A"} · {data.halfLife.regime}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-zinc-500">Co-Crash (λL)</div><div className="font-mono text-lg" style={{ color: data.tailDependence?.lowerTail > 0.3 ? "#ef4444" : "inherit" }}>{data.tailDependence?.lowerTail?.toFixed(2) ?? "N/A"}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-zinc-500">Tail Regime</div><div className="font-mono text-sm" style={{ color: data.tailDependence?.regime === "crash-coupled" ? "#ef4444" : data.tailDependence?.regime === "rally-coupled" ? "#16a34a" : "inherit" }}>{data.tailDependence?.regime ?? "N/A"}</div></div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
           <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--blue)" }}>
             Conviction Flow
@@ -270,6 +281,22 @@ export function StockHmmEntropyCard({ symbol }: { symbol: string }) {
             <div><strong>TrendWise window:</strong> Position {data.trendwise.position.toFixed(1)}% vs Retracement {data.trendwise.retracement.toFixed(1)}%</div>
           </div>
         </div>
+
+        {data.tailDependence && (
+          <div className="rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+            <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: data.tailDependence.regime === "crash-coupled" ? "#ef4444" : "#7c3aed" }}>
+              Tail Dependence (Copula)
+            </div>
+            <div className="space-y-2 text-sm">
+              <div><strong>Lower tail (λL):</strong> {data.tailDependence.lowerTail.toFixed(3)} — co-crash probability</div>
+              <div><strong>Upper tail (λU):</strong> {data.tailDependence.upperTail.toFixed(3)} — co-rally probability</div>
+              <div><strong>Asymmetry:</strong> {data.tailDependence.asymmetry > 0 ? "+" : ""}{data.tailDependence.asymmetry.toFixed(3)} {data.tailDependence.asymmetry > 0.1 ? "⚠️ crash-heavy" : ""}</div>
+              <div><strong>Tail ratio:</strong> {data.tailDependence.tailRatio.toFixed(1)}x (crash vs rally amplification)</div>
+              <div><strong>Pearson ρ:</strong> {data.tailDependence.pearsonRho.toFixed(2)} (linear correlation)</div>
+              <div className="pt-1 text-xs" style={{ color: data.tailDependence.regime === "crash-coupled" ? "#ef4444" : "var(--muted)" }}>{data.tailDependence.riskLabel}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>

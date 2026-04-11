@@ -3,6 +3,7 @@ import { fetchStock } from "@/lib/db";
 import { cachedHistorical } from "@/lib/yf-cache";
 import { computeEntropyProfile } from "@/lib/entropy";
 import { fitHmm } from "@/lib/hmm";
+import { computeTailDependence } from "@/lib/copula";
 
 export const dynamic = "force-dynamic";
 
@@ -131,6 +132,8 @@ export async function GET(
     const teNet = teTo - teFrom;
     const teDirection = teNet > 0.005 ? "Stock leads" : teNet < -0.005 ? "Market leads" : "Bidirectional";
 
+    const tail = computeTailDependence(stockRet.slice(-n), benchRet.slice(-n));
+
     const hlFull = ouHalfLife(prices);
     const hlRecent = ouHalfLife(prices.slice(-120)) ?? hlFull;
     const halflifeRegime =
@@ -180,6 +183,13 @@ export async function GET(
     } else if (entropy.regime === "diverse") {
       conviction = "NORMAL";
       convictionMultiplier = 1.0;
+    }
+
+    if (tail.regime === "crash-coupled" && nearAth && convictionMultiplier > 0.8) {
+      convictionMultiplier *= 0.85;
+      if (conviction !== "CROWDED") conviction = "CROWDED";
+    } else if (tail.regime === "crash-coupled" && convictionMultiplier > 1.0) {
+      convictionMultiplier *= 0.9;
     }
 
     const recent = prices.slice(-75);
@@ -250,6 +260,15 @@ export async function GET(
         fromBenchmark: teFrom,
         net: teNet,
         direction: teDirection,
+      },
+      tailDependence: {
+        lowerTail: tail.lowerTail,
+        upperTail: tail.upperTail,
+        asymmetry: tail.asymmetry,
+        tailRatio: tail.tailRatio,
+        regime: tail.regime,
+        riskLabel: tail.riskLabel,
+        pearsonRho: tail.pearsonRho,
       },
       halfLife: {
         full: hlFull,
