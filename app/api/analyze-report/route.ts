@@ -462,23 +462,33 @@ Cross-Reference:
     const prompt = buildPrompt(quote, hist, hm, entropyBlock);
 
     async function callLlm(): Promise<{ res: Response; text: string }> {
+      const MAX_RETRIES = 2;
       if (openaiKey) {
-        const res = await fetch(OPENAI_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${openaiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: OPENAI_MODEL,
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 8000,
-            temperature: 0.2,
-          }),
-        });
-        const text = await res.text();
-        if (res.ok) return { res, text };
-        console.warn(`OpenAI direct failed (${res.status}), falling back to OpenRouter...`);
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          const res = await fetch(OPENAI_URL, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${openaiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: OPENAI_MODEL,
+              messages: [{ role: "user", content: prompt }],
+              max_tokens: 8000,
+              temperature: 0.2,
+            }),
+          });
+          const text = await res.text();
+          const isHtml = text.trimStart().startsWith("<");
+          if (res.ok && !isHtml) return { res, text };
+          if (isHtml && attempt < MAX_RETRIES) {
+            console.warn(`OpenAI returned Cloudflare page, retry ${attempt + 1}/${MAX_RETRIES}...`);
+            await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+            continue;
+          }
+          console.warn(`OpenAI direct failed (${res.status}${isHtml ? " Cloudflare" : ""}), falling back to OpenRouter...`);
+          break;
+        }
       }
       if (openrouterKey) {
         const res = await fetch(OPENROUTER_URL, {
