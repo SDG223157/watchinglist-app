@@ -14,8 +14,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const OPENAI_MODEL = "gpt-4.1";
+const EDENAI_MODEL = "openai/gpt-4.1";
 const OPENROUTER_MODEL = "openai/gpt-5.4";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const EDENAI_URL = "https://api.edenai.run/v3/llm/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 function fmtReturn(v: number | null): string {
@@ -326,10 +328,11 @@ export async function POST(req: NextRequest) {
   }
 
   const openaiKey = process.env.OPENAI_API_KEY;
+  const edenaiKey = process.env.EDENAI_API_KEY;
   const openrouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openaiKey && !openrouterKey) {
+  if (!openaiKey && !edenaiKey && !openrouterKey) {
     return NextResponse.json(
-      { error: "Neither OPENAI_API_KEY nor OPENROUTER_API_KEY configured" },
+      { error: "No LLM API key configured (OPENAI/EDENAI/OPENROUTER)" },
       { status: 500 }
     );
   }
@@ -520,9 +523,27 @@ Cross-Reference:
             await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
             continue;
           }
-          console.warn(`OpenAI direct failed (${res.status}${isHtml ? " Cloudflare" : ""}), falling back to OpenRouter...`);
+          console.warn(`OpenAI direct failed (${res.status}${isHtml ? " Cloudflare" : ""}), trying Eden AI...`);
           break;
         }
+      }
+      if (edenaiKey) {
+        const res = await fetch(EDENAI_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${edenaiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: EDENAI_MODEL,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 8000,
+            temperature: 0.2,
+          }),
+        });
+        const text = await res.text();
+        if (res.ok && !text.trimStart().startsWith("<")) return { res, text };
+        console.warn(`Eden AI failed (${res.status}), falling back to OpenRouter...`);
       }
       if (openrouterKey) {
         const res = await fetch(OPENROUTER_URL, {
