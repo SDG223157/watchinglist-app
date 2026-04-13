@@ -17,6 +17,9 @@ interface EntropyData {
   history: { date: string; entropy: number }[];
   cogGap: number;
   cogGapLabel: string;
+  volumeEntropyPctile: number | null;
+  pvDivergence: number | null;
+  pvDivergenceSignal: string;
 }
 
 function EntropyChart({ history }: { history: { date: string; entropy: number }[] }) {
@@ -270,8 +273,8 @@ export function StockEntropyCard({ symbol }: { symbol: string }) {
           </div>
         )}
 
-        {/* Cognitive Gap + Anchor */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4" style={{ borderTop: "1px solid var(--border)" }}>
+        {/* Cognitive Gap + PV Divergence + Anchor */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4" style={{ borderTop: "1px solid var(--border)" }}>
           <div>
             <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--blue)" }}>
               Cognitive Computation Gap
@@ -280,6 +283,59 @@ export function StockEntropyCard({ symbol }: { symbol: string }) {
             <p className="text-[10px] mt-1" style={{ color: "var(--muted)" }}>
               How many &quot;bits&quot; of reality the market is leaving unprocessed
             </p>
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--blue)" }}>
+              PV Divergence
+            </div>
+            {data.pvDivergence !== null ? (
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="text-lg font-mono font-bold"
+                    style={{
+                      color: ["ACCUMULATION", "QUIET_BUILDUP"].includes(data.pvDivergenceSignal)
+                        ? "#10b981"
+                        : ["DISTRIBUTION", "CAPITULATION"].includes(data.pvDivergenceSignal)
+                          ? "#ef4444"
+                          : "var(--muted)",
+                    }}
+                  >
+                    {data.pvDivergence > 0 ? "+" : ""}{data.pvDivergence.toFixed(1)}pp
+                  </span>
+                </div>
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase"
+                  style={{
+                    background: ["ACCUMULATION", "QUIET_BUILDUP"].includes(data.pvDivergenceSignal)
+                      ? "rgba(16,185,129,0.1)"
+                      : ["DISTRIBUTION", "CAPITULATION"].includes(data.pvDivergenceSignal)
+                        ? "rgba(239,68,68,0.1)"
+                        : "rgba(255,255,255,0.05)",
+                    color: ["ACCUMULATION", "QUIET_BUILDUP"].includes(data.pvDivergenceSignal)
+                      ? "#10b981"
+                      : ["DISTRIBUTION", "CAPITULATION"].includes(data.pvDivergenceSignal)
+                        ? "#ef4444"
+                        : "var(--muted)",
+                  }}
+                >
+                  {data.pvDivergenceSignal.replace("_", " ")}
+                </span>
+                <p className="text-[10px] mt-1.5" style={{ color: "var(--muted)" }}>
+                  {data.pvDivergenceSignal === "ACCUMULATION"
+                    ? "Smart money buying quietly — price compressed but volume diverse"
+                    : data.pvDivergenceSignal === "DISTRIBUTION"
+                      ? "Smart money exiting — volume compressed under calm price"
+                      : data.pvDivergenceSignal === "CAPITULATION"
+                        ? "Panic selling concentrated in few sessions"
+                        : data.pvDivergenceSignal === "QUIET_BUILDUP"
+                          ? "Broad volume participation building"
+                          : "Price and volume entropy aligned — no smart money divergence"}
+                </p>
+              </div>
+            ) : (
+              <div className="text-sm" style={{ color: "var(--muted)" }}>Insufficient data</div>
+            )}
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--blue)" }}>

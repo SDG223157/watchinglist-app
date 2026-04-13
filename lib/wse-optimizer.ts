@@ -182,6 +182,12 @@ export function convictionNumeric(s: WatchlistStock): number {
 
   if (s.anchor_failure) base *= 1.25;
 
+  const pvSig = (s.pv_divergence_signal || "").toUpperCase();
+  if (pvSig === "ACCUMULATION") base *= 1.15;
+  else if (pvSig === "QUIET_BUILDUP") base *= 1.08;
+  else if (pvSig === "DISTRIBUTION") base *= 0.8;
+  else if (pvSig === "CAPITULATION") base *= 0.9;
+
   const cs = s.composite_score || 50;
   base *= 0.8 + (Math.min(Math.max(cs, 0), 100) / 100) * 0.4;
 

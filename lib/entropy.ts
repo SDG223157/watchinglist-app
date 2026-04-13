@@ -28,6 +28,9 @@ export interface EntropyProfile {
   history: { date: string; entropy: number }[];
   cogGap: number;           // "Cognitive computation gap" score (0-10)
   cogGapLabel: string;
+  volumeEntropyPctile: number | null; // Volume entropy percentile vs rolling history
+  pvDivergence: number | null;        // vol_pctile - price_pctile (pp)
+  pvDivergenceSignal: string;         // ACCUMULATION / DISTRIBUTION / CAPITULATION / ALIGNED / etc.
 }
 
 const NUM_BINS = 20;
@@ -148,6 +151,41 @@ export function computeEntropyProfile(
   const percentile1y = percentileOf(current60d, rolling1y.length > 0 ? rolling1y : rolling);
   const percentile3y = percentileOf(current60d, rolling3y.length > 0 ? rolling3y : rolling);
 
+  // Rolling volume entropy percentile (same rolling method as price entropy)
+  const volRolling: number[] = [];
+  if (volumes.length >= 120) {
+    for (let i = 60; i <= volumes.length; i++) {
+      const seg = volumes.slice(i - 60, i);
+      const avgS = seg.reduce((a, b) => a + b, 0) / seg.length || 1;
+      volRolling.push(shannonEntropy(seg.map((v) => v / avgS)));
+    }
+  }
+  const volumeEntropyPctile = volRolling.length > 0
+    ? percentileOf(volumeEntropy60d, volRolling)
+    : null;
+
+  // Price-Volume Entropy Divergence
+  let pvDivergence: number | null = null;
+  let pvDivergenceSignal = "ALIGNED";
+  if (volumeEntropyPctile !== null) {
+    pvDivergence = Math.round((volumeEntropyPctile - percentile) * 10) / 10;
+    if (percentile <= 30 && pvDivergence > 25) {
+      pvDivergenceSignal = "ACCUMULATION";
+    } else if (percentile <= 30 && pvDivergence < -20) {
+      pvDivergenceSignal = "DISTRIBUTION";
+    } else if (percentile >= 60 && pvDivergence < -25) {
+      pvDivergenceSignal = "CAPITULATION";
+    } else if (Math.abs(pvDivergence) <= 15) {
+      pvDivergenceSignal = "ALIGNED";
+    } else if (pvDivergence > 25) {
+      pvDivergenceSignal = "QUIET_BUILDUP";
+    } else if (pvDivergence < -25) {
+      pvDivergenceSignal = "VOL_SPIKE";
+    } else {
+      pvDivergenceSignal = "MILD_DIVERGENCE";
+    }
+  }
+
   // Entropy trend: slope of last 12 rolling windows (60 days of daily rolling)
   const recentRolling = rolling.slice(-60);
   const trend = linearSlope(recentRolling);
@@ -206,7 +244,9 @@ export function computeEntropyProfile(
         : "Normal entropy regime";
   }
 
-  // Cognitive computation gap: how much "processing" the market is leaving on the table
+  // Cognitive computation gap: how much "processing" the market is leaving on the table.
+  // Volume contribution via DIVERGENCE (not just absolute level) — accumulation/distribution
+  // signals reveal smart money positioning before the crowd.
   let cogGap = 0;
   if (percentile <= 15) cogGap += 3;
   else if (percentile <= 30) cogGap += 2;
@@ -215,8 +255,15 @@ export function computeEntropyProfile(
   if (trend < -0.001) cogGap += 2;
   else if (trend < -0.0005) cogGap += 1;
 
-  if (volumeEntropy60d < 0.5) cogGap += 2;
-  else if (volumeEntropy60d < 0.65) cogGap += 1;
+  if (["ACCUMULATION", "QUIET_BUILDUP"].includes(pvDivergenceSignal)) {
+    cogGap += 2;
+  } else if (pvDivergenceSignal === "DISTRIBUTION") {
+    cogGap += 2;
+  } else if (["CAPITULATION", "VOL_SPIKE"].includes(pvDivergenceSignal)) {
+    cogGap += 1;
+  } else if (volumeEntropy60d < 0.5) {
+    cogGap += 1;
+  }
 
   if (stock?.geometric_order != null && stock.geometric_order >= 2) cogGap += 1;
   if (stock?.hmm_regime?.toLowerCase().includes("bear")) cogGap += 1;
@@ -266,6 +313,9 @@ export function computeEntropyProfile(
     history,
     cogGap,
     cogGapLabel: cogGapLabels[cogGap] ?? "Unknown",
+    volumeEntropyPctile: volumeEntropyPctile !== null ? Math.round(volumeEntropyPctile * 10) / 10 : null,
+    pvDivergence,
+    pvDivergenceSignal,
   };
 }
 

@@ -174,6 +174,9 @@ export interface WatchlistStock {
   cog_gap_label: string | null;
   anchor_failure: boolean | null;
   anchor_failure_detail: string | null;
+  volume_entropy_pctile: number | null;
+  pv_divergence: number | null;
+  pv_divergence_signal: string | null;
   long_bull_score: number | null;
   capex_diagnosis: string | null;
   freeze_test: string | null;

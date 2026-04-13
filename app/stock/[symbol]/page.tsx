@@ -1195,6 +1195,21 @@ export default async function StockDetail({
                             {h.cog_gap != null && h.cog_gap > 0 && (
                               <span className="font-mono" style={{ color: "var(--muted)" }}> {h.cog_gap}</span>
                             )}
+                            {h.pv_divergence_signal && h.pv_divergence_signal !== "ALIGNED" && (
+                              <span className="ml-1 text-[10px]" style={{
+                                color: ["ACCUMULATION", "QUIET_BUILDUP"].includes(h.pv_divergence_signal)
+                                  ? "var(--green)"
+                                  : ["DISTRIBUTION", "CAPITULATION"].includes(h.pv_divergence_signal)
+                                    ? "var(--red)"
+                                    : "var(--muted)",
+                              }}>
+                                {h.pv_divergence_signal === "ACCUMULATION" ? "ACC"
+                                  : h.pv_divergence_signal === "DISTRIBUTION" ? "DIST"
+                                  : h.pv_divergence_signal === "CAPITULATION" ? "CAP"
+                                  : h.pv_divergence_signal === "QUIET_BUILDUP" ? "QBU"
+                                  : h.pv_divergence_signal.slice(0, 3)}
+                              </span>
+                            )}
                           </span>
                         ) : (
                           <span style={{ color: "var(--muted)" }}>—</span>
