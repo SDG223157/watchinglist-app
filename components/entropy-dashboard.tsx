@@ -199,8 +199,12 @@ export function EntropyDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"table" | "compressed" | "anchors" | "crash" | "volLead">("table");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadEntropy = () => {
+    setLoading(true);
+    setError(null);
     fetch("/api/entropy")
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -214,7 +218,26 @@ export function EntropyDashboard() {
         setError(String(e));
         setLoading(false);
       });
-  }, []);
+  };
+
+  useEffect(() => { loadEntropy(); }, []);
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    setRefreshStatus("Refreshing all stocks (price, HMM, entropy, TE)...");
+    try {
+      const r = await fetch("/api/refresh-all", { method: "POST" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const result = await r.json();
+      setRefreshStatus(`Done: ${result.success}/${result.total} refreshed${result.failed ? `, ${result.failed} failed` : ""}`);
+      loadEntropy();
+    } catch (e) {
+      setRefreshStatus(`Refresh failed: ${String(e)}`);
+    } finally {
+      setRefreshing(false);
+      setTimeout(() => setRefreshStatus(null), 8000);
+    }
+  };
 
   if (loading) {
     return (
@@ -640,8 +663,30 @@ export function EntropyDashboard() {
         </div>
       </div>
 
-      <div className="text-right text-[10px]" style={{ color: "var(--muted)" }}>
-        Computed: {new Date(data.computed_at).toLocaleString()}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefreshAll}
+            disabled={refreshing}
+            className="text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-125"
+            style={{ background: "#1e40af", color: "#fff" }}
+          >
+            {refreshing ? (
+              <span className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "#fff", borderTopColor: "transparent" }} />
+                Refreshing...
+              </span>
+            ) : "Refresh All (DB + Price)"}
+          </button>
+          {refreshStatus && (
+            <span className="text-[10px]" style={{ color: refreshStatus.startsWith("Done") ? "#10b981" : refreshStatus.startsWith("Refresh failed") ? "#ef4444" : "#f59e0b" }}>
+              {refreshStatus}
+            </span>
+          )}
+        </div>
+        <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+          Computed: {new Date(data.computed_at).toLocaleString()}
+        </div>
       </div>
     </div>
   );
