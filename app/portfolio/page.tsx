@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { PortfolioResult, PortfolioHolding } from "@/lib/portfolio-builder";
+import { buildMacroWSEPortfolio, buildSectorWSEPortfolio } from "@/lib/wse-optimizer";
+import type { MacroWSEResult, MacroWSEHolding, SectorWSEResult, SectorWSEHolding, MacroAsset as WSEMacroAsset, MacroAllocation as WSEMacroAlloc, Sector as WSESector } from "@/lib/wse-optimizer";
 
 const MARKETS = [
   { value: "ALL", label: "All Markets" },
@@ -349,6 +351,10 @@ export default function PortfolioPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [wseResult, setWseResult] = useState<any>(null);
   const [wseLoading, setWseLoading] = useState(false);
+  const [macroWSE, setMacroWSE] = useState<MacroWSEResult | null>(null);
+  const [sectorWSE, setSectorWSE] = useState<SectorWSEResult | null>(null);
+  const [useWSEMacro, setUseWSEMacro] = useState(false);
+  const [useWSESector, setUseWSESector] = useState(false);
   const [error, setError] = useState("");
 
   async function build() {
@@ -385,6 +391,16 @@ export default function PortfolioPage() {
       }
       const data = await res.json();
       setMacroResult(buildMacroPortfolio(data.assets || [], data.allocation || {}, capital));
+      // Also compute WSE macro allocation
+      try {
+        const wse = buildMacroWSEPortfolio(
+          data.assets as WSEMacroAsset[],
+          data.allocation as WSEMacroAlloc,
+          data.regime || "TRANSITION",
+          capital,
+        );
+        setMacroWSE(wse);
+      } catch { /* WSE is optional enhancement */ }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Network error");
     } finally {
@@ -409,6 +425,16 @@ export default function PortfolioPage() {
         return;
       }
       setSectorResult(buildSectorPortfolio(sectors, data.regime || "TRANSITION", data.spread || 0, capital));
+      // Also compute WSE sector allocation
+      try {
+        const wse = buildSectorWSEPortfolio(
+          sectors as WSESector[],
+          data.regime || "TRANSITION",
+          data.spread || 0,
+          capital,
+        );
+        setSectorWSE(wse);
+      } catch { /* WSE is optional */ }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Network error";
       setError(msg.includes("timeout") ? "Macro API timed out (2min). Try again — data may be cached on second attempt." : msg);
@@ -666,8 +692,25 @@ export default function PortfolioPage() {
           style={{ background: "#2563eb", color: "#fff" }}>
           {sectorLoading ? <span className="flex items-center gap-2"><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Loading...</span> : "Build Sector Portfolio"}
         </button>
+        {sp && sectorWSE && (
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+            <input type="checkbox" checked={useWSESector} onChange={(e) => setUseWSESector(e.target.checked)} className="accent-emerald-500" />
+            <span style={{ color: useWSESector ? "#34d399" : "var(--muted)" }}>WSE Optimizer</span>
+          </label>
+        )}
         {error && <span className="text-xs text-red-400">{error}</span>}
       </div>
+
+      {/* WSE Sector entropy bar */}
+      {useWSESector && sectorWSE && (
+        <div className="rounded-lg p-3 mb-4 flex flex-wrap gap-6 text-xs" style={{ background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.15)" }}>
+          <div><span className="text-zinc-500">H_u(p):</span> <span className="font-bold" style={{ color: "#34d399" }}>{sectorWSE.summary.portfolio_entropy.toFixed(4)}</span></div>
+          <div><span className="text-zinc-500">Equal-wt:</span> <span className="font-bold">{sectorWSE.summary.equal_weight_entropy.toFixed(4)}</span></div>
+          <div><span className="text-zinc-500">Ratio:</span> <span className="font-bold" style={{ color: sectorWSE.summary.entropy_ratio > 0.95 ? "#16a34a" : "#b45309" }}>{sectorWSE.summary.entropy_ratio.toFixed(4)}</span></div>
+          <div><span className="text-zinc-500">Defensive:</span> <span className="font-bold">{sectorWSE.summary.defensive_pct.toFixed(1)}%</span></div>
+          <div><span className="text-zinc-500">Cyclical:</span> <span className="font-bold">{sectorWSE.summary.cyclical_pct.toFixed(1)}%</span></div>
+        </div>
+      )}
 
       {sp && <>
         {/* Summary */}
@@ -703,22 +746,24 @@ export default function PortfolioPage() {
               </tr>
             </thead>
             <tbody>
-              {sp.holdings.map((h, i) => {
-                const typeCol = h.type === "defensive" ? "#3b82f6" : "#f59e0b";
+              {(useWSESector && sectorWSE ? sectorWSE.holdings : sp.holdings).map((h, i) => {
+                const bt = "beta_type" in h ? h.beta_type : ("type" in h ? h.type : "");
+                const typeCol = bt === "defensive" ? "#3b82f6" : "#f59e0b";
                 const alphaCol = h.alpha_3m > 3 ? "#16a34a" : h.alpha_3m < -3 ? "#dc2626" : "var(--muted)";
                 const arbCol = h.arb_score < 30 ? "#16a34a" : h.arb_score > 70 ? "#dc2626" : "#b45309";
                 const qCol = h.quadrant.includes("Cheap") ? "#16a34a" : h.quadrant.includes("Expensive") ? "#dc2626" : "var(--muted)";
+                const uVal = "conviction_u" in h ? (h as SectorWSEHolding).conviction_u : null;
                 return (
-                  <tr key={h.etf} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                  <tr key={`${h.etf}-${i}`} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
                     <td className="px-3 py-2.5 font-mono font-bold">{h.etf}</td>
                     <td className="px-3 py-2.5 text-xs">{h.name}</td>
-                    <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: typeCol, background: `${typeCol}15` }}>{h.type}</span></td>
+                    <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: typeCol, background: `${typeCol}15` }}>{bt}</span></td>
                     <td className="px-3 py-2.5 text-right font-semibold">{h.weight_pct.toFixed(1)}%</td>
                     <td className="px-3 py-2.5 text-right text-zinc-400">${fmt(h.amount)}</td>
                     <td className="px-3 py-2.5 text-right font-mono" style={{ color: alphaCol }}>{h.alpha_3m > 0 ? "+" : ""}{h.alpha_3m.toFixed(1)}%</td>
                     <td className="px-3 py-2.5 text-center"><span className="font-mono font-bold text-xs" style={{ color: arbCol }}>{h.arb_score}</span></td>
                     <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ color: qCol, background: `${qCol}10` }}>{h.quadrant}</span></td>
-                    <td className="px-3 py-2.5 text-xs text-zinc-500">{h.peak_phase}</td>
+                    <td className="px-3 py-2.5 text-xs text-zinc-500">{h.peak_phase}{uVal != null ? ` (u=${uVal.toFixed(2)})` : ""}</td>
                   </tr>
                 );
               })}
@@ -968,8 +1013,27 @@ export default function PortfolioPage() {
             "Build Macro Portfolio"
           )}
         </button>
+        {mp && macroWSE && (
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+            <input type="checkbox" checked={useWSEMacro} onChange={(e) => setUseWSEMacro(e.target.checked)} className="accent-emerald-500" />
+            <span style={{ color: useWSEMacro ? "#34d399" : "var(--muted)" }}>WSE Optimizer</span>
+          </label>
+        )}
         {error && <span className="text-xs text-red-400">{error}</span>}
       </div>
+
+      {/* WSE Macro entropy bar */}
+      {useWSEMacro && macroWSE && (
+        <div className="rounded-lg p-3 mb-4 flex flex-wrap gap-6 text-xs" style={{ background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.15)" }}>
+          <div><span className="text-zinc-500">H_u(p):</span> <span className="font-bold" style={{ color: "#34d399" }}>{macroWSE.summary.portfolio_entropy.toFixed(4)}</span></div>
+          <div><span className="text-zinc-500">Equal-wt:</span> <span className="font-bold">{macroWSE.summary.equal_weight_entropy.toFixed(4)}</span></div>
+          <div><span className="text-zinc-500">Ratio:</span> <span className="font-bold" style={{ color: macroWSE.summary.entropy_ratio > 0.95 ? "#16a34a" : "#b45309" }}>{macroWSE.summary.entropy_ratio.toFixed(4)}</span></div>
+          <div><span className="text-zinc-500">Regime:</span> <span className="font-bold">{macroWSE.summary.regime}</span></div>
+          {Object.entries(macroWSE.summary.categories).map(([cat, pct]) => (
+            <div key={cat}><span className="text-zinc-500">{cat.replace(/_/g, " ")}:</span> <span className="font-bold">{pct.toFixed(1)}%</span></div>
+          ))}
+        </div>
+      )}
 
       {mp && (
         <>
@@ -1028,37 +1092,41 @@ export default function PortfolioPage() {
           </table>
         </div>
 
-        {/* ETF Allocation Table */}
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+        {/* ETF Allocation Table — heuristic or WSE */}
+        <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${useWSEMacro ? "rgba(5,150,105,0.3)" : "var(--border)"}` }}>
           <div className="px-4 py-2.5" style={{ background: "var(--card)" }}>
-            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">ETF Portfolio Allocation</h3>
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+              {useWSEMacro ? "ETF Portfolio — WSE Optimized" : "ETF Portfolio Allocation"}
+            </h3>
           </div>
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: "var(--card)" }}>
                 <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">ETF</th>
                 <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Category</th>
-                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Asset Class</th>
                 <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Weight</th>
                 <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Amount</th>
+                {useWSEMacro && <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">u_i</th>}
                 <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Score</th>
                 <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Signal</th>
               </tr>
             </thead>
             <tbody>
-              {mp.holdings.map((h, i) => {
-                const sigCol = h.signal.includes("BUY") ? "#16a34a" : h.signal.includes("TRIM") ? "#dc2626" : "#b45309";
-                const sc = h.score;
+              {(useWSEMacro && macroWSE ? macroWSE.holdings : mp.holdings).map((h, i) => {
+                const sig = ("signal" in h ? h.signal : "") as string;
+                const sigCol = sig.includes("BUY") ? "#16a34a" : sig.includes("TRIM") ? "#dc2626" : "#b45309";
+                const sc = ("score" in h ? h.score : 0) as number;
                 const col = sc <= 30 ? "#16a34a" : sc <= 50 ? "#22c55e" : sc <= 65 ? "#b45309" : "#dc2626";
+                const uVal = "conviction_u" in h ? (h as MacroWSEHolding).conviction_u : null;
                 return (
-                  <tr key={h.etf} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                  <tr key={`${h.etf}-${i}`} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
                     <td className="px-3 py-2 font-mono font-bold">{h.etf}</td>
-                    <td className="px-3 py-2 text-xs">{h.name}</td>
-                    <td className="px-3 py-2 text-xs text-zinc-500">{h.category}</td>
+                    <td className="px-3 py-2 text-xs">{h.category}</td>
                     <td className="px-3 py-2 text-right font-semibold">{h.weight_pct.toFixed(1)}%</td>
                     <td className="px-3 py-2 text-right text-zinc-400">${fmt(h.amount)}</td>
+                    {useWSEMacro && <td className="px-3 py-2 text-right font-mono text-xs" style={{ color: uVal && uVal >= 1.2 ? "#16a34a" : uVal && uVal >= 0.8 ? "#059669" : "#dc2626" }}>{uVal?.toFixed(2)}x</td>}
                     <td className="px-3 py-2 text-center"><span className="font-bold font-mono text-xs" style={{ color: col }}>{sc}</span></td>
-                    <td className="px-3 py-2 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: sigCol, background: `${sigCol}15` }}>{h.signal}</span></td>
+                    <td className="px-3 py-2 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: sigCol, background: `${sigCol}15` }}>{sig}</span></td>
                   </tr>
                 );
               })}

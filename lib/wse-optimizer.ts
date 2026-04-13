@@ -13,6 +13,108 @@
 
 import type { WatchlistStock } from "./db";
 
+// ═══════════════════════════════════════════════════════════════
+// TYPES — Macro + Sector
+// ═══════════════════════════════════════════════════════════════
+
+export interface MacroAsset {
+  key: string;
+  name: string;
+  ticker: string;
+  category: string;
+  price: number;
+  hedge_score: number;
+  arb_score: number;
+  combined_score: number;
+  m2_floor: number;
+  arb_fair_value: number;
+  net_signal: string;
+  weight?: string;
+}
+
+export interface MacroAllocation {
+  equities: { range: string; score: number };
+  hard_assets: { range: string; score: number };
+  cash_usd: { range: string; score: number };
+  crypto: { range: string; score: number };
+}
+
+export interface Sector {
+  key: string;
+  name: string;
+  etf: string;
+  beta_type: string;
+  peak_phase: string;
+  ret_3m?: number;
+  ret_12m?: number;
+  alpha_3m: number;
+  hedge_demand: number;
+  arb_score: number;
+  pe?: number | null;
+  div_yield?: number | null;
+}
+
+export interface MacroWSEHolding {
+  name: string;
+  etf: string;
+  category: string;
+  weight_pct: number;
+  amount: number;
+  conviction_u: number;
+  score: number;
+  signal: string;
+  m2_floor: number;
+  arb_fair_value: number;
+}
+
+export interface MacroWSEResult {
+  holdings: MacroWSEHolding[];
+  summary: {
+    count: number;
+    capital: number;
+    invested: number;
+    cash: number;
+    cash_pct: number;
+    portfolio_entropy: number;
+    equal_weight_entropy: number;
+    entropy_ratio: number;
+    regime: string;
+    categories: Record<string, number>;
+  };
+}
+
+export interface SectorWSEHolding {
+  name: string;
+  etf: string;
+  beta_type: string;
+  weight_pct: number;
+  amount: number;
+  conviction_u: number;
+  alpha_3m: number;
+  arb_score: number;
+  hedge_demand: number;
+  quadrant: string;
+  peak_phase: string;
+}
+
+export interface SectorWSEResult {
+  holdings: SectorWSEHolding[];
+  summary: {
+    count: number;
+    capital: number;
+    invested: number;
+    cash: number;
+    cash_pct: number;
+    portfolio_entropy: number;
+    equal_weight_entropy: number;
+    entropy_ratio: number;
+    regime: string;
+    spread: number;
+    defensive_pct: number;
+    cyclical_pct: number;
+  };
+}
+
 export interface WSEHolding {
   symbol: string;
   name: string;
@@ -324,6 +426,331 @@ export function buildWSEPortfolio(
         Object.entries(sectors).sort((a, b) => b[1] - a[1]),
       ),
       excluded_count: excluded.length,
+    },
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 1: MACRO WSE — Cross-Asset Allocation
+// ═══════════════════════════════════════════════════════════════
+
+const REGIME_BOUNDS: Record<string, Record<string, [number, number]>> = {
+  EXPANSION: { equities: [0.50, 0.70], hard_assets: [0.05, 0.15], cash_usd: [0.05, 0.15], crypto: [0.03, 0.10] },
+  BOOM:      { equities: [0.55, 0.70], hard_assets: [0.05, 0.10], cash_usd: [0.05, 0.10], crypto: [0.05, 0.10] },
+  TRANSITION:{ equities: [0.35, 0.55], hard_assets: [0.10, 0.20], cash_usd: [0.10, 0.25], crypto: [0.02, 0.08] },
+  COOLING:   { equities: [0.25, 0.40], hard_assets: [0.10, 0.25], cash_usd: [0.15, 0.30], crypto: [0.00, 0.05] },
+  "LATE-CYCLE": { equities: [0.20, 0.35], hard_assets: [0.15, 0.25], cash_usd: [0.20, 0.30], crypto: [0.00, 0.05] },
+};
+
+const CATEGORY_ETFS: Record<string, { etf: string; assetKey: string }[]> = {
+  equities:    [{ etf: "SPY", assetKey: "spy" }, { etf: "QQQ", assetKey: "spy" }, { etf: "VWO", assetKey: "spy" }],
+  hard_assets: [{ etf: "GLD", assetKey: "gold" }, { etf: "SLV", assetKey: "silver" }, { etf: "USO", assetKey: "oil" }],
+  cash_usd:    [{ etf: "SHV", assetKey: "usd" }, { etf: "TLT", assetKey: "usd" }],
+  crypto:      [{ etf: "IBIT", assetKey: "btc" }],
+};
+
+/**
+ * Macro-level informational weight for a cross-asset class.
+ * Inverts combined_score: low combined = strong buy signal = high u_i.
+ */
+function macroConvictionU(asset: MacroAsset, regime: string): number {
+  let base = 1.0;
+
+  // Combined score → conviction (inverted: low score = buy signal = high conviction)
+  const cs = asset.combined_score ?? 50;
+  base *= 2.0 - (cs / 100) * 1.5; // cs=0 → 2.0x, cs=50 → 1.25x, cs=100 → 0.5x
+
+  // M2 floor proximity: near floor = anchored = high conviction
+  if (asset.m2_floor > 0 && asset.price > 0) {
+    const floorDist = (asset.price / asset.m2_floor - 1);
+    if (floorDist < 0.05) base *= 1.3;       // within 5% of floor
+    else if (floorDist < 0.15) base *= 1.15;  // within 15%
+    else if (floorDist > 0.50) base *= 0.8;   // 50%+ above floor
+  }
+
+  // Arb fair value proximity
+  if (asset.arb_fair_value > 0 && asset.price > 0) {
+    const arbDist = (asset.price / asset.arb_fair_value - 1);
+    if (arbDist < -0.10) base *= 1.2;   // 10%+ below fair = cheap
+    else if (arbDist > 0.20) base *= 0.8; // 20%+ above = expensive
+  }
+
+  // Regime fit: gold/silver in risk-off, equities in expansion
+  const cat = asset.category?.toLowerCase() || "";
+  if ((regime === "COOLING" || regime === "LATE-CYCLE") && (cat.includes("commodity") || cat.includes("currency"))) {
+    base *= 1.15;
+  }
+  if ((regime === "EXPANSION" || regime === "BOOM") && cat.includes("equity")) {
+    base *= 1.15;
+  }
+
+  // Net signal boost
+  const sig = (asset.net_signal || "").toUpperCase();
+  if (sig.includes("STRONG BUY")) base *= 1.3;
+  else if (sig.includes("ACCUMULATE")) base *= 1.15;
+  else if (sig.includes("TRIM")) base *= 0.6;
+
+  return Math.max(0.3, Math.min(2.5, base));
+}
+
+export function buildMacroWSEPortfolio(
+  assets: MacroAsset[],
+  alloc: MacroAllocation,
+  regime: string,
+  capital: number,
+): MacroWSEResult {
+  const bounds = REGIME_BOUNDS[regime] || REGIME_BOUNDS["TRANSITION"];
+  const assetMap = new Map(assets.map((a) => [a.key?.toLowerCase() || a.name?.toLowerCase(), a]));
+
+  // Build category-level WSE first
+  const categories = Object.keys(CATEGORY_ETFS) as (keyof typeof CATEGORY_ETFS)[];
+  const n = categories.length;
+
+  // u_i per category: average conviction of underlying assets
+  const catU: number[] = categories.map((cat) => {
+    const etfs = CATEGORY_ETFS[cat];
+    const uValues = etfs.map((e) => {
+      const a = assetMap.get(e.assetKey);
+      return a ? macroConvictionU(a, regime) : 1.0;
+    });
+    return uValues.reduce((s, v) => s + v, 0) / uValues.length;
+  });
+
+  const uSum = catU.reduce((a, b) => a + b, 0);
+  const uNorm = catU.map((v) => v / uSum);
+
+  // Category bounds from regime
+  const catBounds: [number, number][] = categories.map((cat) => bounds[cat] || [0.05, 0.30]);
+
+  // WSE optimization with category bounds
+  let p = uNorm.map((v, i) => Math.max(catBounds[i][0], Math.min(catBounds[i][1], v)));
+  const pSum = p.reduce((a, b) => a + b, 0);
+  p = p.map((v) => v / pSum);
+
+  // Projected gradient ascent
+  for (let iter = 0; iter < 1000; iter++) {
+    const grad = p.map((pi, i) => -uNorm[i] * (Math.log(Math.max(pi, 1e-12)) + 1));
+    let pNew = p.map((pi, i) => pi + 0.005 * grad[i]);
+    pNew = pNew.map((v, i) => Math.max(catBounds[i][0], Math.min(catBounds[i][1], v)));
+    const s = pNew.reduce((a, b) => a + b, 0);
+    if (s > 0) pNew = pNew.map((v) => v / s);
+    pNew = pNew.map((v, i) => Math.max(catBounds[i][0], Math.min(catBounds[i][1], v)));
+    const s2 = pNew.reduce((a, b) => a + b, 0);
+    if (s2 > 0) pNew = pNew.map((v) => v / s2);
+    p = pNew;
+  }
+
+  // Compute entropy
+  const pSafe = p.map((v) => Math.max(v, 1e-12));
+  const portfolioH = -pSafe.reduce((sum, pi, i) => sum + uNorm[i] * pi * Math.log(pi), 0);
+  const eqW = 1 / n;
+  const eqH = -uNorm.reduce((sum, ui) => sum + ui * eqW * Math.log(eqW), 0);
+  const ratio = eqH > 0 ? portfolioH / eqH : 0;
+
+  // Expand categories to individual ETF holdings
+  const holdings: MacroWSEHolding[] = [];
+  let totalInvested = 0;
+  const catWeights: Record<string, number> = {};
+
+  for (let ci = 0; ci < n; ci++) {
+    const cat = categories[ci];
+    const catWeight = p[ci];
+    const etfs = CATEGORY_ETFS[cat];
+    const perEtf = catWeight / etfs.length;
+    catWeights[cat] = Math.round(catWeight * 10000) / 100;
+
+    for (const e of etfs) {
+      const asset = assetMap.get(e.assetKey);
+      const amount = capital * perEtf;
+      totalInvested += amount;
+
+      holdings.push({
+        name: e.etf,
+        etf: e.etf,
+        category: cat.replace(/_/g, " "),
+        weight_pct: Math.round(perEtf * 10000) / 100,
+        amount: Math.round(amount),
+        conviction_u: catU[ci],
+        score: asset?.combined_score ?? 50,
+        signal: asset?.net_signal ?? "HOLD",
+        m2_floor: asset?.m2_floor ?? 0,
+        arb_fair_value: asset?.arb_fair_value ?? 0,
+      });
+    }
+  }
+
+  holdings.sort((a, b) => b.weight_pct - a.weight_pct);
+  const cash = capital - totalInvested;
+
+  return {
+    holdings,
+    summary: {
+      count: holdings.length,
+      capital,
+      invested: Math.round(totalInvested),
+      cash: Math.round(cash),
+      cash_pct: Math.round((cash / capital) * 1000) / 10,
+      portfolio_entropy: Math.round(portfolioH * 1000000) / 1000000,
+      equal_weight_entropy: Math.round(eqH * 1000000) / 1000000,
+      entropy_ratio: Math.round(ratio * 10000) / 10000,
+      regime,
+      categories: catWeights,
+    },
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 2: SECTOR WSE — Rotation Within Equities
+// ═══════════════════════════════════════════════════════════════
+
+const SECTOR_ETF_MAP: Record<string, string> = {
+  staples: "XLP", utilities: "XLU", healthcare: "XLV", real_estate: "XLRE",
+  tech: "XLK", consumer_disc: "XLY", financials: "XLF", industrials: "XLI",
+  energy: "XLE", materials: "XLB", comm_services: "XLC",
+  consumer_staples: "XLP", technology: "XLK", consumer_discretionary: "XLY",
+  communication_services: "XLC",
+};
+
+/**
+ * Sector-level informational weight from sector signals.
+ */
+function sectorConvictionU(s: Sector, regime: string): number {
+  let base = 1.0;
+
+  // Alpha momentum: positive alpha = information advantage
+  const alpha = s.alpha_3m ?? 0;
+  if (alpha > 8) base *= 1.3;
+  else if (alpha > 3) base *= 1.15;
+  else if (alpha < -5) base *= 0.7;
+  else if (alpha < -2) base *= 0.85;
+
+  // Arb score: low = cheap = high conviction
+  const arb = s.arb_score ?? 50;
+  base *= 1.5 - (arb / 100);  // arb=0 → 1.5x, arb=50 → 1.0x, arb=100 → 0.5x
+
+  // Hedge demand in risk-off regime = valuable
+  const hd = s.hedge_demand ?? 50;
+  if ((regime === "COOLING" || regime === "LATE-CYCLE") && hd > 60) {
+    base *= 1.2;
+  }
+
+  // Regime fit: defensive in risk-off, cyclical in expansion
+  const isDefensive = s.beta_type === "defensive";
+  if ((regime === "COOLING" || regime === "LATE-CYCLE") && isDefensive) {
+    base *= 1.2;
+  } else if ((regime === "EXPANSION" || regime === "BOOM") && !isDefensive) {
+    base *= 1.2;
+  } else if ((regime === "EXPANSION" || regime === "BOOM") && isDefensive) {
+    base *= 0.8;
+  }
+
+  // Peak phase: "current" sectors get a tilt
+  const phase = (s.peak_phase || "").toLowerCase();
+  if (phase === "current" || phase === "peak") base *= 1.1;
+  if (phase === "trough" || phase === "past") base *= 0.9;
+
+  return Math.max(0.3, Math.min(2.5, base));
+}
+
+function sectorQuadrant(s: Sector): string {
+  const highHedge = (s.hedge_demand ?? 0) > 60;
+  const cheap = (s.arb_score ?? 50) < 30;
+  const rich = (s.arb_score ?? 50) > 70;
+  if (highHedge && cheap) return "Cheap Hedge";
+  if (highHedge && rich) return "Expensive Hedge";
+  if (!highHedge && cheap) return "Cheap Growth";
+  if (!highHedge && rich) return "Expensive Growth";
+  return "Neutral";
+}
+
+export function buildSectorWSEPortfolio(
+  sectors: Sector[],
+  regime: string,
+  spread: number,
+  capital: number,
+): SectorWSEResult {
+  const n = sectors.length;
+  if (n === 0) {
+    return {
+      holdings: [],
+      summary: {
+        count: 0, capital, invested: 0, cash: capital, cash_pct: 100,
+        portfolio_entropy: 0, equal_weight_entropy: 0, entropy_ratio: 0,
+        regime, spread, defensive_pct: 0, cyclical_pct: 0,
+      },
+    };
+  }
+
+  const uRaw = sectors.map((s) => sectorConvictionU(s, regime));
+  const uSum = uRaw.reduce((a, b) => a + b, 0);
+  const uNorm = uRaw.map((v) => v / uSum);
+
+  // Bounds: 3-15% per sector, slightly tighter
+  const minW = 0.03;
+  const maxW = 0.15;
+
+  const weights = optimizeWSE(uNorm, n, minW, maxW, {}, 1.0);
+
+  // Compute entropy
+  const pSafe = weights.map((w) => Math.max(w, 1e-12));
+  const portfolioH = -pSafe.reduce((sum, pi, i) => sum + uNorm[i] * pi * Math.log(pi), 0);
+  const eqW = 1 / n;
+  const eqH = -uNorm.reduce((sum, ui) => sum + ui * eqW * Math.log(eqW), 0);
+  const ratio = eqH > 0 ? portfolioH / eqH : 0;
+
+  const holdings: SectorWSEHolding[] = [];
+  let totalInvested = 0;
+  let defensivePct = 0;
+  let cyclicalPct = 0;
+
+  for (let i = 0; i < n; i++) {
+    const s = sectors[i];
+    const wt = weights[i];
+    const amount = capital * wt;
+    totalInvested += amount;
+
+    const etf = SECTOR_ETF_MAP[s.key] || s.etf || s.key.toUpperCase();
+    const quadrant = sectorQuadrant(s);
+    const isDefensive = s.beta_type === "defensive";
+
+    if (isDefensive) defensivePct += wt * 100;
+    else cyclicalPct += wt * 100;
+
+    holdings.push({
+      name: s.name,
+      etf,
+      beta_type: s.beta_type || "cyclical",
+      weight_pct: Math.round(wt * 10000) / 100,
+      amount: Math.round(amount),
+      conviction_u: uRaw[i],
+      alpha_3m: s.alpha_3m ?? 0,
+      arb_score: s.arb_score ?? 50,
+      hedge_demand: s.hedge_demand ?? 50,
+      quadrant,
+      peak_phase: s.peak_phase || "",
+    });
+  }
+
+  holdings.sort((a, b) => b.weight_pct - a.weight_pct);
+  const cash = capital - totalInvested;
+
+  return {
+    holdings,
+    summary: {
+      count: holdings.length,
+      capital,
+      invested: Math.round(totalInvested),
+      cash: Math.round(cash),
+      cash_pct: Math.round((cash / capital) * 1000) / 10,
+      portfolio_entropy: Math.round(portfolioH * 1000000) / 1000000,
+      equal_weight_entropy: Math.round(eqH * 1000000) / 1000000,
+      entropy_ratio: Math.round(ratio * 10000) / 10000,
+      regime,
+      spread: Math.round(spread * 100) / 100,
+      defensive_pct: Math.round(defensivePct * 10) / 10,
+      cyclical_pct: Math.round(cyclicalPct * 10) / 10,
     },
   };
 }
