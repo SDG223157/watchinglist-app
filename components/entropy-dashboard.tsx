@@ -18,6 +18,14 @@ interface EntropyProfile {
   history: { date: string; entropy: number }[];
   cogGap: number;
   cogGapLabel: string;
+  hmmRegime?: string;
+  hmmPersistence?: number;
+  teDirection?: string;
+  teNet?: number;
+  tailRegime?: string;
+  lowerTail?: number;
+  upperTail?: number;
+  tailAsymmetry?: number;
 }
 
 interface PortfolioEntropy {
@@ -190,7 +198,7 @@ export function EntropyDashboard() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"table" | "compressed" | "anchors">("table");
+  const [view, setView] = useState<"table" | "compressed" | "anchors" | "crash" | "volLead">("table");
 
   useEffect(() => {
     fetch("/api/entropy")
@@ -239,21 +247,27 @@ export function EntropyDashboard() {
 
   const { profiles, portfolio } = data;
   const compressed = profiles.filter((p) => p.regime === "compressed");
-  const anchors = profiles.filter((p) => p.anchorFailure);
-  const avgEntropy = profiles.reduce((s, p) => s + p.current60d, 0) / profiles.length;
-  const avgPercentile = profiles.reduce((s, p) => s + p.percentile, 0) / profiles.length;
+    const anchors = profiles.filter((p) => p.anchorFailure);
+    const crashCoupled = profiles.filter((p) => p.tailRegime === "crash-coupled");
+    const volLeaders = profiles.filter((p) => p.teDirection === "Vol→Price");
+    const avgEntropy = profiles.reduce((s, p) => s + p.current60d, 0) / profiles.length;
+    const avgPercentile = profiles.reduce((s, p) => s + p.percentile, 0) / profiles.length;
 
-  const displayed =
-    view === "compressed"
-      ? compressed
-      : view === "anchors"
-        ? anchors
-        : profiles;
+    const displayed =
+      view === "compressed"
+        ? compressed
+        : view === "anchors"
+          ? anchors
+          : view === "crash"
+            ? crashCoupled
+            : view === "volLead"
+              ? volLeaders
+              : profiles;
 
   return (
     <div className="space-y-6">
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
           <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--muted)" }}>
             Avg Entropy (60d)
@@ -280,7 +294,7 @@ export function EntropyDashboard() {
             {compressed.length}
           </div>
           <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-            Stocks with low entropy (&le;20th pctile)
+            Low entropy (&le;20th pctile)
           </div>
         </div>
         <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
@@ -292,6 +306,28 @@ export function EntropyDashboard() {
           </div>
           <div className="text-[10px]" style={{ color: "var(--muted)" }}>
             Low entropy + valuation divergence
+          </div>
+        </div>
+        <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-[10px] uppercase tracking-wider" style={{ color: "#dc2626" }}>
+            Crash-Coupled
+          </div>
+          <div className="text-2xl font-mono font-bold mt-1" style={{ color: "#dc2626" }}>
+            {crashCoupled.length}
+          </div>
+          <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+            Copula λL &gt; λU (co-crash risk)
+          </div>
+        </div>
+        <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-[10px] uppercase tracking-wider" style={{ color: "#7c3aed" }}>
+            Vol → Price
+          </div>
+          <div className="text-2xl font-mono font-bold mt-1" style={{ color: "#7c3aed" }}>
+            {volLeaders.length}
+          </div>
+          <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+            Informed flow leads price
           </div>
         </div>
       </div>
@@ -330,11 +366,13 @@ export function EntropyDashboard() {
       </div>
 
       {/* View tabs */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {([
           ["table", `All (${profiles.length})`],
           ["compressed", `Compressed (${compressed.length})`],
           ["anchors", `Anchor Failures (${anchors.length})`],
+          ["crash", `Crash-Coupled (${crashCoupled.length})`],
+          ["volLead", `Vol→Price (${volLeaders.length})`],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -362,11 +400,11 @@ export function EntropyDashboard() {
               <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
                 Regime
               </th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-                H(60d)
+              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                HMM
               </th>
               <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-                H(252d)
+                H(60d)
               </th>
               <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
                 Pctile
@@ -375,10 +413,16 @@ export function EntropyDashboard() {
                 Trend
               </th>
               <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-                Vol H
+                Cog Gap
               </th>
               <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-                Cog Gap
+                Info Flow
+              </th>
+              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                Tail (Copula)
+              </th>
+              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                λL
               </th>
               <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
                 60d History
@@ -389,13 +433,26 @@ export function EntropyDashboard() {
             </tr>
           </thead>
           <tbody>
-            {displayed.map((p) => (
+            {displayed.map((p) => {
+              const hmmColor =
+                p.hmmRegime?.toLowerCase().includes("bull") ? "#16a34a" :
+                p.hmmRegime?.toLowerCase().includes("bear") ? "#dc2626" : "#b45309";
+              const teColor =
+                p.teDirection === "Vol→Price" ? "#7c3aed" :
+                p.teDirection === "Mkt→Stock" ? "#64748b" : "#94a3b8";
+              const tailColor =
+                p.tailRegime === "crash-coupled" ? "#dc2626" :
+                p.tailRegime === "rally-coupled" ? "#16a34a" :
+                p.tailRegime === "independent" ? "#3b82f6" : "#94a3b8";
+              return (
               <tr
                 key={p.symbol}
                 className="border-t transition-colors hover:bg-zinc-900/60"
                 style={{
                   borderColor: "var(--border)",
-                  background: p.anchorFailure ? "rgba(249,115,22,0.04)" : undefined,
+                  background: p.tailRegime === "crash-coupled" && p.regime === "compressed"
+                    ? "rgba(220,38,38,0.04)"
+                    : p.anchorFailure ? "rgba(249,115,22,0.04)" : undefined,
                 }}
               >
                 <td className="px-3 py-3">
@@ -410,13 +467,22 @@ export function EntropyDashboard() {
                 <td className="px-3 py-3">
                   <RegimeBadge regime={p.regime} regimeColor={p.regimeColor} />
                 </td>
+                <td className="px-3 py-3">
+                  {p.hmmRegime && p.hmmRegime !== "N/A" ? (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+                      style={{ background: `${hmmColor}15`, color: hmmColor }}
+                    >
+                      {p.hmmRegime} {p.hmmPersistence != null ? `${(p.hmmPersistence * 100).toFixed(0)}%` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>—</span>
+                  )}
+                </td>
                 <td className="px-3 py-3 text-right font-mono text-xs">
                   <span style={{ color: p.current60d <= 0.5 ? "#ef4444" : p.current60d <= 0.7 ? "#f59e0b" : "var(--text)" }}>
                     {p.current60d.toFixed(3)}
                   </span>
-                </td>
-                <td className="px-3 py-3 text-right font-mono text-xs">
-                  {p.current252d.toFixed(3)}
                 </td>
                 <td className="px-3 py-3 text-right">
                   <span
@@ -435,13 +501,43 @@ export function EntropyDashboard() {
                   </span>
                 </td>
                 <td className="px-3 py-3">
-                  <EntropyBar value={p.volumeEntropy60d} label="" />
-                </td>
-                <td className="px-3 py-3">
                   <div className="flex items-center gap-2">
                     <CogGapMeter score={p.cogGap} />
                     <span className="text-[10px] font-mono">{p.cogGap}/10</span>
                   </div>
+                </td>
+                <td className="px-3 py-3">
+                  {p.teDirection && p.teDirection !== "N/A" ? (
+                    <span
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+                      style={{ background: `${teColor}15`, color: teColor }}
+                    >
+                      {p.teDirection}
+                    </span>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>—</span>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {p.tailRegime && p.tailRegime !== "N/A" ? (
+                    <span
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{ background: `${tailColor}15`, color: tailColor }}
+                    >
+                      {p.tailRegime}
+                    </span>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>—</span>
+                  )}
+                </td>
+                <td className="px-3 py-3 text-right">
+                  {p.lowerTail != null && p.lowerTail > 0 ? (
+                    <span className="font-mono text-xs" style={{ color: p.lowerTail > 0.3 ? "#ef4444" : p.lowerTail > 0.2 ? "#f97316" : "var(--text)" }}>
+                      {p.lowerTail.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>—</span>
+                  )}
                 </td>
                 <td className="px-3 py-3">
                   <MiniSparkline history={p.history} />
@@ -461,11 +557,12 @@ export function EntropyDashboard() {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {displayed.length === 0 && (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={12}
                   className="px-3 py-8 text-center text-sm"
                   style={{ color: "var(--muted)" }}
                 >
@@ -473,7 +570,11 @@ export function EntropyDashboard() {
                     ? "No stocks in compressed entropy regime"
                     : view === "anchors"
                       ? "No anchor failure signals detected"
-                      : "No entropy data available"}
+                      : view === "crash"
+                        ? "No crash-coupled tail dependence detected"
+                        : view === "volLead"
+                          ? "No stocks with volume leading price"
+                          : "No entropy data available"}
                 </td>
               </tr>
             )}
@@ -483,7 +584,7 @@ export function EntropyDashboard() {
 
       {/* Legend */}
       <div
-        className="rounded-lg p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs"
+        className="rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
       >
         <div>
@@ -492,6 +593,23 @@ export function EntropyDashboard() {
             <span><span style={{ color: "#ef4444" }}>Compressed</span> — Percentile &le; 20th. One dominant force.</span>
             <span><span style={{ color: "#f59e0b" }}>Normal</span> — 20th-80th. Standard market dynamics.</span>
             <span><span style={{ color: "#10b981" }}>Diverse</span> — &ge; 80th. Rich informational environment.</span>
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold mb-1">Info Flow (Transfer Entropy)</div>
+          <div className="flex flex-col gap-1" style={{ color: "var(--muted)" }}>
+            <span><span style={{ color: "#7c3aed" }}>Vol→Price</span> — Volume leads price. Informed positioning.</span>
+            <span><span style={{ color: "#64748b" }}>Mkt→Stock</span> — Market leads stock. Reactive flow.</span>
+            <span><span style={{ color: "#94a3b8" }}>Bidirectional</span> — No clear causal direction.</span>
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold mb-1">Tail Dependence (Copula)</div>
+          <div className="flex flex-col gap-1" style={{ color: "var(--muted)" }}>
+            <span><span style={{ color: "#dc2626" }}>Crash-coupled</span> — λL &gt; λU. Crashes amplified vs rallies.</span>
+            <span><span style={{ color: "#16a34a" }}>Rally-coupled</span> — λU &gt; λL. Upside participation stronger.</span>
+            <span><span style={{ color: "#3b82f6" }}>Independent</span> — Low tail dependence. True diversifier.</span>
+            <span><span style={{ color: "#94a3b8" }}>Symmetric</span> — Equal tail co-movement.</span>
           </div>
         </div>
         <div>
@@ -508,8 +626,15 @@ export function EntropyDashboard() {
             <span>Low entropy + price far from valuation anchors</span>
             <span>ATH &ge; -40%, PE &gt; 50x, DCF divergence &gt; 30%</span>
             <span>Red walls &ge; 2: fundamental stress under compression</span>
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold mb-1">Best Setup</div>
+          <div className="flex flex-col gap-1" style={{ color: "var(--muted)" }}>
+            <span><span style={{ color: "#7c3aed" }}>Vol→Price</span> + <span style={{ color: "#ef4444" }}>Compressed</span> + <span style={{ color: "#3b82f6" }}>Independent tail</span></span>
+            <span>= Informed flow in quiet market, no co-crash risk</span>
             <span className="mt-1" style={{ color: "var(--blue)" }}>
-              NLP news topic concentration adds a parallel entropy dimension (FAJ Q1 2026)
+              Clayton copula (λL) + Gumbel copula (λU) fitted via MLE
             </span>
           </div>
         </div>
