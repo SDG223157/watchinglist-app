@@ -12,7 +12,7 @@ const MARKETS = [
   { value: "CN", label: "A-Shares (CSI300)" },
 ];
 
-type Tab = "stocks" | "sectors" | "macro" | "entropy";
+type Tab = "stocks" | "sectors" | "macro" | "entropy" | "wse";
 
 interface EntropyHolding {
   symbol: string; name: string; sector: string; price: number;
@@ -22,6 +22,15 @@ interface EntropyHolding {
   cog_gap: number; anchor_failure: boolean;
   geometric_order: number; trend_signal: string;
   conviction: string; kelly_fraction: number; notes: string;
+}
+
+interface WSEHoldingRow {
+  symbol: string; name: string; sector: string; price: number;
+  weight_pct: number; amount: number; shares: number;
+  conviction_u: number; score: number; green_walls: number;
+  hmm_regime: string; hmm_persistence: number;
+  entropy_regime: string; cog_gap: number; anchor_failure: boolean;
+  trend_signal: string; momentum_type: string;
 }
 
 function fmt(n: number): string {
@@ -337,6 +346,9 @@ export default function PortfolioPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [entropyResult, setEntropyResult] = useState<any>(null);
   const [entropyLoading, setEntropyLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [wseResult, setWseResult] = useState<any>(null);
+  const [wseLoading, setWseLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function build() {
@@ -423,10 +435,29 @@ export default function PortfolioPage() {
     }
   }
 
+  async function buildWSE() {
+    setWseLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/wse-portfolio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capital, market, maxHoldings }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || `Failed (${res.status})`); return; }
+      setWseResult(await res.json());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setWseLoading(false);
+    }
+  }
+
   const s = result?.summary;
   const mp = macroResult;
   const sp = sectorResult;
   const ep = entropyResult;
+  const wp = wseResult;
 
   return (
     <main className="max-w-[1400px] mx-auto px-4 py-8">
@@ -444,7 +475,7 @@ export default function PortfolioPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6">
-        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
+        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["wse", "WSE Optimizer"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -792,6 +823,118 @@ export default function PortfolioPage() {
             </tbody>
           </table>
         </div>
+      </>}
+      </>}
+
+      {/* ===== WSE TAB ===== */}
+      {tab === "wse" && <>
+      <div className="rounded-lg p-4 mb-6 flex flex-wrap items-end gap-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Capital ($)</label>
+          <input type="number" value={capital} onChange={(e) => setCapital(Number(e.target.value))} className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white" />
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Market</label>
+          <select value={market} onChange={(e) => setMarket(e.target.value)} className="px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white">
+            {MARKETS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+        <button onClick={buildWSE} disabled={wseLoading}
+          className="px-5 py-2 rounded-md text-sm font-semibold cursor-pointer hover:brightness-125 disabled:opacity-50"
+          style={{ background: "#059669", color: "#fff" }}>
+          {wseLoading ? <span className="flex items-center gap-2"><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Optimizing...</span> : "Build WSE Portfolio"}
+        </button>
+        {error && <span className="text-xs text-red-400">{error}</span>}
+      </div>
+
+      {/* Methodology */}
+      <div className="rounded-lg p-4 mb-6 text-xs" style={{ background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.15)" }}>
+        <h3 className="font-bold text-sm mb-2" style={{ color: "#34d399" }}>Weighted Shannon Entropy (WSE) — Șerban & Dedu 2025</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-zinc-400">
+          <div><strong className="text-zinc-200">Objective:</strong> Maximize H_u(p) = −Σ u_i p_i ln(p_i) — the weighted Shannon entropy of portfolio weights. Anti-concentration by construction: every asset gets some weight.</div>
+          <div><strong className="text-zinc-200">Informational Weights u_i:</strong> HMM regime + persistence, entropy regime, cognitive gap, anchor failure, composite score, momentum type, TrendWise signal → single conviction multiplier per stock.</div>
+          <div><strong className="text-zinc-200">Constraints:</strong> Full investment (Σp=1), position bounds [2%, 8%], sector cap 30%. Softmax-like solutions naturally discourage concentration.</div>
+          <div><strong className="text-zinc-200">Entropy Ratio:</strong> Portfolio entropy / equal-weight entropy. 1.0 = maximum diversification. Lower = stronger conviction tilt. Typically 0.90–1.01.</div>
+        </div>
+      </div>
+
+      {wp && <>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+          {[
+            { label: "Holdings", value: wp.summary.count },
+            { label: "Invested", value: `$${fmt(wp.summary.invested)}` },
+            { label: "Cash", value: `$${fmt(wp.summary.cash)} (${wp.summary.cash_pct}%)` },
+            { label: "Avg Score", value: wp.summary.avg_score },
+            { label: "Avg u_i", value: wp.summary.avg_conviction_u?.toFixed(3), color: "#059669" },
+            { label: "H_u(p)", value: wp.summary.portfolio_entropy?.toFixed(4), color: "#059669" },
+            { label: "H_u(eq)", value: wp.summary.equal_weight_entropy?.toFixed(4) },
+            { label: "Ratio", value: wp.summary.entropy_ratio?.toFixed(4), color: wp.summary.entropy_ratio > 0.95 ? "#16a34a" : wp.summary.entropy_ratio > 0.85 ? "#b45309" : "#dc2626" },
+          ].map((c) => (
+            <div key={c.label} className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{c.label}</div>
+              <div className="text-lg font-bold mt-0.5" style={{ color: "color" in c ? c.color : undefined }}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: "var(--card)" }}>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Symbol</th>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Name</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Weight</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Amount</th>
+                <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">u_i</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Score</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">HMM</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Persist</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Entropy</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Cog</th>
+                <th className="text-center px-3 py-2 text-[10px] text-zinc-500 uppercase">Trend</th>
+                <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Sector</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wp.holdings.map((h: WSEHoldingRow, i: number) => {
+                const hmmCol = h.hmm_regime?.toLowerCase().includes("bull") ? "#16a34a" : h.hmm_regime?.toLowerCase().includes("bear") ? "#dc2626" : "#b45309";
+                const entCol = h.entropy_regime?.includes("compressed") ? "#7c3aed" : h.entropy_regime?.includes("diverse") ? "#3b82f6" : "var(--muted)";
+                const uCol = h.conviction_u >= 1.5 ? "#16a34a" : h.conviction_u >= 1.0 ? "#059669" : h.conviction_u >= 0.7 ? "#b45309" : "#dc2626";
+                return (
+                  <tr key={h.symbol} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                    <td className="px-3 py-2.5 font-mono font-bold"><Link href={`/stock/${h.symbol}`} className="hover:text-emerald-400">{h.symbol}</Link></td>
+                    <td className="px-3 py-2.5 text-xs text-zinc-400 max-w-[140px] truncate">{h.name}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold">{h.weight_pct?.toFixed(2)}%</td>
+                    <td className="px-3 py-2.5 text-right text-zinc-400">${fmt(h.amount)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-xs font-bold" style={{ color: uCol }}>{h.conviction_u?.toFixed(2)}x</td>
+                    <td className="px-3 py-2.5 text-center"><ScoreBadge score={h.score} /></td>
+                    <td className="px-3 py-2.5 text-center"><span className="text-xs font-bold" style={{ color: hmmCol }}>{h.hmm_regime}</span></td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs">{((h.hmm_persistence || 0) * 100).toFixed(0)}%</td>
+                    <td className="px-3 py-2.5 text-center"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: entCol, background: `${entCol}15` }}>{h.entropy_regime}</span></td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs">{h.cog_gap}/10{h.anchor_failure ? " ⚠" : ""}</td>
+                    <td className="px-3 py-2.5 text-center text-xs">{h.trend_signal === "Open" ? "🟢" : "⬜"}</td>
+                    <td className="px-3 py-2.5 text-xs text-zinc-500 max-w-[100px] truncate">{h.sector}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Sector breakdown */}
+        {wp.summary.sectors && Object.keys(wp.summary.sectors).length > 0 && (
+        <div className="mt-4 rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Sector Allocation</h3>
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(wp.summary.sectors as Record<string, number>).map(([sec, pct]) => (
+              <div key={sec} className="text-xs">
+                <span className="text-zinc-400">{sec}:</span>{" "}
+                <span className="font-bold" style={{ color: pct > 25 ? "#b45309" : "#059669" }}>{pct.toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        )}
       </>}
       </>}
 
