@@ -25,6 +25,36 @@ interface Profile {
   hmmPersistence?: number;
 }
 
+const PHASE_KELLY: Record<number, number> = { 1: 0.25, 2: 0, 3: 0.25, 4: 1.0, 0: 0.5 };
+
+function convictionMultiplier(s: Profile): number {
+  if (s.anchorFailure && ["ACCUMULATION", "QUIET_BUILDUP"].includes(s.pvDivergenceSignal)) return 1.5;
+  if (s.anchorFailure) return 1.4;
+  if (s.cogGap >= 5 && ["ACCUMULATION", "QUIET_BUILDUP"].includes(s.pvDivergenceSignal)) return 1.4;
+  if (["ACCUMULATION", "QUIET_BUILDUP"].includes(s.pvDivergenceSignal)) return 1.3;
+  if (s.cogGap >= 5) return 1.2;
+  if (s.pvDivergenceSignal === "DISTRIBUTION") return 0.7;
+  return 1.0;
+}
+
+function kellySize(s: Profile, baseKelly = 0.20): { raw: number; modified: number; label: string } {
+  const phaseMod = PHASE_KELLY[s.phase] ?? 0.5;
+  const convMod = convictionMultiplier(s);
+  const raw = baseKelly * phaseMod * convMod;
+  const capped = Math.min(raw, baseKelly); // never exceed half-Kelly (input is already half-Kelly)
+  const pct = Math.round(capped * 100);
+
+  let label: string;
+  if (pct === 0) label = "CASH";
+  else if (pct <= 3) label = "TINY";
+  else if (pct <= 7) label = "SMALL";
+  else if (pct <= 12) label = "MODERATE";
+  else if (pct <= 18) label = "FULL";
+  else label = "MAX";
+
+  return { raw: capped, modified: pct, label };
+}
+
 interface ApiResponse {
   profiles: Profile[];
   portfolio: { crossEntropy: number; correlationEntropy: number; concentrated: boolean; detail: string };
@@ -97,6 +127,7 @@ function PhaseColumn({ phase, stocks }: { phase: number; stocks: Profile[] }) {
                 <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--muted)" }}>Trend</th>
                 <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--muted)" }}>PV Div</th>
                 <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--muted)" }}>HMM</th>
+                <th className="px-3 py-2 text-center font-medium" style={{ color: "var(--muted)" }}>Kelly</th>
                 <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--muted)" }}>Signal</th>
               </tr>
             </thead>
@@ -148,6 +179,26 @@ function PhaseColumn({ phase, stocks }: { phase: number; stocks: Profile[] }) {
                         {s.hmmPersistence ? ` ${(s.hmmPersistence * 100).toFixed(0)}%` : ""}
                       </span>
                     </td>
+                    {(() => {
+                      const k = kellySize(s);
+                      const kellyColor = k.modified === 0 ? "#ef4444"
+                        : k.modified <= 5 ? "#f97316"
+                        : k.modified <= 10 ? "#f59e0b"
+                        : k.modified <= 15 ? "#10b981"
+                        : "#22c55e";
+                      return (
+                        <td className="px-3 py-2 text-center">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="font-mono font-bold text-xs" style={{ color: kellyColor }}>
+                              {k.modified}%
+                            </span>
+                            <span className="text-[8px] font-semibold uppercase tracking-wider" style={{ color: kellyColor, opacity: 0.7 }}>
+                              {k.label}
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    })()}
                     <td className="px-3 py-2 text-[10px]" style={{ color: "var(--muted)", maxWidth: 180 }}>
                       {combined || s.phaseAction}
                     </td>
@@ -283,6 +334,28 @@ export function TradingDesk() {
             )}
           </button>
         ))}
+      </div>
+
+      {/* Kelly sizing legend */}
+      <div className="rounded-lg p-4" style={{ background: "rgba(59,130,246,0.04)", border: "1px solid rgba(59,130,246,0.15)" }}>
+        <div className="flex items-start gap-3">
+          <span className="text-sm font-bold mt-0.5" style={{ color: "var(--blue)" }}>f*</span>
+          <div>
+            <p className="text-xs leading-relaxed mb-1.5">
+              <strong>Kelly × Entropy Position Sizing</strong> — base ½-Kelly (20%) modified by phase + conviction.
+              Phase determines edge reliability. PV Divergence + Anchor Failure modify conviction.
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-[10px]" style={{ color: "var(--muted)" }}>
+              <span>Phase 1: <strong style={{ color: "#63b3ed" }}>¼ Kelly</strong> (edge unreliable)</span>
+              <span>Phase 2: <strong style={{ color: "#f6ad55" }}>0 Kelly</strong> (cash — no edge)</span>
+              <span>Phase 3: <strong style={{ color: "#fc8181" }}>¼ Kelly</strong> (no direction)</span>
+              <span>Phase 4: <strong style={{ color: "#68d391" }}>Full Kelly</strong> (max reliability)</span>
+              <span>Accumulation: <strong style={{ color: "#10b981" }}>+30%</strong></span>
+              <span>Distribution: <strong style={{ color: "#ef4444" }}>-30%</strong></span>
+              <span>Anchor Failure: <strong style={{ color: "#f97316" }}>+40%</strong></span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Phase columns */}
