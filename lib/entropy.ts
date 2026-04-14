@@ -28,12 +28,52 @@ export interface EntropyProfile {
   history: { date: string; entropy: number }[];
   cogGap: number;           // "Cognitive computation gap" score (0-10)
   cogGapLabel: string;
-  volumeEntropyPctile: number | null; // Volume entropy percentile vs rolling history
-  pvDivergence: number | null;        // vol_pctile - price_pctile (pp)
-  pvDivergenceSignal: string;         // ACCUMULATION / DISTRIBUTION / CAPITULATION / ALIGNED / etc.
+  volumeEntropyPctile: number | null;
+  pvDivergence: number | null;
+  pvDivergenceSignal: string;
+  phase: number;            // 0=neutral, 1=compression, 2=fracture, 3=disorder, 4=re-compression
+  phaseLabel: string;
+  phaseConfidence: "HIGH" | "MEDIUM" | "LOW";
+  phaseColor: string;
+  phaseAction: string;
 }
 
 const NUM_BINS = 20;
+
+function classifyPhase(
+  pctile: number,
+  derivative: number,
+  pctile30dAgo: number | null,
+): { phase: number; label: string; confidence: "HIGH" | "MEDIUM" | "LOW"; color: string; action: string } {
+  const LOW = 20, LOW_SOFT = 30, HIGH = 80, HIGH_SOFT = 70;
+  const FLAT = 0.0005, FAST = 0.001;
+
+  if (pctile <= LOW && derivative <= FLAT)
+    return { phase: 1, label: "COMPRESSION", confidence: pctile <= 10 ? "HIGH" : "MEDIUM",
+      color: "#63b3ed", action: "Reduce size. Buy cheap hedges." };
+  if (pctile <= LOW_SOFT && derivative <= FLAT)
+    return { phase: 1, label: "COMPRESSION", confidence: "MEDIUM",
+      color: "#63b3ed", action: "Approaching compression." };
+  if (derivative > FAST && pctile < HIGH)
+    return { phase: 2, label: "FRACTURE", confidence: derivative > 0.002 ? "HIGH" : "MEDIUM",
+      color: "#f6ad55", action: "Do NOT buy dips." };
+  if (derivative > FLAT && pctile <= 50 && pctile30dAgo !== null && pctile - pctile30dAgo > 15)
+    return { phase: 2, label: "FRACTURE", confidence: "MEDIUM",
+      color: "#f6ad55", action: "Early fracture signal." };
+  if (pctile >= HIGH && Math.abs(derivative) <= FLAT)
+    return { phase: 3, label: "DISORDER", confidence: "HIGH",
+      color: "#fc8181", action: "Wait for PV Divergence." };
+  if (pctile >= HIGH_SOFT && Math.abs(derivative) <= FAST)
+    return { phase: 3, label: "DISORDER", confidence: "MEDIUM",
+      color: "#fc8181", action: "Reduce directional bets." };
+  if (derivative < -FLAT && pctile > LOW_SOFT) {
+    const stage = pctile >= HIGH_SOFT ? "early" : pctile >= 40 ? "mid" : "late";
+    return { phase: 4, label: "RE-COMPRESSION", confidence: derivative < -FAST ? "HIGH" : "MEDIUM",
+      color: "#68d391", action: `Best entry (${stage}).` };
+  }
+  return { phase: 0, label: "NEUTRAL", confidence: "LOW",
+    color: "#a0aec0", action: "Mid-cycle." };
+}
 
 function shannonEntropy(values: number[], bins: number = NUM_BINS): number {
   if (values.length < 10) return 1;
@@ -297,6 +337,19 @@ export function computeEntropyProfile(
     }
   }
 
+  // Phase classification
+  let pctile30dAgo: number | null = null;
+  if (rolling.length > 30) {
+    const h30ago = rolling[rolling.length - 31];
+    if (h30ago !== undefined) {
+      const sub = rolling.slice(0, -30);
+      if (sub.length > 0) {
+        pctile30dAgo = percentileOf(h30ago, sub);
+      }
+    }
+  }
+  const phaseResult = classifyPhase(percentile, trend, pctile30dAgo);
+
   return {
     current60d,
     current120d,
@@ -316,6 +369,11 @@ export function computeEntropyProfile(
     volumeEntropyPctile: volumeEntropyPctile !== null ? Math.round(volumeEntropyPctile * 10) / 10 : null,
     pvDivergence,
     pvDivergenceSignal,
+    phase: phaseResult.phase,
+    phaseLabel: phaseResult.label,
+    phaseConfidence: phaseResult.confidence,
+    phaseColor: phaseResult.color,
+    phaseAction: phaseResult.action,
   };
 }
 
