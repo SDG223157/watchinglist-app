@@ -110,8 +110,21 @@ export function selectTop30(
       const base = s.composite_score || 0;
       const gw = s.green_walls || 0;
       const analyzed = (gw + (s.yellow_walls || 0) + (s.red_walls || 0)) > 0;
-      // Analyzed stocks with walls get a boost; unanalyzed use raw composite or market-cap-based rank
-      const effectiveScore = analyzed ? base + gw * 2 : (base > 0 ? base : 30);
+      let effectiveScore = analyzed ? base + gw * 2 : (base > 0 ? base : 30);
+
+      // HMM regime modifiers
+      const hmm = (s.hmm_regime || "").toLowerCase();
+      const persistence = s.hmm_persistence || 0;
+      if (hmm.includes("bear")) {
+        effectiveScore -= persistence > 0.9 ? 15 : 10;
+      } else if (hmm.includes("bull")) {
+        effectiveScore += persistence > 0.9 ? 5 : 3;
+      }
+
+      // TrendWise bonus
+      const tw = (s.trend_signal || "").toLowerCase();
+      if (tw.includes("open")) effectiveScore += 5;
+
       return { stock: s, effectiveScore };
     })
     .sort((a, b) => b.effectiveScore - a.effectiveScore)
