@@ -103,12 +103,19 @@ export function selectTop30(
 
   const scored = filtered
     .filter((s) => {
-      const gw = s.green_walls || 0;
       const rw = s.red_walls || 0;
-      const score = s.composite_score || 0;
-      return gw >= 2 && rw <= 2 && score >= 40 && s.price > 0;
+      return rw <= 3 && s.price > 0 && s.market_cap > 0;
     })
-    .sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0));
+    .map((s) => {
+      const base = s.composite_score || 0;
+      const gw = s.green_walls || 0;
+      const analyzed = (gw + (s.yellow_walls || 0) + (s.red_walls || 0)) > 0;
+      // Analyzed stocks with walls get a boost; unanalyzed use raw composite or market-cap-based rank
+      const effectiveScore = analyzed ? base + gw * 2 : (base > 0 ? base : 30);
+      return { stock: s, effectiveScore };
+    })
+    .sort((a, b) => b.effectiveScore - a.effectiveScore)
+    .map((x) => x.stock);
 
   return scored.slice(0, 30);
 }
