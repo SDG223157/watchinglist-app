@@ -59,6 +59,7 @@ interface ApiResponse {
   profiles: Profile[];
   portfolio: { crossEntropy: number; correlationEntropy: number; concentrated: boolean; detail: string };
   computed_at: string;
+  source?: "cache" | "live";
 }
 
 const PHASE_META: Record<number, { icon: string; name: string; color: string; bg: string; desc: string }> = {
@@ -216,14 +217,27 @@ function PhaseColumn({ phase, stocks }: { phase: number; stocks: Profile[] }) {
 export function TradingDesk() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<TabId>("all");
 
-  useEffect(() => {
-    fetch("/api/entropy")
+  const loadData = (forceRefresh = false) => {
+    setLoading(true);
+    fetch(`/api/entropy${forceRefresh ? "?refresh=1" : ""}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetch("/api/entropy/refresh", { method: "POST" });
+      loadData();
+    } catch { /* ignore */ }
+    setRefreshing(false);
+  };
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -371,9 +385,28 @@ export function TradingDesk() {
         </div>
       )}
 
-      {/* Timestamp */}
-      <div className="text-right text-[10px]" style={{ color: "var(--muted)" }}>
-        Computed: {new Date(data.computed_at).toLocaleString()}
+      {/* Timestamp + source + refresh */}
+      <div className="flex items-center justify-between text-[10px]" style={{ color: "var(--muted)" }}>
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold uppercase"
+            style={{
+              background: data.source === "cache" ? "rgba(16,185,129,0.1)" : "rgba(246,173,85,0.1)",
+              color: data.source === "cache" ? "#10b981" : "#f6ad55",
+            }}
+          >
+            {data.source === "cache" ? "● Cached" : "● Live"}
+          </span>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="px-2 py-0.5 rounded text-[9px] font-medium transition-colors hover:brightness-125 disabled:opacity-50"
+            style={{ background: "rgba(59,130,246,0.15)", color: "var(--blue)" }}
+          >
+            {refreshing ? "Refreshing..." : "Refresh Now"}
+          </button>
+        </div>
+        <span>Computed: {new Date(data.computed_at).toLocaleString()}</span>
       </div>
     </div>
   );
