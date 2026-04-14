@@ -4,6 +4,7 @@ import { cachedHistorical } from "@/lib/yf-cache";
 import { computeEntropyProfile, portfolioEntropy, type EntropyProfile } from "@/lib/entropy";
 import { computeTailDependence } from "@/lib/copula";
 import { loadEntropyCache, isCacheStale } from "@/lib/entropy-cache";
+import { cacheGet, cacheSet } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -87,13 +88,21 @@ export async function GET(req: Request) {
     const forceRefresh = url.searchParams.get("refresh") === "1";
 
     if (!forceRefresh) {
+      // Layer 1: Redis (sub-ms)
+      const redisData = await cacheGet<{ profiles: unknown[]; portfolio: unknown; computed_at: string }>("entropy:all");
+      if (redisData && !isCacheStale(redisData.computed_at)) {
+        return NextResponse.json({ ...redisData, source: "redis" });
+      }
+
+      // Layer 2: Neon DB (~50ms)
       const cached = await loadEntropyCache();
       if (cached && !isCacheStale(cached.computed_at)) {
+        await cacheSet("entropy:all", cached, 72000); // backfill Redis, 20hr TTL
         return NextResponse.json({
           profiles: cached.profiles,
           portfolio: cached.portfolio,
           computed_at: cached.computed_at,
-          source: "cache",
+          source: "db-cache",
         });
       }
     }

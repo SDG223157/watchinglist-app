@@ -59,7 +59,7 @@ interface ApiResponse {
   profiles: Profile[];
   portfolio: { crossEntropy: number; correlationEntropy: number; concentrated: boolean; detail: string };
   computed_at: string;
-  source?: "cache" | "live";
+  source?: "redis" | "db-cache" | "cache" | "live";
 }
 
 const PHASE_META: Record<number, { icon: string; name: string; color: string; bg: string; desc: string }> = {
@@ -391,11 +391,17 @@ export function TradingDesk() {
           <span
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold uppercase"
             style={{
-              background: data.source === "cache" ? "rgba(16,185,129,0.1)" : "rgba(246,173,85,0.1)",
-              color: data.source === "cache" ? "#10b981" : "#f6ad55",
+              background: data.source === "redis" ? "rgba(16,185,129,0.1)"
+                : data.source === "db-cache" ? "rgba(59,130,246,0.1)"
+                : data.source === "live" ? "rgba(246,173,85,0.1)"
+                : "rgba(16,185,129,0.1)",
+              color: data.source === "redis" ? "#10b981"
+                : data.source === "db-cache" ? "#3b82f6"
+                : data.source === "live" ? "#f6ad55"
+                : "#10b981",
             }}
           >
-            {data.source === "cache" ? "● Cached" : "● Live"}
+            {data.source === "redis" ? "⚡ Redis" : data.source === "db-cache" ? "● DB Cache" : data.source === "live" ? "● Live" : "● Cached"}
           </span>
           <button
             onClick={handleRefresh}

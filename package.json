@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "ioredis": "^5.10.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "next": "^16.2.1",

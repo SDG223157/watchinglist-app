@@ -4,6 +4,7 @@ import { cachedHistorical } from "@/lib/yf-cache";
 import { computeEntropyProfile, portfolioEntropy } from "@/lib/entropy";
 import { computeTailDependence } from "@/lib/copula";
 import { ensureEntropyCacheTable, saveEntropyCache } from "@/lib/entropy-cache";
+import { cacheSet } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -137,6 +138,13 @@ export async function POST() {
     profiles.sort((a, b) => (a.percentile as number) - (b.percentile as number));
 
     await saveEntropyCache(profiles, portfolio as Record<string, unknown>);
+
+    const cachePayload = {
+      profiles,
+      portfolio,
+      computed_at: new Date().toISOString(),
+    };
+    await cacheSet("entropy:all", cachePayload, 72000);
 
     return NextResponse.json({
       status: "success",
