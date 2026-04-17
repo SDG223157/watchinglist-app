@@ -64,26 +64,32 @@ const TIER_COLORS: Record<string, string> = {
   Laggard: "#ef4444",
 };
 
-// Agreement badge: FAJ paper finding — top-tercile in BOTH Day-1 and Week-1 is
-// the highest-conviction signal. Divergence flags fading or late-joining.
+// Agreement badge — DESCRIPTIVE, NOT PREDICTIVE.
+// FAJ paper (paper_v2.md) tests this intersection rule explicitly and finds
+// BOTH does NOT produce higher forward returns than DAY1_ONLY (Δ = −0.66pp at
+// fwd-60d, p = 0.66). Labels retained because they are useful for regime
+// description — but the badge is no longer framed as a conviction multiplier.
 const AGREEMENT_STYLE: Record<string, { bg: string; fg: string; label: string; title: string }> = {
   BOTH: {
-    bg: "#22c55e",
+    bg: "#3b82f6",
     fg: "#fff",
-    label: "★ BOTH",
-    title: "Top-tercile by Day-1 AND Week-1 — highest conviction (agreement between signals)",
+    label: "D1+W1",
+    title:
+      "Top-tercile by both Day-1 and Week-1. DESCRIPTIVE of structural hierarchy intact — NOT an alpha signal. FAJ paper v2 Section 7 falsifies the claim that this intersection produces higher forward returns than Day-1 alone.",
   },
   DAY1_ONLY: {
     bg: "#eab308",
     fg: "#000",
-    label: "D1→fade",
-    title: "Led on Day-1 but dropped out of Week-1 top tercile — fading leader, consider trimming",
+    label: "D1 only",
+    title:
+      "Led on Day-1 but not in Week-1 top tercile. Descriptive of short-cover-driven Day-1 moves; forward returns empirically no worse than BOTH tag (paper v2 Section 7.2).",
   },
   WEEK1_ONLY: {
     bg: "#8b5cf6",
     fg: "#fff",
-    label: "W1 late",
-    title: "Not in Day-1 top but entered Week-1 top — late-joiner, still buyable per IWM-2025 pattern",
+    label: "W1 only",
+    title:
+      "Not in Day-1 top but entered Week-1 top. Descriptive of late-cycle leadership consolidation; no statistically significant forward alpha.",
   },
   NEITHER: {
     bg: "transparent",
@@ -208,70 +214,61 @@ function LeaderboardTable({ board, title }: { board: Leaderboard; title: string 
 }
 
 function Playbook({ board }: { board: Leaderboard }) {
-  const hasWeek1 = board.rows.some((r) => r.week1Pct != null);
-  // Highest conviction: agreement=BOTH (led on both signals)
-  const both = board.rows.filter((r) => r.agreement === "BOTH");
-  // Alpha leaders (fallback if no Week-1 data yet)
-  const alpha = board.rows.filter((r) => r.tier === "Alpha Leader").slice(0, 5);
-  // Fading: DAY1_ONLY
-  const fading = board.rows.filter((r) => r.agreement === "DAY1_ONLY");
-  // Late joiners: WEEK1_ONLY
-  const lateJoiners = board.rows.filter((r) => r.agreement === "WEEK1_ONLY");
-  // Laggards
+  // Structural winners (descriptive): top 5 by Total return, not a forward-alpha claim
+  const structural = [...board.rows].sort((a, b) => b.totalPct - a.totalPct).slice(0, 5);
   const laggards = [...board.rows].sort((a, b) => a.totalPct - b.totalPct).slice(0, 4);
 
   return (
     <section className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
       <div
         className="rounded-md p-4"
-        style={{ background: "#22c55e15", border: "1px solid #22c55e40" }}
+        style={{ background: "#3b82f615", border: "1px solid #3b82f640" }}
       >
-        <h3 className="font-semibold mb-2" style={{ color: "#22c55e" }}>
-          {hasWeek1 ? "★ HIGH CONVICTION — Day-1 ∩ Week-1 Agreement" : "Overweight — Alpha Leaders"}
+        <h3 className="font-semibold mb-2" style={{ color: "#3b82f6" }}>
+          Structural Winners (descriptive)
         </h3>
-        {hasWeek1 && both.length > 0 ? (
-          <>
-            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
-              Top-tercile by BOTH Day-1 (fast signal) AND Week-1 (stable signal).
-              Per the FAJ paper, agreement is the strongest structural-winner tag.
-            </p>
-            <ul className="space-y-1 text-sm font-mono">
-              {both.map((r) => (
-                <li key={r.ticker} className="flex justify-between">
-                  <span>
-                    <strong>{r.ticker}</strong> {r.name}
+        <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
+          Top sectors by total return. <strong>Descriptive of beta/growth hierarchy</strong>,
+          not a forward-return alpha claim. FAJ paper v2 shows no event-level predictive
+          power out-of-sample — use as passive tilt input, not as active signal.
+        </p>
+        <ul className="space-y-1 text-sm font-mono">
+          {structural.map((r) => (
+            <li key={r.ticker} className="flex justify-between">
+              <span>
+                <strong>{r.ticker}</strong> {r.name}
+                {r.agreement && r.agreement !== "NEITHER" && (
+                  <span
+                    className="ml-2 text-[10px] px-1 rounded"
+                    style={{
+                      background: AGREEMENT_STYLE[r.agreement].bg,
+                      color: AGREEMENT_STYLE[r.agreement].fg,
+                    }}
+                  >
+                    {AGREEMENT_STYLE[r.agreement].label}
                   </span>
-                  <span style={{ color: "#22c55e" }}>
-                    D1 {fmtPct(r.day1Pct)} · W1 {r.week1Pct != null ? fmtPct(r.week1Pct) : "—"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : alpha.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            No clear alpha leaders yet — bounce is still beta-driven.
-          </p>
-        ) : (
-          <ul className="space-y-1 text-sm font-mono">
-            {alpha.map((r) => (
-              <li key={r.ticker} className="flex justify-between">
-                <span>
-                  <strong>{r.ticker}</strong> {r.name}
-                </span>
-                <span style={{ color: "#22c55e" }}>{fmtPct(r.totalPct)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+                )}
+              </span>
+              <span style={{ color: "#3b82f6" }}>
+                {r.week1Pct != null
+                  ? `D1 ${fmtPct(r.day1Pct)} · W1 ${fmtPct(r.week1Pct)}`
+                  : fmtPct(r.totalPct)}
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
       <div
         className="rounded-md p-4"
         style={{ background: "#ef444415", border: "1px solid #ef444440" }}
       >
         <h3 className="font-semibold mb-2" style={{ color: "#ef4444" }}>
-          Avoid — Laggards
+          Laggards (descriptive)
         </h3>
+        <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
+          Bottom sectors by total return. Typically defensives in bull regimes; structural
+          winners in bear regimes. Avoid as passive underweights, not as active shorts.
+        </p>
         <ul className="space-y-1 text-sm font-mono">
           {laggards.map((r) => (
             <li key={r.ticker} className="flex justify-between">
@@ -283,61 +280,6 @@ function Playbook({ board }: { board: Leaderboard }) {
           ))}
         </ul>
       </div>
-
-      {hasWeek1 && (fading.length > 0 || lateJoiners.length > 0) && (
-        <>
-          {fading.length > 0 && (
-            <div
-              className="rounded-md p-4"
-              style={{ background: "#eab30815", border: "1px solid #eab30840" }}
-            >
-              <h3 className="font-semibold mb-2" style={{ color: "#eab308" }}>
-                ⚠ Fading — led Day-1 but dropped out of Week-1 top
-              </h3>
-              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
-                Consider trimming — Day-1 bid not confirmed by follow-through.
-              </p>
-              <ul className="space-y-1 text-sm font-mono">
-                {fading.map((r) => (
-                  <li key={r.ticker} className="flex justify-between">
-                    <span>
-                      <strong>{r.ticker}</strong> {r.name}
-                    </span>
-                    <span style={{ color: "#eab308" }}>
-                      D1 {fmtPct(r.day1Pct)} · W1 {r.week1Pct != null ? fmtPct(r.week1Pct) : "—"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {lateJoiners.length > 0 && (
-            <div
-              className="rounded-md p-4"
-              style={{ background: "#8b5cf615", border: "1px solid #8b5cf640" }}
-            >
-              <h3 className="font-semibold mb-2" style={{ color: "#8b5cf6" }}>
-                + Late-joiners — missed Day-1 top but entered Week-1 top
-              </h3>
-              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
-                IWM-2025 pattern: rank 9 on Day-1 → rank 3 in full phase. Still buyable.
-              </p>
-              <ul className="space-y-1 text-sm font-mono">
-                {lateJoiners.map((r) => (
-                  <li key={r.ticker} className="flex justify-between">
-                    <span>
-                      <strong>{r.ticker}</strong> {r.name}
-                    </span>
-                    <span style={{ color: "#8b5cf6" }}>
-                      D1 {fmtPct(r.day1Pct)} · W1 {r.week1Pct != null ? fmtPct(r.week1Pct) : "—"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
-      )}
     </section>
   );
 }
@@ -941,59 +883,79 @@ export function BounceDashboard() {
             style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
           >
             <h3 className="font-semibold mb-2" style={{ color: "var(--fg)" }}>
-              How to read this
+              How to read this (updated per FAJ paper v2)
             </h3>
             <ul className="list-disc list-inside space-y-1">
               <li>
-                <strong>Day-1 %</strong>: return from trough to Day-1 close — the fast reactivity signal.
+                <strong>Day-1 %</strong>: return from trough to Day-1 close. Fast reactivity
+                signal; useful for regime narrative but <strong>not a forward-return alpha
+                signal at event level</strong> (paper v2 §5).
               </li>
               <li>
-                <strong>Week-1 %</strong>: return from trough to the 5th trading session — the stable confirmation signal.
+                <strong>Week-1 %</strong>: return from trough to 5th session. Stable
+                confirmation; filters Day-1 short-cover noise. Also no forward alpha at event
+                level.
               </li>
               <li>
-                <strong>★ BOTH agreement</strong>: top-tercile by both Day-1 AND Week-1. Highest-conviction structural winner per the FAJ paper (Day-1 ∩ Week-1 intersection). Consider this the core overweight set.
+                <strong>D1+W1 / D1 only / W1 only tags</strong>: top-tercile memberships.
+                <em> Descriptive</em> of cross-sectional hierarchy — <strong>NOT a conviction
+                multiplier</strong>. Paper v2 §7 tests whether D1+W1 intersection beats D1 alone
+                for forward returns and finds Δ = −0.66pp (p = 0.66) — the falsification
+                result. All tags show similar forward returns (~1.5–3.5% at 60d).
               </li>
               <li>
-                <strong>D1→fade</strong>: led on Day-1 but dropped out of Week-1 top. Short-cover noise, not durable — consider trimming.
+                <strong>Alpha Leader tier</strong>: identifies narrative flow at observation;
+                not an actionable predictor of future alpha.
               </li>
               <li>
-                <strong>W1 late</strong>: missed Day-1 top but entered Week-1 top. IWM-2025 pattern (rank 9→3). Still buyable.
+                <strong>Structural winners</strong> (SMH, XLK, QQQ, IWM across 67 events
+                1999-2026): higher average Day-1 AND higher average 60d return. Reflects the
+                known beta/growth risk premium — defensible as a passive tilt.
               </li>
               <li>
-                <strong>Alpha Leader tier</strong>: Day-1 or Total ≥1.5× benchmark — narrative flow, operational overweight.
-              </li>
-              <li>
-                <strong>Laggard</strong>: negative or &lt;0.5× benchmark — defensive or distribution, avoid.
-              </li>
-              <li>
-                <strong>Cross-market sync</strong>: US & China leaders share same bucket → global narrative = high durability.
-              </li>
-              <li>
-                <strong>Analog</strong>: April 2025 Liberation Day: SMH Day-1 +17%, phase +138% over 10 months. Spearman rank 0.79 (in-sample, paper-documented).
+                <strong>Analog</strong>: April 2025 Liberation Day (SMH Day-1 +17%, phase
+                +138%) is one of 67 events. In-sample persistence is strong, out-of-sample
+                collapses. Use as anecdote, not proof of repeatable alpha.
               </li>
             </ul>
             <div
               className="mt-3 pt-3 text-xs"
               style={{ borderTop: "1px solid var(--border)" }}
             >
-              <strong style={{ color: "var(--fg)" }}>Decision rule (from paper):</strong>
+              <strong style={{ color: "#ef4444" }}>HONEST CAVEATS (FAJ paper v2):</strong>
               <ul className="list-disc list-inside mt-1 space-y-0.5">
                 <li>
-                  If drawdown ≤ −20% OR Day-1 ≥ +5% → lean on <strong>Week-1</strong> (violent
-                  bottoms need multi-session clearing; Week-1 retains fwd-60d ρ=+0.166 vs Day-1 ≈0).
+                  <strong>In-sample ≠ out-of-sample.</strong> "From-trough" persistence (ρ̄ =
+                  0.54 at 5d, 4.3% 60d L-S) collapses to the noise floor (ρ̄ ≈ 0.02–0.07) once
+                  the formation return is removed from the prediction horizon. The in-sample
+                  result is a mechanical artifact — the formation day&apos;s return is
+                  arithmetically contained in the &ldquo;subsequent&rdquo; period.
                 </li>
                 <li>
-                  If drawdown −5% to −15% (normal correction) → <strong>Day-1 is fine</strong>;
-                  both signals are equivalent in information content.
+                  <strong>Regime-confirmation hypothesis falsified.</strong> Only 3/67 events
+                  are defensive-led; those 3 had <em>higher</em> subsequent SPY returns, not
+                  lower. The &ldquo;defensives leading = bear rally&rdquo; intuition does not
+                  hold at these sample sizes. Paper v2 §6.
                 </li>
                 <li>
-                  Always size by <strong>agreement</strong>: BOTH = full conviction, DAY1_ONLY =
-                  half, WEEK1_ONLY = half, NEITHER = skip.
+                  <strong>Agreement hypothesis falsified.</strong> D1+W1 intersection does not
+                  produce stronger forward returns than D1 alone (Δ = −0.66pp at fwd-60d,
+                  p = 0.66). Paper v2 §7.
                 </li>
                 <li>
-                  <em>Caveat:</em> pure out-of-sample (excluding formation overlap), neither
-                  signal predicts forward returns at the individual event level. Use as{" "}
-                  <strong>regime-confirmation</strong>, not forward-return alpha.
+                  <strong>Cross-market transmission fails multiple-testing correction.</strong>
+                  Raw T+5 p = 0.056 inflates to BH-adjusted p = 0.10 across 25 tests. Not
+                  tradeable on its own.
+                </li>
+                <li>
+                  <strong>What does survive:</strong> cross-sectional risk hierarchy (semis,
+                  large-cap tech, small caps lead on average; defensives lag on average). This
+                  is a known Fama-French factor story, defensible as a passive tilt — not a
+                  new alpha.
+                </li>
+                <li>
+                  Full empirical treatment at{" "}
+                  <code>media/reports/papers/day1-bounce-faj/paper_v2.md</code>.
                 </li>
               </ul>
             </div>

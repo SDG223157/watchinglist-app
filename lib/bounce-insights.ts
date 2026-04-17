@@ -97,14 +97,17 @@ China laggard: ${data.crossMarketSync.chinaLaggard}
 
 **Core principle:** The US market closes at ~4am China time, roughly 5 hours before A-share open. Whatever the US does on Day-1 of a bounce becomes the leading indicator for Asia's positioning the same morning. QDII ETFs gap open to reflect US moves, creating a pricing event. Chinese domestic sectors either follow the US leader or lag it — the lag window is where catch-up alpha lives.
 
-**Two signals — Day-1 (fast) and Week-1 (stable):**
-- **Day-1** = single-session reaction. Fast but noisy. Best for normal drawdowns (-5% to -15%).
-- **Week-1** = return over the first 5 sessions after the trough. Slower but filters out single-day short-cover noise. Best for violent bottoms (≥-20% or Day-1 ≥+5%).
-- **Agreement** between the two signals (BOTH tag) is the highest-conviction indicator per our FAJ paper empirical work. Agreement correlation ρ=0.59 across 67 events means they disagree about 40% of the time — and the 60% where they agree is where structural winners concentrate.
-- **Fading** (DAY1_ONLY): led Day-1 but dropped from Week-1 top = short-cover noise, consider trimming.
-- **Late-joiner** (WEEK1_ONLY): missed Day-1 top but entered Week-1 top = IWM-April-2025 pattern (rank 9→3 → +44% phase).
+**Two signals — Day-1 (fast) and Week-1 (stable), both DESCRIPTIVE not PREDICTIVE:**
+- **Day-1** = single-session reaction. Useful for narrative (which sectors attracted first buy) but not an actionable forward-return signal.
+- **Week-1** = return over the first 5 sessions. Useful for confirmation of Day-1 narrative but also not actionable for forward returns.
+- **D1+W1 tag** = top-tercile by both signals. Descriptive of hierarchy intact. NOT a conviction multiplier — paper v2 §7 falsifies this claim (Δ = −0.66pp vs DAY1_ONLY, p = 0.66).
 
-**Honest caveat:** Pure-forward (excluding formation overlap), neither Day-1 nor Week-1 predicts forward returns at individual event level (FAJ paper Table 5-6). What works is the **structural-winner tilt** (SMH/XLK/QQQ/IWM lead on average across events; XLU/XLP/XLV lag on average). Use Day-1 & Week-1 as REGIME-CONFIRMATION: if structural winners lead → standard bull continuation, tilt to structural winners. If defensives lead → Daniel-Moskowitz momentum-crash warning, reduce risk.
+**IMPORTANT — HONEST EMPIRICAL CAVEATS (FAJ paper v2):**
+1. **In-sample vs out-of-sample:** Strong in-sample rank correlations (ρ̄ = 0.54 at 5d, 4.3% 60d L-S) are dominated by MECHANICAL AUTOCORRELATION — the Day-1 return is arithmetically contained in the "subsequent" return. Pure out-of-sample (from Day-1 close forward) ρ̄ collapses to 0.02–0.07, below the noise-floor for our sample (min detectable ρ = 0.10).
+2. **Regime-confirmation FALSIFIED:** Only 3/67 events (4.5%) were defensive-led; those 3 had HIGHER subsequent SPY returns, not lower. The "defensives leading = bear rally" claim is not supported.
+3. **Agreement FALSIFIED:** D1+W1 intersection does not beat D1 alone.
+4. **Cross-market transmission FAILS multiple-testing correction.** Raw p = 0.056 inflates to BH-adjusted p = 0.10.
+5. **What survives is passive structural tilt:** SMH/XLK/QQQ/IWM lead on average across events, XLU/XLP/XLV lag. This is the known beta/growth risk premium — defensible as portfolio design, not as event-level alpha.
 
 **Historical analog:** April 9, 2025 Liberation Day rebound — US semis (SMH) led Day-1 at +17.2% AND Week-1 at +22.1% (BOTH agreement) and delivered +138% by Feb 2026 (Spearman rank correlation 0.79 between Day-1 and phase rank). Chinese semis (512480, 588200) followed with a 1-2 day lag and delivered +100%+ during the same phase.
 
@@ -132,18 +135,18 @@ For each of the TOP 5 US sectors, identify the best A-share QDII ticker AND the 
 
 Lag Status options: "Already caught up" / "Lagging — catch-up opportunity" / "Over-run US — reduce"
 
-### 3. High-Conviction Trade Ideas (3-5 ideas)
-Produce concrete trade ideas specifically for Chinese mainland investors (prioritize QDII + A-share tickers they can actually buy). **Prioritize tickers with BOTH agreement tag (top-tercile on both Day-1 and Week-1) — these are the structural-winner signals with highest conviction.** Only include DAY1_ONLY or WEEK1_ONLY tickers if the BOTH set is thin; flag the weaker signal explicitly.
+### 3. Positioning Ideas (3-5 ideas) — framed as PASSIVE TILTS, not alpha trades
+Produce allocation ideas specifically for Chinese mainland investors (prioritize QDII + A-share tickers). **Important framing:** do not claim event-level alpha. Frame as *portfolio-design tilts based on the structural beta/growth hierarchy*, using Day-1/Week-1 only as descriptive regime-state information.
 
 For each idea:
 - **Ticker + Chinese Name** (e.g. 513310 中韩半导体)
-- **Agreement tag** (BOTH / DAY1_ONLY / WEEK1_ONLY) — state the tag and what it implies
-- **Thesis** in 2-3 sentences grounded in the leaderboard data
-- **Conviction**: High (BOTH) / Medium (one signal only) / Speculative
-- **Entry hint**: e.g. "buy at open day after US Day-1 +3%", "wait for pullback to IOPV premium <3%"
-- **Size hint**: e.g. "full position (BOTH agreement)", "half position (DAY1_ONLY, risk of fade)"
+- **Tag** (D1+W1 / D1 only / W1 only / Middle) — state as descriptive, not predictive
+- **Tilt rationale** in 2-3 sentences: (a) why the sector sits in the structural-winner group based on multi-event averages (b) what today's rank signals about regime state
+- **Position frame**: "passive overweight 2-3% above cap-weight for X months", NOT "high-conviction long with 50% position"
+- **Entry hint**: "average in over 3-5 sessions to avoid single-day entry risk", not "buy at tomorrow's open based on today's Day-1"
+- **Risk flag**: premium above IOPV, regime-shift signals, macro event risks
 
-Rank by conviction descending. BOTH tags go first.
+Rank by structural-winner membership (SMH, XLK, QQQ, IWM > XLF, XLI, XLB > XLV, XLP, XLU) NOT by today's tag.
 
 ### 4. Cross-Market Divergences (Catch-Up vs Fade Opportunities)
 Find 2-4 explicit mismatches where US and China leadership diverged. For each:
