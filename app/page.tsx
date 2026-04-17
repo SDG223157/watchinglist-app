@@ -73,6 +73,13 @@ export default async function Dashboard() {
               TDA
             </Link>
             <Link
+              href="/bounce"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+            >
+              Bounce
+            </Link>
+            <Link
               href="/sim"
               className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
               style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
