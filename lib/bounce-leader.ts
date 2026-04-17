@@ -13,14 +13,22 @@ export interface BounceRow {
   bucket: string;
   troughClose: number;
   day1Close: number;
+  week1Close: number | null;       // close at trough + 5 trading days, null if not yet reached
   latestClose: number;
-  day1Pct: number;
+  day1Pct: number;                  // return from trough to Day-1
+  week1Pct: number | null;          // return from trough to Week-1 (5th session)
   sinceDay1Pct: number;
   totalPct: number;
   dailyPct: number;
   days: number;
   latestDate: string;
   tier: "Alpha Leader" | "Beta Leader" | "Market" | "Laggard";
+  // Agreement: whether the sector is in top-tercile by BOTH Day-1 AND Week-1 signals.
+  // "BOTH" = high conviction structural winner (Day-1 fast + Week-1 stable agree)
+  // "DAY1_ONLY" = fading leader (led initial but dropped out of Week-1 top)
+  // "WEEK1_ONLY" = late-joiner (not Day-1 top but entered Week-1 top)
+  // "NEITHER" = laggard or mid-pack
+  agreement?: "BOTH" | "DAY1_ONLY" | "WEEK1_ONLY" | "NEITHER";
 }
 
 export interface BounceLeaderboard {
@@ -29,6 +37,7 @@ export interface BounceLeaderboard {
   benchmarkTotalPct: number;
   troughDate: string;
   day1Date: string;
+  week1Date: string | null;     // date of 5th session after trough (null if not yet reached)
   latestDate: string;
   rows: BounceRow[];
 }
@@ -270,29 +279,47 @@ async function computeLeaderboard(
 
       if (!troughBar || !day1Bar || !latestBar) return null;
 
+      // Week-1 = 5th trading session AFTER the trough (index 5 in the sorted bars).
+      // Reports null if the effective cutoff is before Week-1 (still in the first 5 sessions).
+      const sortedAfterTrough = hist
+        .filter((b) => b.close != null)
+        .map((b) => ({ close: b.close!, date: dateKey(b.date) }))
+        .filter((b) => b.date >= troughBar.date)
+        .sort((a, b) => (a.date < b.date ? -1 : 1));
+      const week1BarRaw = sortedAfterTrough.length > 5 ? sortedAfterTrough[5] : null;
+      // Only accept Week-1 if it falls on or before the effective cutoff (latestBar.date)
+      const week1Bar =
+        week1BarRaw && week1BarRaw.date <= latestBar.date ? week1BarRaw : null;
+
       const day1Pct = ((day1Bar.close - troughBar.close) / troughBar.close) * 100;
       const totalPct = ((latestBar.close - troughBar.close) / troughBar.close) * 100;
       const sinceDay1Pct = ((latestBar.close - day1Bar.close) / day1Bar.close) * 100;
+      const week1Pct = week1Bar
+        ? ((week1Bar.close - troughBar.close) / troughBar.close) * 100
+        : null;
 
       const troughTime = new Date(troughDate).getTime();
       const latestTime = new Date(latestBar.date).getTime();
       const days = Math.max(1, Math.round((latestTime - troughTime) / (1000 * 60 * 60 * 24)));
       const dailyPct = totalPct / days;
 
-      const row: BounceRow = {
+      const row: BounceRow & { _week1Date?: string } = {
         ticker: etf.ticker,
         name: etf.name,
         bucket: etf.bucket,
         troughClose: troughBar.close,
         day1Close: day1Bar.close,
+        week1Close: week1Bar ? week1Bar.close : null,
         latestClose: latestBar.close,
         day1Pct,
+        week1Pct,
         sinceDay1Pct,
         totalPct,
         dailyPct,
         days,
         latestDate: latestBar.date,
         tier: "Market",
+        _week1Date: week1Bar?.date, // internal: actual 5th-session calendar date
       };
       return row;
     })
@@ -313,9 +340,51 @@ async function computeLeaderboard(
 
   for (const r of rows) r.tier = classifyTier(r, benchmarkDay1, benchmarkTotal);
 
+  // Compute Agreement field: top-tercile by Day-1 AND top-tercile by Week-1 → BOTH
+  // This is the highest-conviction tag per the FAJ paper finding that
+  // agreement between Day-1 and Week-1 signals predicts durable leadership.
+  if (rows.length >= 6) {
+    const tercile = Math.max(1, Math.ceil(rows.length / 3));
+    const byDay1 = [...rows].sort((a, b) => b.day1Pct - a.day1Pct);
+    const topDay1 = new Set(byDay1.slice(0, tercile).map((r) => r.ticker));
+
+    const rowsWithW1 = rows.filter((r) => r.week1Pct != null);
+    const byWeek1 = [...rowsWithW1].sort((a, b) => (b.week1Pct! - a.week1Pct!));
+    const topWeek1 = new Set(byWeek1.slice(0, tercile).map((r) => r.ticker));
+
+    for (const r of rows) {
+      if (r.week1Pct == null) {
+        // Week-1 not yet available; agreement unknown
+        r.agreement = undefined;
+        continue;
+      }
+      const inD1 = topDay1.has(r.ticker);
+      const inW1 = topWeek1.has(r.ticker);
+      if (inD1 && inW1) r.agreement = "BOTH";
+      else if (inD1 && !inW1) r.agreement = "DAY1_ONLY";
+      else if (!inD1 && inW1) r.agreement = "WEEK1_ONLY";
+      else r.agreement = "NEITHER";
+    }
+  }
+
   rows.sort((a, b) => b.totalPct - a.totalPct);
 
   const latestDate = rows[0]?.latestDate ?? day1Date;
+  // Week-1 date = actual 5th trading session after the trough, taken from
+  // the most liquid reference (benchmark) or any ticker that reached it.
+  const benchmarkWithW1 = rows.find((r) => r.ticker === benchmarkTicker);
+  const anyWithW1 = rows.find(
+    (r) => (r as BounceRow & { _week1Date?: string })._week1Date
+  );
+  const week1Date =
+    ((benchmarkWithW1 as BounceRow & { _week1Date?: string })?._week1Date) ??
+    ((anyWithW1 as BounceRow & { _week1Date?: string })?._week1Date) ??
+    null;
+
+  // Strip internal _week1Date field before returning
+  for (const r of rows) {
+    delete (r as BounceRow & { _week1Date?: string })._week1Date;
+  }
 
   return {
     market,
@@ -323,6 +392,7 @@ async function computeLeaderboard(
     benchmarkTotalPct: benchmarkTotal,
     troughDate,
     day1Date,
+    week1Date,
     latestDate,
     rows,
   };

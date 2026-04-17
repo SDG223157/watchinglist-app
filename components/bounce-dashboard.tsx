@@ -10,14 +10,17 @@ interface BounceRow {
   bucket: string;
   troughClose: number;
   day1Close: number;
+  week1Close: number | null;
   latestClose: number;
   day1Pct: number;
+  week1Pct: number | null;
   sinceDay1Pct: number;
   totalPct: number;
   dailyPct: number;
   days: number;
   latestDate: string;
   tier: "Alpha Leader" | "Beta Leader" | "Market" | "Laggard";
+  agreement?: "BOTH" | "DAY1_ONLY" | "WEEK1_ONLY" | "NEITHER";
 }
 
 interface Leaderboard {
@@ -26,6 +29,7 @@ interface Leaderboard {
   benchmarkTotalPct: number;
   troughDate: string;
   day1Date: string;
+  week1Date: string | null;
   latestDate: string;
   rows: BounceRow[];
 }
@@ -60,6 +64,35 @@ const TIER_COLORS: Record<string, string> = {
   Laggard: "#ef4444",
 };
 
+// Agreement badge: FAJ paper finding — top-tercile in BOTH Day-1 and Week-1 is
+// the highest-conviction signal. Divergence flags fading or late-joining.
+const AGREEMENT_STYLE: Record<string, { bg: string; fg: string; label: string; title: string }> = {
+  BOTH: {
+    bg: "#22c55e",
+    fg: "#fff",
+    label: "★ BOTH",
+    title: "Top-tercile by Day-1 AND Week-1 — highest conviction (agreement between signals)",
+  },
+  DAY1_ONLY: {
+    bg: "#eab308",
+    fg: "#000",
+    label: "D1→fade",
+    title: "Led on Day-1 but dropped out of Week-1 top tercile — fading leader, consider trimming",
+  },
+  WEEK1_ONLY: {
+    bg: "#8b5cf6",
+    fg: "#fff",
+    label: "W1 late",
+    title: "Not in Day-1 top but entered Week-1 top — late-joiner, still buyable per IWM-2025 pattern",
+  },
+  NEITHER: {
+    bg: "transparent",
+    fg: "transparent",
+    label: "",
+    title: "",
+  },
+};
+
 function fmtPct(n: number): string {
   const sign = n >= 0 ? "+" : "";
   return `${sign}${n.toFixed(2)}%`;
@@ -74,11 +107,14 @@ function returnColor(n: number): string {
 }
 
 function LeaderboardTable({ board, title }: { board: Leaderboard; title: string }) {
+  const hasWeek1 = board.rows.some((r) => r.week1Pct != null);
   return (
     <section className="mb-8">
       <h2 className="text-xl font-bold mb-2">{title}</h2>
       <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
-        Trough {board.troughDate} → Day-1 {board.day1Date} → Latest {board.latestDate}
+        Trough {board.troughDate} → Day-1 {board.day1Date}
+        {board.week1Date && ` → Week-1 ${board.week1Date}`}
+        &nbsp;→ Latest {board.latestDate}
         &nbsp;·&nbsp; Benchmark: {board.benchmarkTicker} ({fmtPct(board.benchmarkTotalPct)})
       </p>
       <div
@@ -93,10 +129,12 @@ function LeaderboardTable({ board, title }: { board: Leaderboard; title: string 
               <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Bucket</th>
               <th className="px-3 py-2 text-right">Day1</th>
+              {hasWeek1 && <th className="px-3 py-2 text-right">Week1</th>}
               <th className="px-3 py-2 text-right">Since D1</th>
               <th className="px-3 py-2 text-right">Total</th>
               <th className="px-3 py-2 text-right">Daily</th>
               <th className="px-3 py-2 text-center">Tier</th>
+              {hasWeek1 && <th className="px-3 py-2 text-center">Agreement</th>}
             </tr>
           </thead>
           <tbody>
@@ -112,6 +150,14 @@ function LeaderboardTable({ board, title }: { board: Leaderboard; title: string 
                 <td className="px-3 py-2 text-right" style={{ color: returnColor(r.day1Pct) }}>
                   {fmtPct(r.day1Pct)}
                 </td>
+                {hasWeek1 && (
+                  <td
+                    className="px-3 py-2 text-right"
+                    style={{ color: r.week1Pct == null ? "var(--muted)" : returnColor(r.week1Pct) }}
+                  >
+                    {r.week1Pct == null ? "—" : fmtPct(r.week1Pct)}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-right" style={{ color: returnColor(r.sinceDay1Pct) }}>
                   {fmtPct(r.sinceDay1Pct)}
                 </td>
@@ -136,6 +182,22 @@ function LeaderboardTable({ board, title }: { board: Leaderboard; title: string 
                     {r.tier}
                   </span>
                 </td>
+                {hasWeek1 && (
+                  <td className="px-3 py-2 text-center">
+                    {r.agreement && r.agreement !== "NEITHER" && (
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded"
+                        title={AGREEMENT_STYLE[r.agreement].title}
+                        style={{
+                          background: AGREEMENT_STYLE[r.agreement].bg,
+                          color: AGREEMENT_STYLE[r.agreement].fg,
+                        }}
+                      >
+                        {AGREEMENT_STYLE[r.agreement].label}
+                      </span>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -146,7 +208,16 @@ function LeaderboardTable({ board, title }: { board: Leaderboard; title: string 
 }
 
 function Playbook({ board }: { board: Leaderboard }) {
+  const hasWeek1 = board.rows.some((r) => r.week1Pct != null);
+  // Highest conviction: agreement=BOTH (led on both signals)
+  const both = board.rows.filter((r) => r.agreement === "BOTH");
+  // Alpha leaders (fallback if no Week-1 data yet)
   const alpha = board.rows.filter((r) => r.tier === "Alpha Leader").slice(0, 5);
+  // Fading: DAY1_ONLY
+  const fading = board.rows.filter((r) => r.agreement === "DAY1_ONLY");
+  // Late joiners: WEEK1_ONLY
+  const lateJoiners = board.rows.filter((r) => r.agreement === "WEEK1_ONLY");
+  // Laggards
   const laggards = [...board.rows].sort((a, b) => a.totalPct - b.totalPct).slice(0, 4);
 
   return (
@@ -156,9 +227,28 @@ function Playbook({ board }: { board: Leaderboard }) {
         style={{ background: "#22c55e15", border: "1px solid #22c55e40" }}
       >
         <h3 className="font-semibold mb-2" style={{ color: "#22c55e" }}>
-          Overweight — Alpha Leaders
+          {hasWeek1 ? "★ HIGH CONVICTION — Day-1 ∩ Week-1 Agreement" : "Overweight — Alpha Leaders"}
         </h3>
-        {alpha.length === 0 ? (
+        {hasWeek1 && both.length > 0 ? (
+          <>
+            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
+              Top-tercile by BOTH Day-1 (fast signal) AND Week-1 (stable signal).
+              Per the FAJ paper, agreement is the strongest structural-winner tag.
+            </p>
+            <ul className="space-y-1 text-sm font-mono">
+              {both.map((r) => (
+                <li key={r.ticker} className="flex justify-between">
+                  <span>
+                    <strong>{r.ticker}</strong> {r.name}
+                  </span>
+                  <span style={{ color: "#22c55e" }}>
+                    D1 {fmtPct(r.day1Pct)} · W1 {r.week1Pct != null ? fmtPct(r.week1Pct) : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : alpha.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--muted)" }}>
             No clear alpha leaders yet — bounce is still beta-driven.
           </p>
@@ -193,6 +283,61 @@ function Playbook({ board }: { board: Leaderboard }) {
           ))}
         </ul>
       </div>
+
+      {hasWeek1 && (fading.length > 0 || lateJoiners.length > 0) && (
+        <>
+          {fading.length > 0 && (
+            <div
+              className="rounded-md p-4"
+              style={{ background: "#eab30815", border: "1px solid #eab30840" }}
+            >
+              <h3 className="font-semibold mb-2" style={{ color: "#eab308" }}>
+                ⚠ Fading — led Day-1 but dropped out of Week-1 top
+              </h3>
+              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
+                Consider trimming — Day-1 bid not confirmed by follow-through.
+              </p>
+              <ul className="space-y-1 text-sm font-mono">
+                {fading.map((r) => (
+                  <li key={r.ticker} className="flex justify-between">
+                    <span>
+                      <strong>{r.ticker}</strong> {r.name}
+                    </span>
+                    <span style={{ color: "#eab308" }}>
+                      D1 {fmtPct(r.day1Pct)} · W1 {r.week1Pct != null ? fmtPct(r.week1Pct) : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {lateJoiners.length > 0 && (
+            <div
+              className="rounded-md p-4"
+              style={{ background: "#8b5cf615", border: "1px solid #8b5cf640" }}
+            >
+              <h3 className="font-semibold mb-2" style={{ color: "#8b5cf6" }}>
+                + Late-joiners — missed Day-1 top but entered Week-1 top
+              </h3>
+              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
+                IWM-2025 pattern: rank 9 on Day-1 → rank 3 in full phase. Still buyable.
+              </p>
+              <ul className="space-y-1 text-sm font-mono">
+                {lateJoiners.map((r) => (
+                  <li key={r.ticker} className="flex justify-between">
+                    <span>
+                      <strong>{r.ticker}</strong> {r.name}
+                    </span>
+                    <span style={{ color: "#8b5cf6" }}>
+                      D1 {fmtPct(r.day1Pct)} · W1 {r.week1Pct != null ? fmtPct(r.week1Pct) : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }
@@ -800,21 +945,58 @@ export function BounceDashboard() {
             </h3>
             <ul className="list-disc list-inside space-y-1">
               <li>
-                <strong>Alpha Leader</strong>: Day-1 return ≥1.5× benchmark or Total ≥1.5× benchmark — narrative flow, core overweight.
+                <strong>Day-1 %</strong>: return from trough to Day-1 close — the fast reactivity signal.
               </li>
               <li>
-                <strong>Beta Leader</strong>: outperforming but at roughly index-beta, no alpha premium.
+                <strong>Week-1 %</strong>: return from trough to the 5th trading session — the stable confirmation signal.
+              </li>
+              <li>
+                <strong>★ BOTH agreement</strong>: top-tercile by both Day-1 AND Week-1. Highest-conviction structural winner per the FAJ paper (Day-1 ∩ Week-1 intersection). Consider this the core overweight set.
+              </li>
+              <li>
+                <strong>D1→fade</strong>: led on Day-1 but dropped out of Week-1 top. Short-cover noise, not durable — consider trimming.
+              </li>
+              <li>
+                <strong>W1 late</strong>: missed Day-1 top but entered Week-1 top. IWM-2025 pattern (rank 9→3). Still buyable.
+              </li>
+              <li>
+                <strong>Alpha Leader tier</strong>: Day-1 or Total ≥1.5× benchmark — narrative flow, operational overweight.
               </li>
               <li>
                 <strong>Laggard</strong>: negative or &lt;0.5× benchmark — defensive or distribution, avoid.
               </li>
               <li>
-                <strong>Cross-market sync</strong>: when US and China leaders share the same bucket (e.g. both Tech/Semis), the narrative is global = high durability.
+                <strong>Cross-market sync</strong>: US & China leaders share same bucket → global narrative = high durability.
               </li>
               <li>
-                Historical analog: April 2025 Liberation Day rebound, SMH led Day-1 (+17%) AND phase (+138% through Feb 2026). Spearman rank correlation 0.79.
+                <strong>Analog</strong>: April 2025 Liberation Day: SMH Day-1 +17%, phase +138% over 10 months. Spearman rank 0.79 (in-sample, paper-documented).
               </li>
             </ul>
+            <div
+              className="mt-3 pt-3 text-xs"
+              style={{ borderTop: "1px solid var(--border)" }}
+            >
+              <strong style={{ color: "var(--fg)" }}>Decision rule (from paper):</strong>
+              <ul className="list-disc list-inside mt-1 space-y-0.5">
+                <li>
+                  If drawdown ≤ −20% OR Day-1 ≥ +5% → lean on <strong>Week-1</strong> (violent
+                  bottoms need multi-session clearing; Week-1 retains fwd-60d ρ=+0.166 vs Day-1 ≈0).
+                </li>
+                <li>
+                  If drawdown −5% to −15% (normal correction) → <strong>Day-1 is fine</strong>;
+                  both signals are equivalent in information content.
+                </li>
+                <li>
+                  Always size by <strong>agreement</strong>: BOTH = full conviction, DAY1_ONLY =
+                  half, WEEK1_ONLY = half, NEITHER = skip.
+                </li>
+                <li>
+                  <em>Caveat:</em> pure out-of-sample (excluding formation overlap), neither
+                  signal predicts forward returns at the individual event level. Use as{" "}
+                  <strong>regime-confirmation</strong>, not forward-return alpha.
+                </li>
+              </ul>
+            </div>
           </section>
         </>
       )}
