@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface BounceRow {
   ticker: string;
@@ -228,6 +230,24 @@ function SyncCard({ sync }: { sync: CrossSync }) {
   );
 }
 
+interface InsightsResponse {
+  report: string;
+  parsed?: {
+    narrative?: string;
+    durability?: "HIGH" | "MEDIUM" | "LOW";
+    top_picks?: Array<{ ticker: string; thesis: string; conviction: string; size_hint?: string }>;
+    avoid?: string[];
+    divergences?: string[];
+    risk_flags?: string[];
+  };
+  model?: string;
+  provider?: string;
+  generatedAt?: string;
+  troughDate?: string;
+  day1Date?: string;
+  source?: string;
+}
+
 export function BounceDashboard() {
   const [data, setData] = useState<BounceResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -235,6 +255,9 @@ export function BounceDashboard() {
   const [trough, setTrough] = useState("");
   const [day1, setDay1] = useState("");
   const [market, setMarket] = useState<"us" | "china" | "qdii" | "all">("all");
+  const [insights, setInsights] = useState<InsightsResponse | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsErr, setInsightsErr] = useState<string | null>(null);
 
   const load = useCallback(
     async (t?: string, d?: string, m?: string, refresh = false) => {
@@ -266,6 +289,30 @@ export function BounceDashboard() {
   useEffect(() => {
     load(undefined, undefined, "all");
   }, [load]);
+
+  const generateInsights = useCallback(async (refresh = false) => {
+    if (!data) return;
+    setInsightsLoading(true);
+    setInsightsErr(null);
+    try {
+      const res = await fetch("/api/bounce/insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trough: data.troughDate,
+          day1: data.day1Date,
+          refresh,
+        }),
+      });
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      setInsights(j);
+    } catch (e) {
+      setInsightsErr(String(e));
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, [data]);
 
   return (
     <div>
@@ -434,6 +481,196 @@ export function BounceDashboard() {
               </section>
             </>
           )}
+
+          <section
+            className="mt-8 p-5 rounded-md"
+            style={{
+              background: "linear-gradient(135deg, #6366f115, #8b5cf615)",
+              border: "1px solid #8b5cf640",
+            }}
+          >
+            <div className="flex items-start justify-between flex-wrap gap-3 mb-3">
+              <div>
+                <h3 className="font-bold text-lg" style={{ color: "var(--fg)" }}>
+                  Cross-Market Bounce Insights
+                </h3>
+                <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+                  GPT-5.4 analyzes US → China lead-lag patterns and produces a concrete playbook
+                  for Chinese mainland investors to trade QDII + A-share sectors based on US
+                  Day-1 leadership.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => generateInsights(false)}
+                  disabled={insightsLoading || !data}
+                  className="px-4 py-2 text-sm font-semibold rounded-md transition-colors"
+                  style={{
+                    background: "#8b5cf6",
+                    color: "#fff",
+                    opacity: insightsLoading || !data ? 0.5 : 1,
+                    cursor: insightsLoading || !data ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {insightsLoading ? "Generating..." : insights ? "Regenerate" : "Generate AI Insights"}
+                </button>
+                {insights && (
+                  <button
+                    onClick={() => generateInsights(true)}
+                    disabled={insightsLoading}
+                    className="px-3 py-2 text-xs rounded-md"
+                    style={{
+                      border: "1px solid var(--border)",
+                      color: "var(--muted)",
+                      background: "transparent",
+                    }}
+                    title="Force fresh GPT-5.4 call, bypassing the 6-hour cache"
+                  >
+                    Refresh
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {insightsErr && (
+              <div
+                className="p-3 rounded-md text-sm mb-3"
+                style={{
+                  background: "#ef444415",
+                  border: "1px solid #ef444440",
+                  color: "#ef4444",
+                }}
+              >
+                {insightsErr}
+              </div>
+            )}
+
+            {insights && (
+              <>
+                <div className="flex flex-wrap gap-3 text-xs mb-4" style={{ color: "var(--muted)" }}>
+                  {insights.model && (
+                    <span
+                      className="px-2 py-0.5 rounded-full"
+                      style={{ background: "#8b5cf620", color: "#a78bfa" }}
+                    >
+                      {insights.model}
+                    </span>
+                  )}
+                  {insights.provider && (
+                    <span className="opacity-60">via {insights.provider}</span>
+                  )}
+                  {insights.parsed?.narrative && (
+                    <span
+                      className="px-2 py-0.5 rounded-full font-semibold"
+                      style={{ background: "#22c55e20", color: "#22c55e" }}
+                    >
+                      Narrative: {insights.parsed.narrative}
+                    </span>
+                  )}
+                  {insights.parsed?.durability && (
+                    <span
+                      className="px-2 py-0.5 rounded-full font-semibold"
+                      style={{
+                        background:
+                          insights.parsed.durability === "HIGH"
+                            ? "#22c55e20"
+                            : insights.parsed.durability === "MEDIUM"
+                              ? "#eab30820"
+                              : "#ef444420",
+                        color:
+                          insights.parsed.durability === "HIGH"
+                            ? "#22c55e"
+                            : insights.parsed.durability === "MEDIUM"
+                              ? "#eab308"
+                              : "#ef4444",
+                      }}
+                    >
+                      Durability: {insights.parsed.durability}
+                    </span>
+                  )}
+                  {insights.source && (
+                    <span
+                      className="px-2 py-0.5 rounded-full"
+                      style={{
+                        background: insights.source === "cache" ? "#a1a1aa20" : "#22c55e20",
+                        color: insights.source === "cache" ? "#a1a1aa" : "#22c55e",
+                      }}
+                    >
+                      {insights.source}
+                    </span>
+                  )}
+                  {insights.generatedAt && (
+                    <span className="opacity-60">
+                      {new Date(insights.generatedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick-scan top picks card */}
+                {insights.parsed?.top_picks && insights.parsed.top_picks.length > 0 && (
+                  <div
+                    className="mb-4 p-3 rounded-md"
+                    style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+                  >
+                    <h4 className="font-semibold text-sm mb-2" style={{ color: "var(--fg)" }}>
+                      Top Picks (quick scan)
+                    </h4>
+                    <ul className="space-y-1 text-sm font-mono">
+                      {insights.parsed.top_picks.slice(0, 5).map((pick, i) => (
+                        <li key={i} className="flex flex-wrap items-center gap-2">
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded font-semibold"
+                            style={{
+                              background:
+                                pick.conviction === "High"
+                                  ? "#22c55e20"
+                                  : pick.conviction === "Medium"
+                                    ? "#eab30820"
+                                    : "#a1a1aa20",
+                              color:
+                                pick.conviction === "High"
+                                  ? "#22c55e"
+                                  : pick.conviction === "Medium"
+                                    ? "#eab308"
+                                    : "#a1a1aa",
+                            }}
+                          >
+                            {pick.conviction}
+                          </span>
+                          <strong>{pick.ticker}</strong>
+                          <span style={{ color: "var(--muted)" }}>— {pick.thesis}</span>
+                          {pick.size_hint && (
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded"
+                              style={{ background: "var(--border)", color: "var(--muted)" }}
+                            >
+                              {pick.size_hint}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <article
+                  className="prose prose-invert max-w-none text-sm"
+                  style={{ color: "var(--fg)" }}
+                >
+                  <Markdown remarkPlugins={[remarkGfm]}>{insights.report}</Markdown>
+                </article>
+              </>
+            )}
+
+            {!insights && !insightsLoading && !insightsErr && (
+              <p className="text-sm" style={{ color: "var(--muted)" }}>
+                Click <strong>Generate AI Insights</strong> to have GPT-5.4 analyze the bounce
+                data and produce a concrete US→China translation table, high-conviction trade
+                ideas with specific A-share/QDII tickers, divergence opportunities, risk flags,
+                and a day-by-day execution calendar. Results are cached for 6 hours.
+              </p>
+            )}
+          </section>
 
           <section
             className="mt-8 p-4 rounded-md text-sm"
