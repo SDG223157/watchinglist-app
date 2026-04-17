@@ -19,7 +19,7 @@ interface BounceRow {
 }
 
 interface Leaderboard {
-  market: "us" | "china";
+  market: "us" | "china" | "qdii";
   benchmarkTicker: string;
   benchmarkTotalPct: number;
   troughDate: string;
@@ -43,6 +43,7 @@ interface BounceResult {
   detectedAutomatically: boolean;
   us?: Leaderboard;
   china?: Leaderboard;
+  qdii?: Leaderboard;
   crossMarketSync?: CrossSync;
   computedAt: string;
   source?: string;
@@ -233,7 +234,7 @@ export function BounceDashboard() {
   const [err, setErr] = useState<string | null>(null);
   const [trough, setTrough] = useState("");
   const [day1, setDay1] = useState("");
-  const [market, setMarket] = useState<"us" | "china" | "both">("both");
+  const [market, setMarket] = useState<"us" | "china" | "qdii" | "all">("all");
 
   const load = useCallback(
     async (t?: string, d?: string, m?: string, refresh = false) => {
@@ -263,7 +264,7 @@ export function BounceDashboard() {
   );
 
   useEffect(() => {
-    load(undefined, undefined, "both");
+    load(undefined, undefined, "all");
   }, [load]);
 
   return (
@@ -300,13 +301,14 @@ export function BounceDashboard() {
             </label>
             <select
               value={market}
-              onChange={(e) => setMarket(e.target.value as "us" | "china" | "both")}
+              onChange={(e) => setMarket(e.target.value as "us" | "china" | "qdii" | "all")}
               className="px-2 py-1 text-sm rounded-md bg-transparent"
               style={{ border: "1px solid var(--border)", color: "var(--fg)" }}
             >
-              <option value="both">Both</option>
+              <option value="all">All (US + China + QDII)</option>
               <option value="us">US</option>
-              <option value="china">China</option>
+              <option value="china">China Domestic</option>
+              <option value="qdii">QDII Global Access</option>
             </select>
           </div>
           <button
@@ -396,6 +398,40 @@ export function BounceDashboard() {
             <>
               <LeaderboardTable board={data.china} title="China Sector Leaderboard" />
               <Playbook board={data.china} />
+            </>
+          )}
+
+          {data.qdii && (
+            <>
+              <LeaderboardTable
+                board={data.qdii}
+                title="QDII Global Access — A-share listed ETFs tracking US/Global sectors"
+              />
+              <Playbook board={data.qdii} />
+              <section
+                className="mb-8 p-4 rounded-md text-sm"
+                style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+              >
+                <h3 className="font-semibold mb-2" style={{ color: "var(--fg)" }}>
+                  Why QDII?
+                </h3>
+                <p>
+                  Chinese mainland investors cannot directly buy SMH, XLK, QQQ, or other US-listed ETFs due to
+                  capital controls. QDII (Qualified Domestic Institutional Investor) funds wrap foreign assets
+                  into A-share tradable ETFs denominated in RMB. Use this table to find the A-share equivalent of
+                  any US sector leader. Benchmark here is <strong>513500 标普500</strong> (S&P 500 QDII).
+                </p>
+                <p className="mt-2">
+                  <strong>Examples:</strong> SMH → <code>513310</code> (中韩半导体) + <code>501225</code> (全球芯片) ·
+                  XLK → <code>159509</code> (纳指科技) · XLE → <code>159518</code> (标普油气) ·
+                  XBI → <code>159502</code> (标普生物科技) · GLD → <code>164701</code> (黄金LOF).
+                </p>
+                <p className="mt-2 text-xs opacity-75">
+                  Note: QDII ETFs often trade at premiums (场内价 &gt; IOPV) due to outbound capital quotas.
+                  Check IOPV premium on jisilu.cn before entering. LOF products may have sparse Yahoo data and
+                  can be skipped in the ranking.
+                </p>
+              </section>
             </>
           )}
 

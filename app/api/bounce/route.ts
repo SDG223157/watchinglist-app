@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const troughParam = url.searchParams.get("trough") || undefined;
     const day1Param = url.searchParams.get("day1") || undefined;
-    const marketParam = (url.searchParams.get("market") || "both") as "us" | "china" | "both";
+    const marketParam = (url.searchParams.get("market") || "all") as "us" | "china" | "qdii" | "both" | "all";
     const forceRefresh = url.searchParams.get("refresh") === "1";
 
     const cacheKey = `bounce:${marketParam}:${troughParam ?? "auto"}:${day1Param ?? "auto"}`;

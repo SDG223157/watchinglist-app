@@ -23,7 +23,7 @@ export interface BounceRow {
 }
 
 export interface BounceLeaderboard {
-  market: "us" | "china";
+  market: "us" | "china" | "qdii";
   benchmarkTicker: string;
   benchmarkTotalPct: number;
   troughDate: string;
@@ -38,6 +38,7 @@ export interface BounceResult {
   detectedAutomatically: boolean;
   us?: BounceLeaderboard;
   china?: BounceLeaderboard;
+  qdii?: BounceLeaderboard;
   crossMarketSync?: {
     usLeader: string;
     chinaLeader: string;
@@ -66,6 +67,60 @@ export const US_SECTORS: EtfSpec[] = [
   { ticker: "XLP",  name: "Cons Staples",     bucket: "Defensive" },
   { ticker: "XLU",  name: "Utilities",        bucket: "Defensive" },
   { ticker: "XLRE", name: "Real Estate",      bucket: "Defensive" },
+];
+
+// QDII / Cross-border ETF universe — A-share listed ETFs that give
+// Chinese mainland investors access to US, Europe, EM, Japan, and HK
+// sector leaders. All denominated in RMB. Source: jisilu.cn liquidity ranks.
+// Prioritized for ETF format over LOF where possible (LOFs often have
+// sparse Yahoo price data).
+export const QDII_SECTORS: EtfSpec[] = [
+  // Global Semis (SMH-equivalent access)
+  { ticker: "513310.SS", name: "中韩半导体 China-Korea Semi",    bucket: "Semis" },
+
+  // US Tech
+  { ticker: "159509.SZ", name: "纳指科技 Nasdaq Tech",           bucket: "US Tech" },
+  { ticker: "513730.SS", name: "东南亚科技 SE Asia Tech",        bucket: "SE Asia Tech" },
+
+  // US Broad
+  { ticker: "159941.SZ", name: "纳指ETF Nasdaq 100",             bucket: "US Broad" },
+  { ticker: "513100.SS", name: "纳指ETF Nasdaq 100",             bucket: "US Broad" },
+  { ticker: "513500.SS", name: "标普500 S&P 500",                bucket: "US Broad" },
+  { ticker: "513400.SS", name: "道琼斯 Dow Jones",               bucket: "US Value" },
+  { ticker: "159577.SZ", name: "美国50 US Top 50",               bucket: "US Broad" },
+
+  // US Sectors
+  { ticker: "159518.SZ", name: "标普油气 S&P Oil & Gas",         bucket: "US Energy" },
+  { ticker: "159502.SZ", name: "标普生物科技 S&P Biotech",       bucket: "US Biotech" },
+  { ticker: "513290.SS", name: "纳指生物科技 Nasdaq Biotech",    bucket: "US Biotech" },
+  { ticker: "159529.SZ", name: "标普消费 S&P Consumer",          bucket: "US Consumer" },
+
+  // Commodities
+  { ticker: "518880.SS", name: "黄金ETF Gold (华安)",            bucket: "Gold" },
+  { ticker: "159934.SZ", name: "黄金ETF Gold (易方达)",          bucket: "Gold" },
+
+  // Europe
+  { ticker: "159561.SZ", name: "德国 Germany DAX",               bucket: "Europe" },
+  { ticker: "513030.SS", name: "德国 Germany DAX",               bucket: "Europe" },
+  { ticker: "513080.SS", name: "法国 France CAC40",              bucket: "Europe" },
+
+  // Japan
+  { ticker: "513520.SS", name: "日经 Japan Nikkei 225",          bucket: "Japan" },
+  { ticker: "513880.SS", name: "日经225 Japan Nikkei 225",       bucket: "Japan" },
+
+  // Emerging Markets
+  { ticker: "520870.SS", name: "巴西 Brazil IBOVESPA",           bucket: "EM Brazil" },
+  { ticker: "159329.SZ", name: "沙特 Saudi FTSE",                bucket: "EM Saudi" },
+  { ticker: "159687.SZ", name: "亚太精选 Asia-Pacific",          bucket: "Asia-Pacific" },
+
+  // HK / China Internet (accessible via QDII / south-bound Connect)
+  { ticker: "513130.SS", name: "恒生科技 HS Tech",               bucket: "HK Tech" },
+  { ticker: "513180.SS", name: "恒生科技指数 HS Tech Index",     bucket: "HK Tech" },
+  { ticker: "513050.SS", name: "中概互联网 China Internet ADR",  bucket: "China Internet" },
+  { ticker: "513060.SS", name: "恒生医疗 HS Healthcare",         bucket: "HK Healthcare" },
+  { ticker: "520500.SS", name: "恒生创新药 HS Innovative Drugs", bucket: "HK Biotech" },
+  { ticker: "513120.SS", name: "港股创新药 HK Biotech",          bucket: "HK Biotech" },
+  { ticker: "513090.SS", name: "香港证券 HK Securities",         bucket: "HK Financials" },
 ];
 
 // China sector ETF universe (A-shares + HK)
@@ -167,7 +222,7 @@ async function computeLeaderboard(
   universe: EtfSpec[],
   troughDate: string,
   day1Date: string,
-  market: "us" | "china"
+  market: "us" | "china" | "qdii"
 ): Promise<BounceLeaderboard> {
   // Fetch 10 days before trough for safe lookup
   const start = new Date(troughDate);
@@ -222,7 +277,10 @@ async function computeLeaderboard(
     .map((r) => r.value)
     .filter((r): r is BounceRow => r !== null);
 
-  const benchmarkTicker = market === "us" ? "SPY" : "510300.SS";
+  const benchmarkTicker =
+    market === "us" ? "SPY" :
+    market === "china" ? "510300.SS" :
+    "513500.SS"; // QDII benchmark = 标普500
   const benchmark = rows.find((r) => r.ticker === benchmarkTicker);
   const benchmarkDay1 = benchmark?.day1Pct ?? 0;
   const benchmarkTotal = benchmark?.totalPct ?? 0;
@@ -247,9 +305,9 @@ async function computeLeaderboard(
 export async function runBounceAnalysis(opts: {
   troughDate?: string;
   day1Date?: string;
-  market?: "us" | "china" | "both";
+  market?: "us" | "china" | "qdii" | "both" | "all";
 }): Promise<BounceResult> {
-  const market = opts.market ?? "both";
+  const market = opts.market ?? "all";
   let troughDate = opts.troughDate;
   let day1Date = opts.day1Date;
   let auto = false;
@@ -268,11 +326,18 @@ export async function runBounceAnalysis(opts: {
     computedAt: new Date().toISOString(),
   };
 
-  if (market === "us" || market === "both") {
+  const includeUs = market === "us" || market === "both" || market === "all";
+  const includeChina = market === "china" || market === "both" || market === "all";
+  const includeQdii = market === "qdii" || market === "all";
+
+  if (includeUs) {
     result.us = await computeLeaderboard(US_SECTORS, troughDate, day1Date, "us");
   }
-  if (market === "china" || market === "both") {
+  if (includeChina) {
     result.china = await computeLeaderboard(CHINA_SECTORS, troughDate, day1Date, "china");
+  }
+  if (includeQdii) {
+    result.qdii = await computeLeaderboard(QDII_SECTORS, troughDate, day1Date, "qdii");
   }
 
   if (result.us && result.china) {
