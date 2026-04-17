@@ -36,6 +36,8 @@ export interface BounceLeaderboard {
 export interface BounceResult {
   troughDate: string;
   day1Date: string;
+  endDate?: string;        // effective cutoff date used (if set)
+  daysRequested?: number;  // requested days-since-trough window (if set)
   detectedAutomatically: boolean;
   us?: BounceLeaderboard;
   china?: BounceLeaderboard;
@@ -241,7 +243,8 @@ async function computeLeaderboard(
   universe: EtfSpec[],
   troughDate: string,
   day1Date: string,
-  market: "us" | "china" | "qdii"
+  market: "us" | "china" | "qdii",
+  endDate?: string
 ): Promise<BounceLeaderboard> {
   // Fetch 10 days before trough for safe lookup
   const start = new Date(troughDate);
@@ -255,11 +258,15 @@ async function computeLeaderboard(
 
       const troughBar = valueOnOrBefore(hist, troughDate);
       const day1Bar = valueOnOrBefore(hist, day1Date);
-      const latestBar = hist
-        .filter((b) => b.close != null)
-        .map((b) => ({ close: b.close!, date: dateKey(b.date) }))
-        .sort((a, b) => (a.date < b.date ? -1 : 1))
-        .slice(-1)[0];
+      // If endDate is specified, snap to the closest trading day <= endDate.
+      // Otherwise use the latest available bar.
+      const latestBar = endDate
+        ? valueOnOrBefore(hist, endDate)
+        : hist
+            .filter((b) => b.close != null)
+            .map((b) => ({ close: b.close!, date: dateKey(b.date) }))
+            .sort((a, b) => (a.date < b.date ? -1 : 1))
+            .slice(-1)[0];
 
       if (!troughBar || !day1Bar || !latestBar) return null;
 
@@ -324,6 +331,8 @@ async function computeLeaderboard(
 export async function runBounceAnalysis(opts: {
   troughDate?: string;
   day1Date?: string;
+  endDate?: string;     // explicit YYYY-MM-DD cutoff (takes precedence over days)
+  days?: number;        // N calendar days after trough — auto-computes endDate
   market?: "us" | "china" | "qdii" | "both" | "all";
 }): Promise<BounceResult> {
   const market = opts.market ?? "all";
@@ -338,9 +347,19 @@ export async function runBounceAnalysis(opts: {
     auto = true;
   }
 
+  // Resolve effective end date
+  let endDate = opts.endDate;
+  if (!endDate && typeof opts.days === "number" && opts.days > 0) {
+    const t = new Date(troughDate);
+    t.setDate(t.getDate() + opts.days);
+    endDate = t.toISOString().split("T")[0];
+  }
+
   const result: BounceResult = {
     troughDate,
     day1Date,
+    endDate,
+    daysRequested: opts.days,
     detectedAutomatically: auto,
     computedAt: new Date().toISOString(),
   };
@@ -350,13 +369,13 @@ export async function runBounceAnalysis(opts: {
   const includeQdii = market === "qdii" || market === "all";
 
   if (includeUs) {
-    result.us = await computeLeaderboard(US_SECTORS, troughDate, day1Date, "us");
+    result.us = await computeLeaderboard(US_SECTORS, troughDate, day1Date, "us", endDate);
   }
   if (includeChina) {
-    result.china = await computeLeaderboard(CHINA_SECTORS, troughDate, day1Date, "china");
+    result.china = await computeLeaderboard(CHINA_SECTORS, troughDate, day1Date, "china", endDate);
   }
   if (includeQdii) {
-    result.qdii = await computeLeaderboard(QDII_SECTORS, troughDate, day1Date, "qdii");
+    result.qdii = await computeLeaderboard(QDII_SECTORS, troughDate, day1Date, "qdii", endDate);
   }
 
   if (result.us && result.china) {

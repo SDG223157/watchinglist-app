@@ -42,6 +42,8 @@ interface CrossSync {
 interface BounceResult {
   troughDate: string;
   day1Date: string;
+  endDate?: string;
+  daysRequested?: number;
   detectedAutomatically: boolean;
   us?: Leaderboard;
   china?: Leaderboard;
@@ -254,13 +256,22 @@ export function BounceDashboard() {
   const [err, setErr] = useState<string | null>(null);
   const [trough, setTrough] = useState("");
   const [day1, setDay1] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [days, setDays] = useState<string>(""); // as string for input control
   const [market, setMarket] = useState<"us" | "china" | "qdii" | "all">("all");
   const [insights, setInsights] = useState<InsightsResponse | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsErr, setInsightsErr] = useState<string | null>(null);
 
   const load = useCallback(
-    async (t?: string, d?: string, m?: string, refresh = false) => {
+    async (
+      t?: string,
+      d?: string,
+      m?: string,
+      refresh = false,
+      end?: string,
+      dys?: string
+    ) => {
       setLoading(true);
       setErr(null);
       try {
@@ -268,6 +279,8 @@ export function BounceDashboard() {
         if (t) p.set("trough", t);
         if (d) p.set("day1", d);
         if (m) p.set("market", m);
+        if (end) p.set("end", end);
+        if (dys) p.set("days", dys);
         if (refresh) p.set("refresh", "1");
         const res = await fetch(`/api/bounce?${p.toString()}`);
         const j = await res.json();
@@ -277,6 +290,8 @@ export function BounceDashboard() {
           setTrough(j.troughDate);
           setDay1(j.day1Date);
         }
+        // reflect effective endDate in input if server computed it from days
+        if (j.endDate && !end) setEndDate(j.endDate);
       } catch (e) {
         setErr(String(e));
       } finally {
@@ -344,6 +359,39 @@ export function BounceDashboard() {
           </div>
           <div>
             <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>
+              End Date (optional)
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                if (e.target.value) setDays("");
+              }}
+              className="px-2 py-1 text-sm rounded-md bg-transparent"
+              style={{ border: "1px solid var(--border)", color: "var(--fg)" }}
+            />
+          </div>
+          <div>
+            <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>
+              Days since trough
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              placeholder="e.g. 10"
+              value={days}
+              onChange={(e) => {
+                setDays(e.target.value);
+                if (e.target.value) setEndDate("");
+              }}
+              className="px-2 py-1 text-sm rounded-md bg-transparent w-24"
+              style={{ border: "1px solid var(--border)", color: "var(--fg)" }}
+            />
+          </div>
+          <div>
+            <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>
               Market
             </label>
             <select
@@ -359,7 +407,16 @@ export function BounceDashboard() {
             </select>
           </div>
           <button
-            onClick={() => load(trough || undefined, day1 || undefined, market)}
+            onClick={() =>
+              load(
+                trough || undefined,
+                day1 || undefined,
+                market,
+                false,
+                endDate || undefined,
+                days || undefined
+              )
+            }
             disabled={loading}
             className="px-3 py-1.5 text-sm rounded-md"
             style={{ background: "var(--blue)", color: "#fff", opacity: loading ? 0.5 : 1 }}
@@ -370,6 +427,8 @@ export function BounceDashboard() {
             onClick={() => {
               setTrough("");
               setDay1("");
+              setEndDate("");
+              setDays("");
               load(undefined, undefined, market, true);
             }}
             disabled={loading}
@@ -379,8 +438,57 @@ export function BounceDashboard() {
             Auto-detect
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Quick windows:
+          </span>
+          {[1, 5, 10, 20, 60].map((n) => (
+            <button
+              key={n}
+              onClick={() => {
+                setDays(String(n));
+                setEndDate("");
+                load(
+                  trough || undefined,
+                  day1 || undefined,
+                  market,
+                  false,
+                  undefined,
+                  String(n)
+                );
+              }}
+              disabled={loading}
+              className="px-2 py-0.5 text-xs rounded-md"
+              style={{
+                background:
+                  days === String(n) ? "var(--blue)" : "var(--card)",
+                border: "1px solid var(--border)",
+                color: days === String(n) ? "#fff" : "var(--muted)",
+              }}
+            >
+              {n}d
+            </button>
+          ))}
+          <button
+            onClick={() => {
+              setDays("");
+              setEndDate("");
+              load(trough || undefined, day1 || undefined, market, false);
+            }}
+            disabled={loading}
+            className="px-2 py-0.5 text-xs rounded-md"
+            style={{
+              background: !days && !endDate ? "var(--blue)" : "var(--card)",
+              border: "1px solid var(--border)",
+              color: !days && !endDate ? "#fff" : "var(--muted)",
+            }}
+          >
+            Latest
+          </button>
+        </div>
         <p className="text-xs mt-3" style={{ color: "var(--muted)" }}>
           Leave dates blank and click Auto-detect to scan the last 45 trading days for the SPY low and first &gt;1% bounce day.
+          Use End Date or Days-since-trough to scope the period return (e.g. &quot;first 10 days of the bounce&quot;).
         </p>
       </section>
 
@@ -414,6 +522,17 @@ export function BounceDashboard() {
                 {data.day1Date}
               </span>
             </div>
+            {data.endDate && (
+              <div>
+                <span className="opacity-60">End:</span>{" "}
+                <span className="font-mono font-semibold" style={{ color: "var(--fg)" }}>
+                  {data.endDate}
+                </span>
+                {data.daysRequested && (
+                  <span className="opacity-60 ml-1">({data.daysRequested}d window)</span>
+                )}
+              </div>
+            )}
             {data.detectedAutomatically && (
               <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--blue)", color: "#fff" }}>
                 Auto-detected

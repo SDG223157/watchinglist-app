@@ -10,10 +10,13 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const troughParam = url.searchParams.get("trough") || undefined;
     const day1Param = url.searchParams.get("day1") || undefined;
+    const endParam = url.searchParams.get("end") || undefined;
+    const daysParam = url.searchParams.get("days");
+    const days = daysParam ? Number(daysParam) : undefined;
     const marketParam = (url.searchParams.get("market") || "all") as "us" | "china" | "qdii" | "both" | "all";
     const forceRefresh = url.searchParams.get("refresh") === "1";
 
-    const cacheKey = `bounce:${marketParam}:${troughParam ?? "auto"}:${day1Param ?? "auto"}`;
+    const cacheKey = `bounce:${marketParam}:${troughParam ?? "auto"}:${day1Param ?? "auto"}:${endParam ?? ""}:${days ?? ""}`;
 
     if (!forceRefresh) {
       const cached = await cacheGet<Awaited<ReturnType<typeof runBounceAnalysis>> & { source?: string }>(
@@ -30,6 +33,8 @@ export async function GET(req: Request) {
     const result = await runBounceAnalysis({
       troughDate: troughParam,
       day1Date: day1Param,
+      endDate: endParam,
+      days,
       market: marketParam,
     });
 

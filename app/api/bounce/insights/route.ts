@@ -17,9 +17,11 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const troughDate: string | undefined = body.trough;
     const day1Date: string | undefined = body.day1;
+    const endDate: string | undefined = body.end;
+    const days: number | undefined = typeof body.days === "number" ? body.days : undefined;
     const forceRefresh: boolean = body.refresh === true;
 
-    const cacheKey = `bounce-insights:${troughDate ?? "auto"}:${day1Date ?? "auto"}`;
+    const cacheKey = `bounce-insights:${troughDate ?? "auto"}:${day1Date ?? "auto"}:${endDate ?? ""}:${days ?? ""}`;
 
     if (!forceRefresh) {
       const cached = await cacheGet<BounceInsights & { source?: string }>(cacheKey);
@@ -35,6 +37,8 @@ export async function POST(req: Request) {
     const data = await runBounceAnalysis({
       troughDate,
       day1Date,
+      endDate,
+      days,
       market: "all",
     });
 
