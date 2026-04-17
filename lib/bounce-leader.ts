@@ -1,4 +1,5 @@
 import { cachedHistorical } from "./yf-cache";
+import { fetchEastmoneyAsYahooShape } from "./eastmoney";
 
 export interface EtfSpec {
   ticker: string;
@@ -70,28 +71,34 @@ export const US_SECTORS: EtfSpec[] = [
 ];
 
 // QDII / Cross-border ETF universe — A-share listed, RMB-denominated.
-// Deduplicated: one ETF per unique underlying (keeping the most liquid
-// ticker by jisilu.cn turnover). Chinese mainland investors can trade
-// these to follow US / Europe / Japan / EM / HK sector leaders without
-// a foreign brokerage.
+// Deduplicated: one product per unique underlying. LOFs tracked via
+// Eastmoney fallback (Yahoo doesn't have data for Shenzhen LOFs like
+// 161125-161128, 164824, 501225). All S&P-tracked 易方达 LOFs included
+// for comprehensive S&P sector coverage.
 export const QDII_SECTORS: EtfSpec[] = [
-  // Semis (only one QDII for semis)
+  // Semis
   { ticker: "513310.SS", name: "中韩半导体 China-Korea Semi",    bucket: "Semis" },
+  { ticker: "501225.SS", name: "全球芯片 Global Chip LOF",       bucket: "Semis" },
 
   // US Tech / Regional Tech
   { ticker: "159509.SZ", name: "纳指科技 Nasdaq Tech",           bucket: "US Tech" },
+  { ticker: "161128.SZ", name: "标普信息科技 S&P Info Tech LOF", bucket: "US Tech" },
   { ticker: "513730.SS", name: "东南亚科技 SE Asia Tech",        bucket: "SE Asia Tech" },
 
-  // US Broad — one per unique index
+  // US Broad — S&P, Nasdaq, Dow
   { ticker: "159941.SZ", name: "纳指ETF Nasdaq 100 (广发)",      bucket: "US Broad" },
-  { ticker: "513500.SS", name: "标普500 S&P 500",                bucket: "US Broad" },
+  { ticker: "513500.SS", name: "标普500 S&P 500 ETF",            bucket: "US Broad" },
+  { ticker: "161125.SZ", name: "标普500LOF S&P 500 LOF",         bucket: "US Broad" },
   { ticker: "513400.SS", name: "道琼斯 Dow Jones",               bucket: "US Value" },
   { ticker: "159577.SZ", name: "美国50 US Top 50",               bucket: "US Broad" },
 
-  // US Sectors — one per sector
+  // US Sectors — all S&P sector LOFs included
   { ticker: "159518.SZ", name: "标普油气 S&P Oil & Gas",         bucket: "US Energy" },
-  { ticker: "159502.SZ", name: "标普生物科技 S&P Biotech",       bucket: "US Biotech" },
+  { ticker: "159502.SZ", name: "标普生物科技 S&P Biotech ETF",   bucket: "US Biotech" },
+  { ticker: "161127.SZ", name: "标普生物科技 S&P Biotech LOF",   bucket: "US Biotech" },
+  { ticker: "161126.SZ", name: "标普医疗保健 S&P Healthcare LOF", bucket: "US Healthcare" },
   { ticker: "159529.SZ", name: "标普消费 S&P Consumer",          bucket: "US Consumer" },
+  { ticker: "160140.SZ", name: "美国REIT精选 US REITs LOF",      bucket: "US REITs" },
 
   // Commodities
   { ticker: "518880.SS", name: "黄金ETF Gold (华安)",            bucket: "Gold" },
@@ -106,6 +113,7 @@ export const QDII_SECTORS: EtfSpec[] = [
   // Emerging Markets — one per country / region
   { ticker: "520870.SS", name: "巴西 Brazil IBOVESPA",           bucket: "EM Brazil" },
   { ticker: "159329.SZ", name: "沙特 Saudi FTSE",                bucket: "EM Saudi" },
+  { ticker: "164824.SZ", name: "印度 India LOF",                 bucket: "EM India" },
   { ticker: "159687.SZ", name: "亚太精选 Asia-Pacific",          bucket: "Asia-Pacific" },
 
   // HK / China ADR — one per unique exposure
@@ -211,6 +219,24 @@ function classifyTier(row: BounceRow, benchmarkDay1: number, benchmarkTotal: num
   return "Laggard";
 }
 
+// Fetch history via Yahoo first; if insufficient and ticker is Chinese-listed,
+// fall back to Eastmoney (covers LOFs Yahoo doesn't track: 161128, 501225, etc.)
+async function fetchHistory(ticker: string, startStr: string): Promise<HistBar[]> {
+  const yh = (await cachedHistorical(ticker, startStr)) as HistBar[];
+  if (yh && yh.length >= 5) return yh;
+
+  const isChinese = /\.(SS|SZ|SH)$/i.test(ticker);
+  if (!isChinese) return yh ?? [];
+
+  try {
+    const em = await fetchEastmoneyAsYahooShape(ticker, startStr);
+    if (em && em.length >= 5) return em as HistBar[];
+  } catch {
+    // fallback failed, return whatever Yahoo gave us
+  }
+  return yh ?? [];
+}
+
 async function computeLeaderboard(
   universe: EtfSpec[],
   troughDate: string,
@@ -224,7 +250,7 @@ async function computeLeaderboard(
 
   const results = await Promise.allSettled(
     universe.map(async (etf) => {
-      const hist = (await cachedHistorical(etf.ticker, startStr)) as HistBar[];
+      const hist = await fetchHistory(etf.ticker, startStr);
       if (!hist || hist.length < 2) return null;
 
       const troughBar = valueOnOrBefore(hist, troughDate);
