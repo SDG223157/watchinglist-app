@@ -1284,6 +1284,76 @@ export default function PortfolioPage() {
 
       {recipeResult && !recipeResult.error && (
       <>
+        {/* Rebalance alert banner */}
+        {(() => {
+          const rot = recipeResult.rotation;
+          if (!rot) return null;
+          const actionableResized = rot.resized.filter((r) => Math.abs(r.deltaPp) >= 2);
+          const addedCount = rot.added.length;
+          const retiredCount = rot.retired.length;
+          const drift = actionableResized.length;
+          if (addedCount === 0 && retiredCount === 0 && drift === 0) {
+            return (
+              <div className="rounded-lg p-3 mb-4 flex items-center gap-3"
+                   style={{ background: "#0f1f12", border: "1px solid #14532d" }}>
+                <span className="text-lg" style={{ color: "#16a34a" }}>●</span>
+                <div className="text-xs" style={{ color: "#86efac" }}>
+                  <strong>No rebalance required.</strong> No new entries, no retirements,
+                  no positions drifted ≥ 2 pp. Hold through to the next weekly review.
+                </div>
+              </div>
+            );
+          }
+          const modeSwitch = addedCount + retiredCount >= 8 && drift < 2;
+          const severity = retiredCount > 0 ? "critical" : drift > 0 ? "warning" : "info";
+          const theme = severity === "critical"
+            ? { bg: "#2a1111", border: "#7f1d1d", dot: "#dc2626", text: "#fecaca", label: "CRITICAL" }
+            : severity === "warning"
+            ? { bg: "#1e1b11", border: "#b45309", dot: "#d97706", text: "#fcd34d", label: "WARNING" }
+            : { bg: "#0f1a24", border: "#1d4ed8", dot: "#3b82f6", text: "#bfdbfe", label: "NOTICE" };
+          return (
+            <div className="rounded-lg p-4 mb-4"
+                 style={{ background: theme.bg, border: `2px solid ${theme.border}` }}>
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-xl font-bold" style={{ color: theme.dot }}>●</span>
+                <div className="text-sm font-bold tracking-wide" style={{ color: theme.dot }}>
+                  REBALANCE ALERT — {theme.label}
+                </div>
+                <div className="text-xs" style={{ color: theme.text }}>
+                  {addedCount > 0 && <span className="mr-3">{addedCount} added</span>}
+                  {retiredCount > 0 && <span className="mr-3">{retiredCount} retired</span>}
+                  {drift > 0 && <span className="mr-3">{drift} drifted ≥ 2pp</span>}
+                </div>
+              </div>
+              <div className="text-xs leading-relaxed" style={{ color: theme.text }}>
+                {modeSwitch ? (
+                  <>
+                    <strong>Likely a mode switch</strong> (market filter or top-N change), not
+                    true drift. Keep the same filter and re-run after the next daily cron to see
+                    a real rebalance signal.
+                  </>
+                ) : severity === "critical" ? (
+                  <>
+                    Positions have been retired by the engine — their posterior μ collapsed or
+                    they fell below the 0.5 % floor. Review the retired list below and exit
+                    those positions at next open. Execute any adds in the same session.
+                  </>
+                ) : severity === "warning" ? (
+                  <>
+                    {drift} position(s) drifted ≥ 2 pp from target. Rebalance the
+                    highlighted rows at next open; leave sub-2 pp drift for the weekly review.
+                  </>
+                ) : (
+                  <>
+                    New entries only — no exits, no significant drift. Execute the additions at
+                    tactical weight (half-target) and reassess next week.
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
@@ -1336,16 +1406,28 @@ export default function PortfolioPage() {
             )}
             {recipeResult.rotation.resized.length > 0 && (
               <div className="text-xs">
-                <span className="text-zinc-400">Resized (|Δ| ≥ 1pp):</span>
+                <span className="text-zinc-400">
+                  Resized (|Δ| ≥ 1pp):{" "}
+                  <span className="text-zinc-500">
+                    bold = ≥ 2pp (actionable this week) · plain = 1–2pp (monitor)
+                  </span>
+                </span>
                 <div className="mt-1 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-0.5 font-mono">
-                  {recipeResult.rotation.resized.map((r) => (
-                    <div key={r.ticker}>
-                      {r.ticker} {(r.prevWeight * 100).toFixed(1)}% → {(r.newWeight * 100).toFixed(1)}%{" "}
-                      <span style={{ color: r.deltaPp > 0 ? "#16a34a" : "#dc2626" }}>
-                        ({r.deltaPp > 0 ? "+" : ""}{r.deltaPp.toFixed(1)}pp)
-                      </span>
-                    </div>
-                  ))}
+                  {recipeResult.rotation.resized.map((r) => {
+                    const actionable = Math.abs(r.deltaPp) >= 2;
+                    return (
+                      <div key={r.ticker}
+                           style={{
+                             fontWeight: actionable ? 700 : 400,
+                             color: actionable ? "#f5f5f4" : "#a1a1aa",
+                           }}>
+                        {r.ticker} {(r.prevWeight * 100).toFixed(1)}% → {(r.newWeight * 100).toFixed(1)}%{" "}
+                        <span style={{ color: r.deltaPp > 0 ? "#16a34a" : "#dc2626" }}>
+                          ({r.deltaPp > 0 ? "+" : ""}{r.deltaPp.toFixed(1)}pp)
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
