@@ -14,7 +14,53 @@ const MARKETS = [
   { value: "CN", label: "A-Shares (CSI300)" },
 ];
 
-type Tab = "stocks" | "sectors" | "macro" | "entropy" | "wse";
+type Tab = "stocks" | "sectors" | "macro" | "entropy" | "wse" | "recipe";
+
+type RecipeTier = "anchor" | "follower" | "tactical" | "trim";
+
+interface RecipePosition {
+  ticker: string;
+  name: string;
+  sector: string;
+  market: string;
+  score: number;
+  action: string;
+  priorMu: number;
+  posteriorMu: number;
+  bayesDiscount: number;
+  leaderScore: number;
+  kellyFull: number;
+  quarterKelly: number;
+  weight: number;
+  tier: RecipeTier;
+  trailing60d: number;
+  trailing1y: number;
+  price: number;
+  amount: number;
+  shares: number;
+}
+
+interface RecipeRotation {
+  added: string[];
+  retired: { ticker: string; reason: string; prevWeight: number }[];
+  resized: { ticker: string; prevWeight: number; newWeight: number; deltaPp: number }[];
+}
+
+interface RecipeResult {
+  asOf: string;
+  market: string;
+  universeSize: number;
+  topN: number;
+  invested: number;
+  cashReserve: number;
+  leaderThreshold: number;
+  capital: number;
+  positions: RecipePosition[];
+  sectorSummary: { sector: string; weight: number }[];
+  tierSummary: { tier: RecipeTier | "cash"; count: number; weight: number }[];
+  rotation: RecipeRotation | null;
+  error?: string;
+}
 
 interface EntropyHolding {
   symbol: string; name: string; sector: string; price: number;
@@ -355,7 +401,48 @@ export default function PortfolioPage() {
   const [sectorWSE, setSectorWSE] = useState<SectorWSEResult | null>(null);
   const [useWSEMacro, setUseWSEMacro] = useState(false);
   const [useWSESector, setUseWSESector] = useState(false);
+  const [recipeResult, setRecipeResult] = useState<RecipeResult | null>(null);
+  const [recipeLoading, setRecipeLoading] = useState(false);
+  const [recipeTopN, setRecipeTopN] = useState(30);
   const [error, setError] = useState("");
+
+  async function buildRecipe() {
+    setRecipeLoading(true);
+    setError("");
+    try {
+      const body: {
+        market: string;
+        topN: number;
+        capital: number;
+        previousHoldings?: { ticker: string; weight: number }[];
+      } = {
+        market: market === "China" ? "CHINA" : market,
+        topN: recipeTopN,
+        capital,
+      };
+      if (recipeResult?.positions?.length) {
+        body.previousHoldings = recipeResult.positions.map((p) => ({
+          ticker: p.ticker,
+          weight: p.weight,
+        }));
+      }
+      const res = await fetch("/api/recipe-portfolio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as RecipeResult;
+      if (!res.ok) {
+        setError(json.error || "Recipe build failed");
+        return;
+      }
+      setRecipeResult(json);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRecipeLoading(false);
+    }
+  }
 
   async function build() {
     setLoading(true);
@@ -501,7 +588,7 @@ export default function PortfolioPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6">
-        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["wse", "WSE Optimizer"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
+        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["wse", "WSE Optimizer"], ["recipe", "Recipe Portfolio"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -1134,6 +1221,249 @@ export default function PortfolioPage() {
           </table>
         </div>
         </>
+      )}
+      </>}
+
+      {/* ===== RECIPE PORTFOLIO TAB ===== */}
+      {tab === "recipe" && <>
+      <div
+        className="rounded-lg p-4 mb-6 flex flex-wrap items-end gap-4"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Capital ($)</label>
+          <input
+            type="number"
+            value={capital}
+            onChange={(e) => setCapital(Number(e.target.value))}
+            className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Market</label>
+          <select
+            value={market}
+            onChange={(e) => setMarket(e.target.value)}
+            className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          >
+            {MARKETS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Top-N</label>
+          <input
+            type="number"
+            min={5}
+            max={50}
+            value={recipeTopN}
+            onChange={(e) => setRecipeTopN(Number(e.target.value))}
+            className="w-24 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          />
+        </div>
+        <button
+          onClick={buildRecipe}
+          disabled={recipeLoading}
+          className="px-5 py-2 rounded-md text-sm font-semibold transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50"
+          style={{ background: "#2563eb", color: "#fff" }}
+        >
+          {recipeLoading ? (
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Building Recipe Portfolio...
+            </span>
+          ) : recipeResult ? "Re-run (diff)" : "Build Recipe Portfolio"}
+        </button>
+        <div className="text-[11px] text-zinc-500 max-w-xl">
+          Bayesian prior (composite score) + posterior on 2y returns →
+          Ledoit-Wolf-shrunk vector Kelly × ¼ → 7% / 30% / 20% cap stack.
+          Leader score = Schreiber (2000) Transfer Entropy into the held book.
+        </div>
+      </div>
+
+      {recipeResult && !recipeResult.error && (
+      <>
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">As of</div>
+            <div className="text-lg font-mono font-bold mt-1">{recipeResult.asOf}</div>
+            <div className="text-[10px] text-zinc-500 mt-0.5">market: {recipeResult.market}</div>
+          </div>
+          <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Universe</div>
+            <div className="text-lg font-bold mt-1">{recipeResult.universeSize}</div>
+            <div className="text-[10px] text-zinc-500 mt-0.5">actionable names</div>
+          </div>
+          <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Invested</div>
+            <div className="text-lg font-bold mt-1" style={{ color: "#16a34a" }}>{(recipeResult.invested * 100).toFixed(1)}%</div>
+            <div className="text-[10px] text-zinc-500 mt-0.5">${fmt(recipeResult.invested * recipeResult.capital)}</div>
+          </div>
+          <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Cash reserve</div>
+            <div className="text-lg font-bold mt-1" style={{ color: "#d97706" }}>{(recipeResult.cashReserve * 100).toFixed(1)}%</div>
+            <div className="text-[10px] text-zinc-500 mt-0.5">${fmt(recipeResult.cashReserve * recipeResult.capital)}</div>
+          </div>
+          <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">TE threshold</div>
+            <div className="text-lg font-mono font-bold mt-1">{recipeResult.leaderThreshold.toFixed(4)}</div>
+            <div className="text-[10px] text-zinc-500 mt-0.5">median of held book</div>
+          </div>
+        </div>
+
+        {/* Rotation diff */}
+        {recipeResult.rotation && (
+          (recipeResult.rotation.added.length > 0 ||
+           recipeResult.rotation.retired.length > 0 ||
+           recipeResult.rotation.resized.length > 0) && (
+          <div className="rounded-lg p-4 mb-6" style={{ background: "#1e1b11", border: "1px solid #b45309" }}>
+            <div className="text-sm font-bold mb-2" style={{ color: "#d97706" }}>Rotation vs previous run</div>
+            {recipeResult.rotation.added.length > 0 && (
+              <div className="text-xs mb-1">
+                <span className="text-zinc-400">Added:</span>{" "}
+                <span className="font-mono" style={{ color: "#16a34a" }}>{recipeResult.rotation.added.join(", ")}</span>
+              </div>
+            )}
+            {recipeResult.rotation.retired.length > 0 && (
+              <div className="text-xs mb-1">
+                <span className="text-zinc-400">Retired:</span>{" "}
+                <span className="font-mono" style={{ color: "#dc2626" }}>
+                  {recipeResult.rotation.retired.map((r) => `${r.ticker} (${(r.prevWeight * 100).toFixed(1)}%)`).join(", ")}
+                </span>
+              </div>
+            )}
+            {recipeResult.rotation.resized.length > 0 && (
+              <div className="text-xs">
+                <span className="text-zinc-400">Resized (|Δ| ≥ 1pp):</span>
+                <div className="mt-1 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-0.5 font-mono">
+                  {recipeResult.rotation.resized.map((r) => (
+                    <div key={r.ticker}>
+                      {r.ticker} {(r.prevWeight * 100).toFixed(1)}% → {(r.newWeight * 100).toFixed(1)}%{" "}
+                      <span style={{ color: r.deltaPp > 0 ? "#16a34a" : "#dc2626" }}>
+                        ({r.deltaPp > 0 ? "+" : ""}{r.deltaPp.toFixed(1)}pp)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          )
+        )}
+
+        {/* Tier + sector summary side-by-side */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-sm font-semibold mb-2">Tier summary</div>
+            <div className="space-y-1">
+              {recipeResult.tierSummary.map((t) => {
+                const col =
+                  t.tier === "anchor" ? "#2563eb"
+                  : t.tier === "follower" ? "#059669"
+                  : t.tier === "tactical" ? "#d97706"
+                  : t.tier === "trim" ? "#71717a"
+                  : "#6b7280";
+                return (
+                  <div key={t.tier} className="flex items-center justify-between text-xs">
+                    <span className="font-mono uppercase" style={{ color: col }}>{t.tier}</span>
+                    <span className="text-zinc-500">{t.count} names</span>
+                    <span className="font-mono font-semibold">{(t.weight * 100).toFixed(2)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-sm font-semibold mb-2">Sector summary</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+              {recipeResult.sectorSummary.filter((s) => s.weight > 0).map((s) => (
+                <div key={s.sector} className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-400">{s.sector}</span>
+                  <span className="font-mono font-semibold" style={{ color: s.weight >= 0.25 ? "#d97706" : "#059669" }}>
+                    {(s.weight * 100).toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Allocation table */}
+        <div className="overflow-x-auto rounded-lg" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left" style={{ color: "var(--muted)", background: "var(--card-hover)" }}>
+                <th className="px-3 py-2">#</th>
+                <th className="px-3 py-2">Ticker</th>
+                <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">Sector</th>
+                <th className="px-3 py-2 text-center">Mkt</th>
+                <th className="px-3 py-2 text-right">Score</th>
+                <th className="px-3 py-2">Action</th>
+                <th className="px-3 py-2 text-right">μ prior</th>
+                <th className="px-3 py-2 text-right">μ post</th>
+                <th className="px-3 py-2 text-right">TE</th>
+                <th className="px-3 py-2 text-center">Tier</th>
+                <th className="px-3 py-2 text-right">Weight</th>
+                <th className="px-3 py-2 text-right">$</th>
+                <th className="px-3 py-2 text-right">Shares</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recipeResult.positions.map((p, i) => {
+                const tierCol =
+                  p.tier === "anchor" ? "#2563eb"
+                  : p.tier === "follower" ? "#059669"
+                  : p.tier === "tactical" ? "#d97706"
+                  : "#71717a";
+                return (
+                  <tr key={p.ticker} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card-hover)" }}>
+                    <td className="px-3 py-2 text-zinc-500">{i + 1}</td>
+                    <td className="px-3 py-2 font-mono font-bold">
+                      <Link href={`/stock/${p.ticker}`} className="hover:underline">{p.ticker}</Link>
+                    </td>
+                    <td className="px-3 py-2 truncate max-w-[180px]" title={p.name}>{p.name}</td>
+                    <td className="px-3 py-2 text-zinc-400 text-[11px]">{p.sector}</td>
+                    <td className="px-3 py-2 text-center text-zinc-400 text-[11px]">{p.market}</td>
+                    <td className="px-3 py-2 text-right font-mono">{p.score}</td>
+                    <td className="px-3 py-2 text-[11px] text-zinc-400 truncate max-w-[120px]" title={p.action}>{p.action}</td>
+                    <td className="px-3 py-2 text-right font-mono text-zinc-500">{(p.priorMu * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2 text-right font-mono" style={{ color: p.posteriorMu > 0 ? "#16a34a" : "#dc2626" }}>
+                      {(p.posteriorMu * 100).toFixed(1)}%
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{p.leaderScore.toFixed(3)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
+                            style={{ color: tierCol, background: `${tierCol}20` }}>
+                        {p.tier}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-bold">{(p.weight * 100).toFixed(2)}%</td>
+                    <td className="px-3 py-2 text-right font-mono text-zinc-400">${fmt(p.amount)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{fmt(p.shares)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="text-[11px] text-zinc-500 mt-3 max-w-4xl leading-relaxed">
+          <strong>Read the table:</strong> μ posterior is the Bayesian blend of the fundamental score-implied prior
+          with observed 2y excess returns. TE is Schreiber-style information flow from the name into the rest of the book;
+          anchor tier requires both weight ≥ 5.5% and TE above the median of the held book. Shares are floor-rounded to
+          the nearest whole share; for A-share and HK lot sizing, round down further at execution.
+        </div>
+      </>
+      )}
+
+      {recipeResult?.error && (
+        <div className="rounded-lg p-4 mb-6" style={{ background: "#2a1111", border: "1px solid #7f1d1d", color: "#fecaca" }}>
+          <div className="text-sm font-semibold">Recipe build failed</div>
+          <div className="text-xs mt-1">{recipeResult.error}</div>
+        </div>
       )}
       </>}
     </main>
