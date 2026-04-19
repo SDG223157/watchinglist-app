@@ -1279,6 +1279,9 @@ export default function PortfolioPage() {
           Bayesian prior (composite score) + posterior on 2y returns →
           Ledoit-Wolf-shrunk vector Kelly × ¼ → 7% / 30% / 20% cap stack.
           Leader score = Schreiber (2000) Transfer Entropy into the held book.
+          <Link href="/portfolio/docs/recipe" className="ml-2 underline hover:text-blue-400">
+            Docs →
+          </Link>
         </div>
       </div>
 
