@@ -25,8 +25,11 @@ interface AllocationResponse {
   polymarketOverlay?: {
     lambda: number;
     symbolsWithTilt: number;
+    symbolsLive: number;
     maxAbsZ: number;
+    maxAbsZLive: number;
     sumAbsZWeightedPct: number;
+    sumAbsZLiveWeightedPct: number;
   };
   error?: string;
 }
@@ -43,23 +46,41 @@ function money(n: number): string {
 
 function PolymarketBadge({
   z,
+  zLive,
   reason,
 }: {
   z: number | undefined;
+  zLive: number | undefined;
   reason: string | null | undefined;
 }) {
   if (z === undefined || Math.abs(z) < 0.05) return null;
-  const bullish = z > 0;
-  const bg = bullish ? "#15803d20" : "#b9122620";
-  const fg = bullish ? "#4ade80" : "#f87171";
+  const isLive = zLive !== undefined && Math.abs(zLive) > 1e-6;
+  const bullish = (isLive ? (zLive as number) : z) > 0;
+  // Live (governance-promoted) names get a saturated color; shadow (z only)
+  // names get a muted variant so you can see the overlay's footprint at a glance.
+  const bg = isLive
+    ? bullish ? "#15803d35" : "#b9122635"
+    : bullish ? "#15803d15" : "#b9122615";
+  const fg = isLive
+    ? bullish ? "#4ade80" : "#f87171"
+    : bullish ? "#4ade8080" : "#f8717180";
   const label = `${bullish ? "+" : ""}${z.toFixed(2)}`;
+  const liveLabel =
+    isLive && zLive !== undefined
+      ? ` ${zLive > 0 ? "+" : ""}${zLive.toFixed(2)}*`
+      : "";
   return (
     <span
       className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
       style={{ background: bg, color: fg }}
-      title={reason || "Polymarket tilt"}
+      title={
+        isLive
+          ? `${reason || "Polymarket tilt"}\nGovernance-promoted (z_live = ${zLive?.toFixed(3)})`
+          : `${reason || "Polymarket tilt"}\nShadow — no live mapping for this symbol`
+      }
     >
       Poly {label}
+      {liveLabel}
     </span>
   );
 }
@@ -71,7 +92,8 @@ function PolymarketOverlayPanel({
 }) {
   if (!overlay || overlay.symbolsWithTilt === 0) return null;
   const shadow = overlay.lambda === 0;
-  const tone = shadow
+  const hasLive = overlay.symbolsLive > 0;
+  const tone = shadow || !hasLive
     ? { border: "border-zinc-800", bg: "bg-zinc-900/40", fg: "text-zinc-400" }
     : { border: "border-sky-900", bg: "bg-sky-950/30", fg: "text-sky-300" };
   return (
@@ -83,19 +105,31 @@ function PolymarketOverlayPanel({
       </span>
       <span>
         λ = <span className="font-mono">{overlay.lambda.toFixed(2)}</span>
-        {shadow ? " (shadow, ignored)" : " (live)"}
+        {shadow
+          ? " (shadow kill-switch, ignored)"
+          : hasLive
+            ? " (live)"
+            : " (armed, no live mappings today)"}
       </span>
       <span>
-        Tilted names:{" "}
+        Shadow names:{" "}
         <span className="font-mono">{overlay.symbolsWithTilt}</span>
+      </span>
+      <span>
+        Live names:{" "}
+        <span className="font-mono">{overlay.symbolsLive}</span>
       </span>
       <span>
         Max |z|: <span className="font-mono">{overlay.maxAbsZ.toFixed(2)}</span>
       </span>
       <span>
-        Σ |z|·w:{" "}
+        Max |z_live|:{" "}
+        <span className="font-mono">{overlay.maxAbsZLive.toFixed(2)}</span>
+      </span>
+      <span>
+        Σ |z_live|·w:{" "}
         <span className="font-mono">
-          {overlay.sumAbsZWeightedPct.toFixed(2)}
+          {overlay.sumAbsZLiveWeightedPct.toFixed(3)}
         </span>
       </span>
     </div>
@@ -284,6 +318,7 @@ function AllocationTable({
               <td className="px-2 py-1.5">
                 <PolymarketBadge
                   z={p.polymarketZ}
+                  zLive={p.polymarketZLive}
                   reason={p.polymarketTopReason}
                 />
               </td>

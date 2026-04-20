@@ -65,6 +65,7 @@ export interface RecipePosition {
   trailing60d: number;
   trailing1y: number;
   polymarketZ?: number;
+  polymarketZLive?: number;
   polymarketTopReason?: string | null;
   polymarketDeltaMuPrior?: number;
 }
@@ -91,8 +92,11 @@ export interface RecipeAllocation {
   polymarketOverlay?: {
     lambda: number;
     symbolsWithTilt: number;
+    symbolsLive: number;
     maxAbsZ: number;
+    maxAbsZLive: number;
     sumAbsZWeightedPct: number;
+    sumAbsZLiveWeightedPct: number;
   };
 }
 
@@ -625,19 +629,20 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
   const scores = tickers.map((t) => Number(meta.get(t)?.composite_score || 50));
   const sectors = tickers.map((t) => normalizeSector(meta.get(t)?.sector || ""));
 
-  // Polymarket overlay — per-ticker Δμ_prior = lambda * slope * z.
-  // Default lambda = 0 is shadow mode: tilts are surfaced in the response
-  // but do not change the prior, so weights are identical to the pre-overlay
-  // allocation until a mapping earns promotion via the backtest gate.
+  // Polymarket overlay — per-ticker Δμ_prior = lambda * slope * z_live.
+  // z_live is already per-mapping governance-weighted by the producer, so
+  // `lambda` here is a simple global kill-switch in [0, 1]: 0 = shadow
+  // (default, no nudge), 1 = trust governance fully. Missing tilts or a
+  // zero-z_live (no promoted mapping for this symbol) produce no delta.
   const pmLambda = Math.max(
     0,
-    Math.min(0.25, input.polymarketLambda ?? 0)
+    Math.min(1, input.polymarketLambda ?? 0)
   );
   const pmTilts: PolymarketTiltMap = input.polymarketTilts || {};
   const polymarketDeltas = tickers.map((t) => {
     const tilt = pmTilts[t];
     if (!tilt) return 0;
-    return pmLambda * POLYMARKET_PRIOR_SLOPE * tilt.z;
+    return pmLambda * POLYMARKET_PRIOR_SLOPE * tilt.z_live;
   });
 
   // Bayes blend μ (with Polymarket prior nudge folded in)
@@ -702,6 +707,7 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
       trailing60d: Math.exp(trailing60d) - 1,
       trailing1y: Math.exp(trailing1y) - 1,
       polymarketZ: tilt ? tilt.z : undefined,
+      polymarketZLive: tilt ? tilt.z_live : undefined,
       polymarketTopReason: tilt ? tilt.top_reason : undefined,
       polymarketDeltaMuPrior: tilt ? polymarketDeltas[i] : undefined,
     };
@@ -739,10 +745,14 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
 
   const invested = top.reduce((a, p) => a + p.weight, 0);
 
-  // Polymarket overlay summary — how much is the overlay moving the book?
+  // Polymarket overlay summary — separates the shadow view (z, all mappings)
+  // from the live view (z_live, only governance-promoted mappings).
   let symbolsWithTilt = 0;
+  let symbolsLive = 0;
   let maxAbsZ = 0;
+  let maxAbsZLive = 0;
   let sumAbsZWeighted = 0;
+  let sumAbsZLiveWeighted = 0;
   for (const p of top) {
     if (p.polymarketZ !== undefined) {
       symbolsWithTilt += 1;
@@ -750,12 +760,21 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
       if (az > maxAbsZ) maxAbsZ = az;
       sumAbsZWeighted += az * p.weight;
     }
+    if (p.polymarketZLive !== undefined && Math.abs(p.polymarketZLive) > 1e-6) {
+      symbolsLive += 1;
+      const azl = Math.abs(p.polymarketZLive);
+      if (azl > maxAbsZLive) maxAbsZLive = azl;
+      sumAbsZLiveWeighted += azl * p.weight;
+    }
   }
   const polymarketOverlay = {
     lambda: pmLambda,
     symbolsWithTilt,
+    symbolsLive,
     maxAbsZ,
+    maxAbsZLive,
     sumAbsZWeightedPct: sumAbsZWeighted,
+    sumAbsZLiveWeightedPct: sumAbsZLiveWeighted,
   };
 
   return {
