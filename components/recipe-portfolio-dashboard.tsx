@@ -22,6 +22,12 @@ interface AllocationResponse {
   sectorSummary: { sector: string; weight: number }[];
   tierSummary: { tier: Tier | "cash"; count: number; weight: number }[];
   rotation: RotationDiff | null;
+  polymarketOverlay?: {
+    lambda: number;
+    symbolsWithTilt: number;
+    maxAbsZ: number;
+    sumAbsZWeightedPct: number;
+  };
   error?: string;
 }
 
@@ -33,6 +39,67 @@ function pct(n: number, d = 2): string {
 
 function money(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+function PolymarketBadge({
+  z,
+  reason,
+}: {
+  z: number | undefined;
+  reason: string | null | undefined;
+}) {
+  if (z === undefined || Math.abs(z) < 0.05) return null;
+  const bullish = z > 0;
+  const bg = bullish ? "#15803d20" : "#b9122620";
+  const fg = bullish ? "#4ade80" : "#f87171";
+  const label = `${bullish ? "+" : ""}${z.toFixed(2)}`;
+  return (
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
+      style={{ background: bg, color: fg }}
+      title={reason || "Polymarket tilt"}
+    >
+      Poly {label}
+    </span>
+  );
+}
+
+function PolymarketOverlayPanel({
+  overlay,
+}: {
+  overlay: AllocationResponse["polymarketOverlay"];
+}) {
+  if (!overlay || overlay.symbolsWithTilt === 0) return null;
+  const shadow = overlay.lambda === 0;
+  const tone = shadow
+    ? { border: "border-zinc-800", bg: "bg-zinc-900/40", fg: "text-zinc-400" }
+    : { border: "border-sky-900", bg: "bg-sky-950/30", fg: "text-sky-300" };
+  return (
+    <div
+      className={`rounded border ${tone.border} ${tone.bg} p-3 text-[12px] ${tone.fg} flex flex-wrap gap-x-6 gap-y-1 items-center`}
+    >
+      <span className="font-semibold tracking-wider uppercase text-[11px]">
+        Polymarket overlay
+      </span>
+      <span>
+        λ = <span className="font-mono">{overlay.lambda.toFixed(2)}</span>
+        {shadow ? " (shadow, ignored)" : " (live)"}
+      </span>
+      <span>
+        Tilted names:{" "}
+        <span className="font-mono">{overlay.symbolsWithTilt}</span>
+      </span>
+      <span>
+        Max |z|: <span className="font-mono">{overlay.maxAbsZ.toFixed(2)}</span>
+      </span>
+      <span>
+        Σ |z|·w:{" "}
+        <span className="font-mono">
+          {overlay.sumAbsZWeightedPct.toFixed(2)}
+        </span>
+      </span>
+    </div>
+  );
 }
 
 function TierBadge({ tier }: { tier: Tier | "cash" }) {
@@ -167,6 +234,7 @@ function AllocationTable({
             <th className="px-2 py-2 text-right">60d</th>
             <th className="px-2 py-2 text-right">TE</th>
             <th className="px-2 py-2 text-left">Tier</th>
+            <th className="px-2 py-2 text-left">Poly</th>
             <th className="px-2 py-2 text-right">Weight</th>
             <th className="px-2 py-2 text-right">$</th>
             <th className="px-2 py-2 text-right">Sh</th>
@@ -212,6 +280,12 @@ function AllocationTable({
               </td>
               <td className="px-2 py-1.5">
                 <TierBadge tier={p.tier} />
+              </td>
+              <td className="px-2 py-1.5">
+                <PolymarketBadge
+                  z={p.polymarketZ}
+                  reason={p.polymarketTopReason}
+                />
               </td>
               <td className="px-2 py-1.5 text-right font-semibold text-zinc-100">
                 {p.weight > 0 ? pct(p.weight, 2) : "—"}
@@ -450,6 +524,7 @@ export default function RecipePortfolioDashboard() {
             </div>
           </div>
 
+          <PolymarketOverlayPanel overlay={data.polymarketOverlay} />
           <RotationPanel rotation={data.rotation} />
           <SectorSummary data={data} />
           <AllocationTable data={data} />

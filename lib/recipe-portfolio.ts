@@ -16,6 +16,8 @@
  */
 
 import type { WatchlistStock } from "./db";
+import type { PolymarketTiltMap } from "./polymarket-tilts";
+import { POLYMARKET_PRIOR_SLOPE } from "./polymarket-tilts";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -62,6 +64,9 @@ export interface RecipePosition {
   tier: Tier;
   trailing60d: number;
   trailing1y: number;
+  polymarketZ?: number;
+  polymarketTopReason?: string | null;
+  polymarketDeltaMuPrior?: number;
 }
 
 export interface RotationDiff {
@@ -83,6 +88,12 @@ export interface RecipeAllocation {
   tierSummary: { tier: Tier | "cash"; count: number; weight: number }[];
   rotation: RotationDiff | null;
   config: Config;
+  polymarketOverlay?: {
+    lambda: number;
+    symbolsWithTilt: number;
+    maxAbsZ: number;
+    sumAbsZWeightedPct: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -424,10 +435,14 @@ function leaderScores(returns: number[][]): number[] {
 function blendedMu(
   returns: number[][],
   scores: number[],
-  cfg: Config
+  cfg: Config,
+  polymarketDeltas?: number[]
 ): { mu: number[]; prior: number[]; obs: number[] } {
   const rfDaily = cfg.riskFreeAnnual / 252;
-  const prior = scores.map((s) => (s - 50) * cfg.priorSlope);
+  const priorBase = scores.map((s) => (s - 50) * cfg.priorSlope);
+  const prior = polymarketDeltas
+    ? priorBase.map((p, i) => p + (polymarketDeltas[i] || 0))
+    : priorBase;
   const obs = returns.map((r) => (mean(r) - rfDaily) * 252);
   const nObs = returns[0].length;
   const pp = cfg.priorConfidenceDays;
@@ -578,6 +593,8 @@ export interface BuildInput {
   topN?: number;
   previousHoldings?: { ticker: string; weight: number; trailing60d?: number }[];
   cfg?: Partial<Config>;
+  polymarketTilts?: PolymarketTiltMap;
+  polymarketLambda?: number;
 }
 
 export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
@@ -608,8 +625,28 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
   const scores = tickers.map((t) => Number(meta.get(t)?.composite_score || 50));
   const sectors = tickers.map((t) => normalizeSector(meta.get(t)?.sector || ""));
 
-  // Bayes blend μ
-  const { mu, prior, obs } = blendedMu(returns, scores, cfg);
+  // Polymarket overlay — per-ticker Δμ_prior = lambda * slope * z.
+  // Default lambda = 0 is shadow mode: tilts are surfaced in the response
+  // but do not change the prior, so weights are identical to the pre-overlay
+  // allocation until a mapping earns promotion via the backtest gate.
+  const pmLambda = Math.max(
+    0,
+    Math.min(0.25, input.polymarketLambda ?? 0)
+  );
+  const pmTilts: PolymarketTiltMap = input.polymarketTilts || {};
+  const polymarketDeltas = tickers.map((t) => {
+    const tilt = pmTilts[t];
+    if (!tilt) return 0;
+    return pmLambda * POLYMARKET_PRIOR_SLOPE * tilt.z;
+  });
+
+  // Bayes blend μ (with Polymarket prior nudge folded in)
+  const { mu, prior, obs } = blendedMu(
+    returns,
+    scores,
+    cfg,
+    polymarketDeltas
+  );
 
   // Shrunk covariance
   const { cov, correl } = ledoitWolfCovariance(returns);
@@ -646,6 +683,7 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
     const trailing60d = ret.slice(-60).reduce((a, b) => a + b, 0);
     const trailing1y = ret.slice(-252).reduce((a, b) => a + b, 0);
     const s = meta.get(t)!;
+    const tilt = pmTilts[t];
     return {
       ticker: t,
       name: s.name,
@@ -663,6 +701,9 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
       tier: assignTier(capped[i], leaders[i], threshold),
       trailing60d: Math.exp(trailing60d) - 1,
       trailing1y: Math.exp(trailing1y) - 1,
+      polymarketZ: tilt ? tilt.z : undefined,
+      polymarketTopReason: tilt ? tilt.top_reason : undefined,
+      polymarketDeltaMuPrior: tilt ? polymarketDeltas[i] : undefined,
     };
   });
   positions.sort((a, b) => b.weight - a.weight);
@@ -697,6 +738,26 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
   const rotation = computeRotation(positions, input.previousHoldings, cfg);
 
   const invested = top.reduce((a, p) => a + p.weight, 0);
+
+  // Polymarket overlay summary — how much is the overlay moving the book?
+  let symbolsWithTilt = 0;
+  let maxAbsZ = 0;
+  let sumAbsZWeighted = 0;
+  for (const p of top) {
+    if (p.polymarketZ !== undefined) {
+      symbolsWithTilt += 1;
+      const az = Math.abs(p.polymarketZ);
+      if (az > maxAbsZ) maxAbsZ = az;
+      sumAbsZWeighted += az * p.weight;
+    }
+  }
+  const polymarketOverlay = {
+    lambda: pmLambda,
+    symbolsWithTilt,
+    maxAbsZ,
+    sumAbsZWeightedPct: sumAbsZWeighted,
+  };
+
   return {
     asOf: new Date().toISOString().slice(0, 10),
     market: input.market,
@@ -710,6 +771,7 @@ export function buildRecipeAllocation(input: BuildInput): RecipeAllocation {
     tierSummary,
     rotation,
     config: cfg,
+    polymarketOverlay,
   };
 }
 

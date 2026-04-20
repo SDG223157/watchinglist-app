@@ -7,6 +7,10 @@ import {
   type RecipeAllocation,
 } from "@/lib/recipe-portfolio";
 import { cachedHistorical } from "@/lib/yf-cache";
+import {
+  fetchTiltsForToday,
+  getPolymarketLambda,
+} from "@/lib/polymarket-tilts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -99,8 +103,14 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // 2. Pull 2Y daily history (cached)
-  const priceHistory = await fetchPriceHistory(actionable.map((s) => s.symbol));
+  // 2. Pull 2Y daily history (cached) and today's Polymarket tilts in parallel.
+  // Tilts are a data producer from botboard-private/scripts/polymarket_signal.py;
+  // failure to load is non-fatal and results in the same allocation as no overlay.
+  const [priceHistory, polymarketTilts] = await Promise.all([
+    fetchPriceHistory(actionable.map((s) => s.symbol)),
+    fetchTiltsForToday(1),
+  ]);
+  const polymarketLambda = getPolymarketLambda();
 
   // 3. Run the engine
   const allocation: RecipeAllocation = buildRecipeAllocation({
@@ -109,6 +119,8 @@ export async function POST(req: NextRequest) {
     market,
     topN,
     previousHoldings,
+    polymarketTilts,
+    polymarketLambda,
   });
 
   // 4. Attach dollar amounts
