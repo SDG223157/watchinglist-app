@@ -66,6 +66,13 @@ export default async function Dashboard() {
               Entropy
             </Link>
             <Link
+              href="/regime"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+            >
+              Regime
+            </Link>
+            <Link
               href="/tda"
               className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
               style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
