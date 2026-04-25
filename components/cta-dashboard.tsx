@@ -69,7 +69,7 @@ function ShockCell({ row, shock }: { row: CTARow; shock: string }) {
 
 function RowDetail({ row }: { row: CTARow }) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <section className="rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
         <h3 className="text-sm font-semibold mb-3">Trend Stack</h3>
         <table className="w-full text-xs">
@@ -95,6 +95,28 @@ function RowDetail({ row }: { row: CTARow }) {
       </section>
 
       <section className="rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+        <h3 className="text-sm font-semibold mb-3">CFTC COT Anchor</h3>
+        {row.cot ? (
+          <div className="space-y-2 text-xs">
+            <div style={{ color: "var(--muted)" }}>{row.cot.report} · {row.cot.proxy}</div>
+            <div className="font-semibold">{row.cot.market}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>Report date</div><div className="text-right font-mono">{row.cot.reportDate}</div>
+              <div>Net / OI</div><div className="text-right font-mono" style={{ color: flowColor(row.cot.netPctOi) }}>{pct(row.cot.netPctOi)}</div>
+              <div>Z-score</div><div className="text-right font-mono">{signed(row.cot.zScore)}</div>
+              <div>COT signal</div><div className="text-right font-mono" style={{ color: exposureColor(row.cot.signal ?? 0) }}>{signed(row.cot.signal)}</div>
+              <div>Net contracts</div><div className="text-right font-mono">{row.cot.net.toLocaleString()}</div>
+              <div>History</div><div className="text-right font-mono">{row.cot.historyWeeks} wk</div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs" style={{ color: "var(--muted)" }}>
+            No clean CFTC mapping for this market yet. Final CTA equals model exposure.
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
         <h3 className="text-sm font-semibold mb-3">Shock Map</h3>
         <div className="grid grid-cols-4 gap-2 text-xs">
           {Object.entries(row.shockGrid).map(([shock, s]) => (
@@ -104,6 +126,15 @@ function RowDetail({ row }: { row: CTARow }) {
               <div className="font-mono text-[11px]" style={{ color: exposureColor(s.exposure) }}>exp {signed(s.exposure)}</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg p-4 lg:col-span-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+        <h3 className="text-sm font-semibold mb-2">Flow Interpretation</h3>
+        <div className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+          <span className="font-semibold" style={{ color: "var(--text)" }}>{row.flowRegime}</span>
+          {" "}means the model is reading the change in systematic exposure, not just the level.
+          Dealer gamma is marked <span className="font-mono">unknown</span> until a live options gamma source is wired in, so this is CTA-only flow pressure.
         </div>
       </section>
     </div>
@@ -224,12 +255,15 @@ export function CTADashboard() {
 
       {data && (
         <>
-          <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <section className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
             <StatCard label="Markets" value={String(data.summary.markets)} />
             <StatCard label="Net Exposure" value={signed(data.summary.netExposure)} detail="-1 short / +1 long" />
             <StatCard label="Gross Exposure" value={data.summary.grossExposure.toFixed(2)} detail="average absolute exposure" />
             <StatCard label="Crowded" value={String(data.summary.crowded)} detail="abs exposure >= 0.70" />
             <StatCard label="Fragile" value={String(data.summary.fragile)} detail="+/-2% shock changes flow > 0.25" />
+            <StatCard label="COT Coverage" value={`${data.summary.cotCoverage}/${data.summary.markets}`} detail="weekly CFTC anchor" />
+            <StatCard label="Reducing" value={String(data.summary.reducing)} detail="1M flow < -0.15" />
+            <StatCard label="Covering" value={String(data.summary.covering)} detail="1M flow > +0.15" />
           </section>
 
           {grouped.map(([group, rows]) => (
@@ -242,14 +276,19 @@ export function CTADashboard() {
                       <th className="py-2 pr-3">Market</th>
                       <th className="py-2 px-2 text-right">Price</th>
                       <th className="py-2 px-2 text-right">CTA</th>
+                      <th className="py-2 px-2 text-right">Model</th>
+                      <th className="py-2 px-2 text-right">COT Z</th>
                       <th className="py-2 px-2">Exposure</th>
                       <th className="py-2 px-2 text-right">1D</th>
                       <th className="py-2 px-2 text-right">5D</th>
+                      <th className="py-2 px-2 text-right">1M Ago</th>
+                      <th className="py-2 px-2 text-right">1M Flow</th>
                       <th className="py-2 px-2 text-right">-2% Flow</th>
                       <th className="py-2 px-2 text-right">+2% Flow</th>
                       <th className="py-2 px-2 text-right">De-risk</th>
                       <th className="py-2 px-2 text-right">Flip</th>
                       <th className="py-2 px-2">Classification</th>
+                      <th className="py-2 px-2">Flow Regime</th>
                       <th className="py-2 px-2 text-right">-5%</th>
                       <th className="py-2 px-2 text-right">-3%</th>
                       <th className="py-2 px-2 text-right">+3%</th>
@@ -270,14 +309,19 @@ export function CTADashboard() {
                           </td>
                           <td className="py-2 px-2 text-right font-mono">{row.price.toFixed(row.price > 100 ? 1 : 3)}</td>
                           <td className="py-2 px-2 text-right font-mono font-bold" style={{ color: exposureColor(row.finalCta) }}>{signed(row.finalCta)}</td>
+                          <td className="py-2 px-2 text-right font-mono" style={{ color: exposureColor(row.modelExposure) }}>{signed(row.modelExposure)}</td>
+                          <td className="py-2 px-2 text-right font-mono">{signed(row.cot?.zScore ?? null)}</td>
                           <td className="py-2 px-2 min-w-28"><ExposureBar value={row.finalCta} /></td>
                           <td className="py-2 px-2 text-right font-mono" style={{ color: flowColor(row.oneDayChange) }}>{signed(row.oneDayChange)}</td>
                           <td className="py-2 px-2 text-right font-mono" style={{ color: flowColor(row.fiveDayChange) }}>{signed(row.fiveDayChange)}</td>
+                          <td className="py-2 px-2 text-right font-mono">{signed(row.oneMonthAgo)}</td>
+                          <td className="py-2 px-2 text-right font-mono" style={{ color: flowColor(row.oneMonthChange) }}>{signed(row.oneMonthChange)}</td>
                           <td className="py-2 px-2 text-right font-mono" style={{ color: flowColor(row.flowDown2Pct) }}>{signed(row.flowDown2Pct)}</td>
                           <td className="py-2 px-2 text-right font-mono" style={{ color: flowColor(row.flowUp2Pct) }}>{signed(row.flowUp2Pct)}</td>
                           <td className="py-2 px-2 text-right font-mono">{pct(row.deriskShock)}</td>
                           <td className="py-2 px-2 text-right font-mono">{pct(row.flipShock)}</td>
                           <td className="py-2 px-2">{row.classification}</td>
+                          <td className="py-2 px-2">{row.flowRegime}</td>
                           <ShockCell row={row} shock="-5%" />
                           <ShockCell row={row} shock="-3%" />
                           <ShockCell row={row} shock="+3%" />
@@ -285,7 +329,7 @@ export function CTADashboard() {
                         </tr>
                         {expanded === row.code && (
                           <tr style={{ borderTop: "1px solid var(--border)" }}>
-                            <td colSpan={15} className="py-3">
+                            <td colSpan={20} className="py-3">
                               <RowDetail row={row} />
                             </td>
                           </tr>
