@@ -64,6 +64,7 @@ export interface WatsonConfig {
   minRevenue12mRank: number;
   minRevenue3yRank: number;
   minRevenue3mRank: number;
+  maxRevenueGrowth: number;
   minMomentumRank: number;
   minVolumeTurnoverRank: number;
 }
@@ -75,6 +76,7 @@ export const DEFAULT_WATSON_CONFIG: WatsonConfig = {
   minRevenue12mRank: 0.8,
   minRevenue3yRank: 0.6,
   minRevenue3mRank: 0.6,
+  maxRevenueGrowth: 2.0,
   minMomentumRank: 0.8,
   minVolumeTurnoverRank: 0.4,
 };
@@ -207,6 +209,13 @@ function rankFundamentals(stocks: WatchlistStock[]): RankedStock[] {
 function passesFundamentalGates(item: RankedStock, cfg: WatsonConfig): string | null {
   if ((item.stock.market_cap || 0) <= 0) return "No market cap";
   if ((item.stock.price || 0) <= 0) return "No price";
+  if (
+    item.revenueGrowth12m > cfg.maxRevenueGrowth ||
+    item.revenueGrowth3y > cfg.maxRevenueGrowth ||
+    item.revenueGrowth3m > cfg.maxRevenueGrowth
+  ) {
+    return "Revenue growth >200% (possible small-base distortion)";
+  }
   if (item.ranks.marketCap <= cfg.minMarketCapRank) return "Market cap below screen";
   if (item.ranks.revenue12m < cfg.minRevenue12mRank) return "12M revenue growth below top quintile";
   if (item.ranks.revenue3y < cfg.minRevenue3yRank) return "3Y revenue growth below top 40%";

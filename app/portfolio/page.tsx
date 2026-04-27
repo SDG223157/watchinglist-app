@@ -1037,7 +1037,7 @@ export default function PortfolioPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-zinc-400">
           <div><strong className="text-zinc-200">Revenue engine:</strong> 12M revenue growth top quintile, 3Y revenue growth top 40%, and recent 3M revenue growth top 40%.</div>
           <div><strong className="text-zinc-200">Market confirmation:</strong> 12M price momentum top quintile plus volume turnover above the liquidity floor.</div>
-          <div><strong className="text-zinc-200">Universe quality:</strong> Excludes the smallest 20% by market cap, then ranks survivors by 252-day Sharpe.</div>
+          <div><strong className="text-zinc-200">Universe quality:</strong> Excludes the smallest 20% by market cap and revenue growth above 200%, then ranks survivors by 252-day Sharpe.</div>
           <div><strong className="text-zinc-200">Portfolio rule:</strong> Equal-weight the top names to 95% invested, leaving a small cash buffer for execution slippage.</div>
         </div>
       </div>
