@@ -64,7 +64,7 @@ export interface WatsonConfig {
   minRevenue12mRank: number;
   minRevenue3yRank: number;
   minRevenue3mRank: number;
-  maxRevenueGrowth: number;
+  maxRevenueGrowthPct: number;
   minMomentumRank: number;
   minVolumeTurnoverRank: number;
 }
@@ -76,7 +76,7 @@ export const DEFAULT_WATSON_CONFIG: WatsonConfig = {
   minRevenue12mRank: 0.8,
   minRevenue3yRank: 0.6,
   minRevenue3mRank: 0.6,
-  maxRevenueGrowth: 2.0,
+  maxRevenueGrowthPct: 200,
   minMomentumRank: 0.8,
   minVolumeTurnoverRank: 0.4,
 };
@@ -106,6 +106,12 @@ function firstFinite(...values: unknown[]): number | null {
     if (n !== null) return n;
   }
   return null;
+}
+
+function growthPct(value: unknown): number | null {
+  const n = finiteNumber(value);
+  if (n === null) return null;
+  return Math.abs(n) < 1 ? n * 100 : n;
 }
 
 function percentileRanks<T>(items: T[], valueOf: (item: T) => number | null): Map<T, number> {
@@ -176,17 +182,17 @@ export function computeWatsonHistory(
 function rankFundamentals(stocks: WatchlistStock[]): RankedStock[] {
   const marketCapRanks = percentileRanks(stocks, (s) => finiteNumber(s.market_cap));
   const revenue12mRanks = percentileRanks(stocks, (s) =>
-    firstFinite(s.revenue_growth_ttm, s.revenue_growth_annual)
+    firstFinite(growthPct(s.revenue_growth_ttm), growthPct(s.revenue_growth_annual))
   );
   const revenue3yRanks = percentileRanks(stocks, (s) =>
-    firstFinite(s.revenue_cagr_3y, s.revenue_cagr_5y)
+    firstFinite(growthPct(s.revenue_cagr_3y), growthPct(s.revenue_cagr_5y))
   );
-  const revenue3mRanks = percentileRanks(stocks, (s) => finiteNumber(s.revenue_growth_recent_q));
+  const revenue3mRanks = percentileRanks(stocks, (s) => growthPct(s.revenue_growth_recent_q));
 
   return stocks.flatMap((stock) => {
-    const revenueGrowth12m = firstFinite(stock.revenue_growth_ttm, stock.revenue_growth_annual);
-    const revenueGrowth3y = firstFinite(stock.revenue_cagr_3y, stock.revenue_cagr_5y);
-    const revenueGrowth3m = finiteNumber(stock.revenue_growth_recent_q);
+    const revenueGrowth12m = firstFinite(growthPct(stock.revenue_growth_ttm), growthPct(stock.revenue_growth_annual));
+    const revenueGrowth3y = firstFinite(growthPct(stock.revenue_cagr_3y), growthPct(stock.revenue_cagr_5y));
+    const revenueGrowth3m = growthPct(stock.revenue_growth_recent_q);
     if (revenueGrowth12m === null || revenueGrowth3y === null || revenueGrowth3m === null) {
       return [];
     }
@@ -210,9 +216,9 @@ function passesFundamentalGates(item: RankedStock, cfg: WatsonConfig): string | 
   if ((item.stock.market_cap || 0) <= 0) return "No market cap";
   if ((item.stock.price || 0) <= 0) return "No price";
   if (
-    item.revenueGrowth12m > cfg.maxRevenueGrowth ||
-    item.revenueGrowth3y > cfg.maxRevenueGrowth ||
-    item.revenueGrowth3m > cfg.maxRevenueGrowth
+    item.revenueGrowth12m > cfg.maxRevenueGrowthPct ||
+    item.revenueGrowth3y > cfg.maxRevenueGrowthPct ||
+    item.revenueGrowth3m > cfg.maxRevenueGrowthPct
   ) {
     return "Revenue growth >200% (possible small-base distortion)";
   }

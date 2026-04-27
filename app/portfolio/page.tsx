@@ -138,6 +138,10 @@ function fmtPctDecimal(n: number, digits = 1): string {
   return `${(n * 100).toFixed(digits)}%`;
 }
 
+function fmtPctPoint(n: number, digits = 1): string {
+  return `${n.toFixed(digits)}%`;
+}
+
 function fmtRank(n: number): string {
   return `${(n * 100).toFixed(0)}p`;
 }
@@ -748,8 +752,8 @@ export default function PortfolioPage() {
                 <td className="px-3 py-2.5 text-right text-zinc-400">${fmt(h.amount)}</td>
                 <td className="px-3 py-2.5 text-right font-mono" style={{ color: h.sharpe252d > 1 ? "#16a34a" : h.sharpe252d > 0 ? "#f59e0b" : "#dc2626" }}>{h.sharpe252d.toFixed(2)}</td>
                 <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.momentum12m)}</td>
-                <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.revenueGrowth12m)}</td>
-                <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.revenueGrowth3m)}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{fmtPctPoint(h.revenueGrowth12m)}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{fmtPctPoint(h.revenueGrowth3m)}</td>
                 <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.avgVolumeTurnover, 2)}</td>
                 <td className="px-3 py-2.5 text-[10px] text-zinc-500">
                   MC {fmtRank(h.ranks.marketCap)} · Rev {fmtRank(h.ranks.revenue12m)} · Px {fmtRank(h.ranks.priceMomentum)} · Vol {fmtRank(h.ranks.volumeTurnover)}
