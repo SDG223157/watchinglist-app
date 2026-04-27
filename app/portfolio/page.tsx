@@ -465,6 +465,7 @@ export default function PortfolioPage() {
   const [watsonSplitResult, setWatsonSplitResult] = useState<{ us: WatsonResult; china: WatsonResult } | null>(null);
   const [watsonLoading, setWatsonLoading] = useState(false);
   const [watsonMaxHoldings, setWatsonMaxHoldings] = useState(20);
+  const [watsonEndDate, setWatsonEndDate] = useState("");
   const [error, setError] = useState("");
 
   async function buildWatson() {
@@ -474,7 +475,7 @@ export default function PortfolioPage() {
       const res = await fetch("/api/watson-portfolio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ capital, market, maxHoldings: watsonMaxHoldings }),
+        body: JSON.stringify({ capital, market, maxHoldings: watsonMaxHoldings, endDate: watsonEndDate || undefined }),
       });
       const json = (await res.json()) as WatsonResult;
       if (!res.ok) {
@@ -498,7 +499,7 @@ export default function PortfolioPage() {
         const res = await fetch("/api/watson-portfolio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ capital, market: bookMarket, maxHoldings: watsonMaxHoldings }),
+          body: JSON.stringify({ capital, market: bookMarket, maxHoldings: watsonMaxHoldings, endDate: watsonEndDate || undefined }),
         });
         const json = (await res.json()) as WatsonResult;
         if (!res.ok) throw new Error(json.error || `${bookMarket} failed (${res.status})`);
@@ -994,6 +995,15 @@ export default function PortfolioPage() {
             value={watsonMaxHoldings}
             onChange={(e) => setWatsonMaxHoldings(Number(e.target.value))}
             className="w-24 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Ending Date</label>
+          <input
+            type="date"
+            value={watsonEndDate}
+            onChange={(e) => setWatsonEndDate(e.target.value)}
+            className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
           />
         </div>
         <button

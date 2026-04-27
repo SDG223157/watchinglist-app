@@ -14,10 +14,31 @@ export const maxDuration = 60;
 
 type MarketKey = "US" | "CHINA" | "HK" | "CN" | "ALL";
 
-function yearsAgoISO(years: number): string {
-  const d = new Date();
+function yearsBeforeISO(anchor: Date, years: number): string {
+  const d = new Date(anchor);
   d.setFullYear(d.getFullYear() - years);
   return d.toISOString().split("T")[0];
+}
+
+function addDaysISO(anchor: Date, days: number): string {
+  const d = new Date(anchor);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+function parseEndDate(value: unknown): { endDate?: string; period2?: string; anchor: Date } {
+  if (typeof value !== "string" || value.trim() === "") {
+    return { anchor: new Date() };
+  }
+  const raw = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new Error("endDate must use YYYY-MM-DD format");
+  }
+  const anchor = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(anchor.getTime())) {
+    throw new Error("Invalid endDate");
+  }
+  return { endDate: raw, period2: addDaysISO(anchor, 1), anchor };
 }
 
 function marketFilter(stocks: WatchlistStock[], market: MarketKey): WatchlistStock[] {
@@ -41,8 +62,8 @@ function hasWatsonFundamentals(s: WatchlistStock): boolean {
   );
 }
 
-async function fetchHistories(stocks: WatchlistStock[]): Promise<Record<string, WatsonHistory | null>> {
-  const period1 = yearsAgoISO(2);
+async function fetchHistories(stocks: WatchlistStock[], anchor: Date, period2?: string): Promise<Record<string, WatsonHistory | null>> {
+  const period1 = yearsBeforeISO(anchor, 2);
   const out: Record<string, WatsonHistory | null> = {};
   const concurrency = 8;
 
@@ -51,7 +72,7 @@ async function fetchHistories(stocks: WatchlistStock[]): Promise<Record<string, 
     const results = await Promise.all(
       batch.map(async (stock) => {
         try {
-          const rows = (await cachedHistorical(stock.symbol, period1, "1d")) as Array<{
+          const rows = (await cachedHistorical(stock.symbol, period1, "1d", period2)) as Array<{
             close?: number | null;
             volume?: number | null;
           }>;
@@ -77,13 +98,22 @@ export async function POST(req: NextRequest) {
   const capital = Number(body.capital) || 1_000_000;
   const market = ((body.market as string) || "ALL").toUpperCase() as MarketKey;
   const maxHoldings = Number(body.maxHoldings) || DEFAULT_WATSON_CONFIG.maxHoldings;
+  let end;
+  try {
+    end = parseEndDate(body.endDate);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Invalid endDate" },
+      { status: 400 }
+    );
+  }
 
   const allStocks = await fetchAllLatest();
   const filtered = marketFilter(allStocks, market).filter(hasWatsonFundamentals);
-  const histories = await fetchHistories(filtered);
+  const histories = await fetchHistories(filtered, end.anchor, end.period2);
 
   const result = buildWatsonPortfolio(filtered, histories, capital, { maxHoldings });
-  return NextResponse.json(result);
+  return NextResponse.json({ ...result, asOf: end.endDate || result.asOf });
 }
 
 export async function GET() {
@@ -98,6 +128,7 @@ export async function GET() {
         capital: "number (default: 1_000_000)",
         market: "US | CHINA | HK | CN | ALL (default: ALL)",
         maxHoldings: `number (default: ${DEFAULT_WATSON_CONFIG.maxHoldings})`,
+        endDate: "optional YYYY-MM-DD; trailing Sharpe/momentum/turnover end at this date",
       },
     },
   });

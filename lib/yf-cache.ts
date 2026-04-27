@@ -60,9 +60,10 @@ export async function cachedSummary(
 export async function cachedHistorical(
   symbol: string,
   period1: string,
-  interval: "1d" | "1wk" | "1mo" = "1d"
+  interval: "1d" | "1wk" | "1mo" = "1d",
+  period2?: string
 ) {
-  const key = `${symbol.toUpperCase()}:${period1}:${interval}`;
+  const key = `${symbol.toUpperCase()}:${period1}:${period2 || "latest"}:${interval}`;
   const cached = histCache.get(key);
   if (isValid(cached, HIST_TTL)) return cached.data;
 
@@ -72,7 +73,7 @@ export async function cachedHistorical(
     // while market is open (close=null). Yesterday always has a valid close.
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const p2 = yesterday.toISOString().split("T")[0];
+    const p2 = period2 || yesterday.toISOString().split("T")[0];
 
     const raw = await yahooFinance.historical(symbol.toUpperCase(), {
       period1,
