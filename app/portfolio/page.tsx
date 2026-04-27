@@ -14,7 +14,7 @@ const MARKETS = [
   { value: "CN", label: "A-Shares (CSI300)" },
 ];
 
-type Tab = "stocks" | "sectors" | "macro" | "entropy" | "wse" | "recipe";
+type Tab = "stocks" | "sectors" | "macro" | "entropy" | "wse" | "recipe" | "watson";
 
 type RecipeTier = "anchor" | "follower" | "tactical" | "trim";
 
@@ -81,8 +81,65 @@ interface WSEHoldingRow {
   trend_signal: string; momentum_type: string;
 }
 
+interface WatsonHoldingRow {
+  symbol: string;
+  name: string;
+  sector: string;
+  market: string;
+  price: number;
+  weight_pct: number;
+  amount: number;
+  shares: number;
+  marketCap: number;
+  revenueGrowth12m: number;
+  revenueGrowth3y: number;
+  revenueGrowth3m: number;
+  momentum12m: number;
+  avgVolumeTurnover: number;
+  sharpe252d: number;
+  ranks: {
+    marketCap: number;
+    revenue12m: number;
+    revenue3y: number;
+    revenue3m: number;
+    priceMomentum: number;
+    volumeTurnover: number;
+  };
+}
+
+interface WatsonResult {
+  asOf: string;
+  methodology: string;
+  universeSize: number;
+  prequalifiedCount: number;
+  candidateCount: number;
+  holdings: WatsonHoldingRow[];
+  excluded: { symbol: string; reason: string }[];
+  summary: {
+    count: number;
+    capital: number;
+    invested: number;
+    cash: number;
+    cash_pct: number;
+    avgSharpe: number;
+    avgMomentum12m: number;
+    avgRevenue12m: number;
+    avgVolumeTurnover: number;
+    sectors: Record<string, number>;
+  };
+  error?: string;
+}
+
 function fmt(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+function fmtPctDecimal(n: number, digits = 1): string {
+  return `${(n * 100).toFixed(digits)}%`;
+}
+
+function fmtRank(n: number): string {
+  return `${(n * 100).toFixed(0)}p`;
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -404,7 +461,58 @@ export default function PortfolioPage() {
   const [recipeResult, setRecipeResult] = useState<RecipeResult | null>(null);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipeTopN, setRecipeTopN] = useState(30);
+  const [watsonResult, setWatsonResult] = useState<WatsonResult | null>(null);
+  const [watsonSplitResult, setWatsonSplitResult] = useState<{ us: WatsonResult; china: WatsonResult } | null>(null);
+  const [watsonLoading, setWatsonLoading] = useState(false);
+  const [watsonMaxHoldings, setWatsonMaxHoldings] = useState(20);
   const [error, setError] = useState("");
+
+  async function buildWatson() {
+    setWatsonLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/watson-portfolio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capital, market, maxHoldings: watsonMaxHoldings }),
+      });
+      const json = (await res.json()) as WatsonResult;
+      if (!res.ok) {
+        setError(json.error || `Failed (${res.status})`);
+        return;
+      }
+      setWatsonResult(json);
+      setWatsonSplitResult(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setWatsonLoading(false);
+    }
+  }
+
+  async function buildWatsonSplit() {
+    setWatsonLoading(true);
+    setError("");
+    try {
+      const fetchBook = async (bookMarket: "US" | "China") => {
+        const res = await fetch("/api/watson-portfolio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ capital, market: bookMarket, maxHoldings: watsonMaxHoldings }),
+        });
+        const json = (await res.json()) as WatsonResult;
+        if (!res.ok) throw new Error(json.error || `${bookMarket} failed (${res.status})`);
+        return json;
+      };
+      const [us, china] = await Promise.all([fetchBook("US"), fetchBook("China")]);
+      setWatsonSplitResult({ us, china });
+      setWatsonResult(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setWatsonLoading(false);
+    }
+  }
 
   async function buildRecipe() {
     setRecipeLoading(true);
@@ -571,6 +679,93 @@ export default function PortfolioPage() {
   const sp = sectorResult;
   const ep = entropyResult;
   const wp = wseResult;
+  const gp = watsonResult;
+  const renderWatsonResult = (portfolio: WatsonResult, title: string) => (
+    <section className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-bold">{title}</h2>
+          <p className="text-[11px] text-zinc-500">{portfolio.methodology}</p>
+        </div>
+        <div className="text-[11px] text-zinc-500">as of {portfolio.asOf}</div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+        {[
+          { label: "Holdings", value: portfolio.summary.count },
+          { label: "Invested", value: `$${fmt(portfolio.summary.invested)}` },
+          { label: "Cash", value: `$${fmt(portfolio.summary.cash)} (${portfolio.summary.cash_pct}%)` },
+          { label: "Universe", value: portfolio.universeSize },
+          { label: "Prequalified", value: portfolio.prequalifiedCount },
+          { label: "Candidates", value: portfolio.candidateCount },
+          { label: "Avg Sharpe", value: portfolio.summary.avgSharpe },
+          { label: "Avg 12M Mom", value: `${portfolio.summary.avgMomentum12m.toFixed(1)}%`, color: "#f59e0b" },
+        ].map((card) => (
+          <div key={card.label} className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{card.label}</div>
+            <div className="text-lg font-bold mt-0.5" style={{ color: "color" in card ? card.color : undefined }}>{card.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {Object.keys(portfolio.summary.sectors).length > 0 && (
+        <div className="rounded-lg p-4 mb-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Sector Allocation</h3>
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(portfolio.summary.sectors).map(([sec, wt]) => (
+              <div key={sec} className="text-xs">
+                <span className="text-zinc-400">{sec}:</span>{" "}
+                <span className="font-bold" style={{ color: wt > 25 ? "#b45309" : "#f59e0b" }}>{wt.toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ background: "var(--card)" }}>
+              <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Symbol</th>
+              <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Name</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Weight</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Amount</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Sharpe</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">12M Mom</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Rev 12M</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Rev 3M</th>
+              <th className="text-right px-3 py-2 text-[10px] text-zinc-500 uppercase">Turnover</th>
+              <th className="text-left px-3 py-2 text-[10px] text-zinc-500 uppercase">Rank Stack</th>
+            </tr>
+          </thead>
+          <tbody>
+            {portfolio.holdings.map((h, i) => (
+              <tr key={h.symbol} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--card)" }}>
+                <td className="px-3 py-2.5 font-mono font-bold"><Link href={`/stock/${h.symbol}`} className="hover:text-amber-400">{h.symbol}</Link></td>
+                <td className="px-3 py-2.5 text-xs text-zinc-400 max-w-[160px] truncate" title={h.name}>{h.name}</td>
+                <td className="px-3 py-2.5 text-right font-semibold">{h.weight_pct.toFixed(1)}%</td>
+                <td className="px-3 py-2.5 text-right text-zinc-400">${fmt(h.amount)}</td>
+                <td className="px-3 py-2.5 text-right font-mono" style={{ color: h.sharpe252d > 1 ? "#16a34a" : h.sharpe252d > 0 ? "#f59e0b" : "#dc2626" }}>{h.sharpe252d.toFixed(2)}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.momentum12m)}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.revenueGrowth12m)}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.revenueGrowth3m)}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{fmtPctDecimal(h.avgVolumeTurnover, 2)}</td>
+                <td className="px-3 py-2.5 text-[10px] text-zinc-500">
+                  MC {fmtRank(h.ranks.marketCap)} · Rev {fmtRank(h.ranks.revenue12m)} · Px {fmtRank(h.ranks.priceMomentum)} · Vol {fmtRank(h.ranks.volumeTurnover)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {portfolio.holdings.length === 0 && (
+        <div className="text-center py-12 text-zinc-500">
+          No names passed the Watson screen. Try a broader market or add more stocks with revenue and price history.
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <main className="max-w-[1400px] mx-auto px-4 py-8">
@@ -588,7 +783,7 @@ export default function PortfolioPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6">
-        {([["stocks", "Stock Portfolio"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["wse", "WSE Optimizer"], ["recipe", "Recipe Portfolio"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
+        {([["stocks", "Stock Portfolio"], ["watson", "Gabriel Watson"], ["sectors", "Sector Rotation (S&P 500)"], ["entropy", "HMM × Entropy"], ["wse", "WSE Optimizer"], ["recipe", "Recipe Portfolio"], ["macro", "Macro Allocation"]] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -761,6 +956,87 @@ export default function PortfolioPage() {
           No stocks passed the hard gates. Try relaxing criteria or adding more analyzed stocks.
         </div>
       )}
+      </>}
+
+      {/* ===== GABRIEL WATSON TAB ===== */}
+      {tab === "watson" && <>
+      <div
+        className="rounded-lg p-4 mb-6 flex flex-wrap items-end gap-4"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Capital ($)</label>
+          <input
+            type="number"
+            value={capital}
+            onChange={(e) => setCapital(Number(e.target.value))}
+            className="w-40 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Market</label>
+          <select
+            value={market}
+            onChange={(e) => setMarket(e.target.value)}
+            className="px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          >
+            {MARKETS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Max Holdings</label>
+          <input
+            type="number"
+            min={5}
+            max={40}
+            value={watsonMaxHoldings}
+            onChange={(e) => setWatsonMaxHoldings(Number(e.target.value))}
+            className="w-24 px-3 py-2 rounded-md text-sm bg-zinc-900 border border-zinc-700 text-white"
+          />
+        </div>
+        <button
+          onClick={buildWatson}
+          disabled={watsonLoading}
+          className="px-5 py-2 rounded-md text-sm font-semibold transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50"
+          style={{ background: "#b45309", color: "#fff" }}
+        >
+          {watsonLoading ? (
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Screening...
+            </span>
+          ) : (
+            "Build Watson Portfolio"
+          )}
+        </button>
+        <button
+          onClick={buildWatsonSplit}
+          disabled={watsonLoading}
+          className="px-5 py-2 rounded-md text-sm font-semibold transition-colors cursor-pointer hover:brightness-125 disabled:opacity-50"
+          style={{ background: "#92400e", color: "#fff" }}
+        >
+          {watsonLoading ? "Screening..." : "Build US + China Separately"}
+        </button>
+        {error && <span className="text-xs text-red-400">{error}</span>}
+      </div>
+
+      <div className="rounded-lg p-4 mb-6 text-xs" style={{ background: "rgba(180,83,9,0.06)", border: "1px solid rgba(180,83,9,0.18)" }}>
+        <h3 className="font-bold text-sm mb-2" style={{ color: "#f59e0b" }}>Gabriel Watson Growth-Momentum Screen</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-zinc-400">
+          <div><strong className="text-zinc-200">Revenue engine:</strong> 12M revenue growth top quintile, 3Y revenue growth top 40%, and recent 3M revenue growth top 40%.</div>
+          <div><strong className="text-zinc-200">Market confirmation:</strong> 12M price momentum top quintile plus volume turnover above the liquidity floor.</div>
+          <div><strong className="text-zinc-200">Universe quality:</strong> Excludes the smallest 20% by market cap, then ranks survivors by 252-day Sharpe.</div>
+          <div><strong className="text-zinc-200">Portfolio rule:</strong> Equal-weight the top names to 95% invested, leaving a small cash buffer for execution slippage.</div>
+        </div>
+      </div>
+
+      {gp && !gp.error && renderWatsonResult(gp, `Gabriel Watson — ${market === "China" ? "China (HK + CSI300)" : market}`)}
+      {watsonSplitResult && <>
+        {renderWatsonResult(watsonSplitResult.us, "Gabriel Watson — US")}
+        {renderWatsonResult(watsonSplitResult.china, "Gabriel Watson — China (HK + CSI300)")}
+      </>}
       </>}
 
       {/* ===== SECTOR TAB ===== */}
