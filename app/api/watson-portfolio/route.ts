@@ -8,6 +8,7 @@ import {
   type WatsonHistory,
 } from "@/lib/gabriel-watson-portfolio";
 import { cachedHistorical } from "@/lib/yf-cache";
+import { fetchFmpIncomeAnnual, fetchFmpIncomeQuarterly, type FmpIncomeQ } from "@/lib/fmp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -52,14 +53,115 @@ function marketFilter(stocks: WatchlistStock[], market: MarketKey): WatchlistSto
   });
 }
 
+function isFiniteValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+}
+
 function hasWatsonFundamentals(s: WatchlistStock): boolean {
   return (
-    Number.isFinite(Number(s.market_cap)) &&
-    Number.isFinite(Number(s.price)) &&
-    Number.isFinite(Number(s.revenue_growth_recent_q)) &&
-    Number.isFinite(Number(s.revenue_growth_ttm ?? s.revenue_growth_annual)) &&
-    Number.isFinite(Number(s.revenue_cagr_3y ?? s.revenue_cagr_5y))
+    isFiniteValue(s.market_cap) &&
+    isFiniteValue(s.price) &&
+    isFiniteValue(s.revenue_growth_recent_q) &&
+    isFiniteValue(s.revenue_growth_ttm ?? s.revenue_growth_annual) &&
+    isFiniteValue(s.revenue_cagr_3y ?? s.revenue_cagr_5y)
   );
+}
+
+interface RevenueGrowthAsOf {
+  revenue_growth_ttm: number | null;
+  revenue_cagr_3y: number | null;
+  revenue_growth_recent_q: number | null;
+}
+
+function sumRevenue(rows: FmpIncomeQ[]): number | null {
+  if (rows.length < 4) return null;
+  const vals = rows.map((row) => Number(row.revenue)).filter((v) => Number.isFinite(v));
+  return vals.length >= 4 ? vals.reduce((sum, v) => sum + v, 0) : null;
+}
+
+function computeRevenueGrowthAsOf(
+  annual: FmpIncomeQ[],
+  quarterly: FmpIncomeQ[],
+  anchor: Date
+): RevenueGrowthAsOf | null {
+  const asOf = anchor.getTime();
+  const q = quarterly
+    .filter((row) => row.date && new Date(`${row.date}T00:00:00Z`).getTime() <= asOf)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const a = annual
+    .filter((row) => row.date && new Date(`${row.date}T00:00:00Z`).getTime() <= asOf)
+    .sort((x, y) => new Date(y.date).getTime() - new Date(x.date).getTime());
+
+  let revenueGrowthTtm: number | null = null;
+  if (q.length >= 8) {
+    const currentTtm = sumRevenue(q.slice(0, 4));
+    const priorTtm = sumRevenue(q.slice(4, 8));
+    if (currentTtm != null && priorTtm != null && priorTtm > 0) {
+      revenueGrowthTtm = +(((currentTtm - priorTtm) / priorTtm) * 100).toFixed(1);
+    }
+  }
+
+  let revenueGrowthRecentQ: number | null = null;
+  if (q.length >= 5 && q[0].revenue && q[4].revenue && q[4].revenue > 0) {
+    revenueGrowthRecentQ = +(((q[0].revenue - q[4].revenue) / q[4].revenue) * 100).toFixed(1);
+  }
+
+  let revenueCagr3y: number | null = null;
+  if (a.length >= 4 && a[0].revenue && a[3].revenue && a[3].revenue > 0) {
+    revenueCagr3y = +((Math.pow(a[0].revenue / a[3].revenue, 1 / 3) - 1) * 100).toFixed(1);
+  }
+
+  if (revenueGrowthTtm == null || revenueGrowthRecentQ == null || revenueCagr3y == null) {
+    return null;
+  }
+
+  return {
+    revenue_growth_ttm: revenueGrowthTtm,
+    revenue_growth_recent_q: revenueGrowthRecentQ,
+    revenue_cagr_3y: revenueCagr3y,
+  };
+}
+
+async function fetchRevenueGrowthAsOf(stocks: WatchlistStock[], anchor: Date): Promise<Record<string, RevenueGrowthAsOf | null>> {
+  const out: Record<string, RevenueGrowthAsOf | null> = {};
+  const concurrency = 6;
+
+  for (let i = 0; i < stocks.length; i += concurrency) {
+    const batch = stocks.slice(i, i + concurrency);
+    const results = await Promise.all(
+      batch.map(async (stock) => {
+        try {
+          const [quarterly, annual] = await Promise.all([
+            fetchFmpIncomeQuarterly(stock.symbol, 16),
+            fetchFmpIncomeAnnual(stock.symbol, 8),
+          ]);
+          return [stock.symbol, computeRevenueGrowthAsOf(annual, quarterly, anchor)] as const;
+        } catch {
+          return [stock.symbol, null] as const;
+        }
+      })
+    );
+    for (const [symbol, growth] of results) out[symbol] = growth;
+  }
+
+  return out;
+}
+
+function applyRevenueGrowthAsOf(
+  stocks: WatchlistStock[],
+  growthMap: Record<string, RevenueGrowthAsOf | null>
+): WatchlistStock[] {
+  return stocks.map((stock) => {
+    const growth = growthMap[stock.symbol];
+    return {
+      ...stock,
+      revenue_growth_ttm: growth?.revenue_growth_ttm ?? null,
+      revenue_growth_recent_q: growth?.revenue_growth_recent_q ?? null,
+      revenue_cagr_3y: growth?.revenue_cagr_3y ?? null,
+      revenue_growth_annual: null,
+      revenue_cagr_5y: null,
+    } as unknown as WatchlistStock;
+  });
 }
 
 async function fetchHistories(stocks: WatchlistStock[], anchor: Date, period2?: string): Promise<Record<string, WatsonHistory | null>> {
@@ -109,7 +211,11 @@ export async function POST(req: NextRequest) {
   }
 
   const allStocks = await fetchAllLatest();
-  const filtered = marketFilter(allStocks, market).filter(hasWatsonFundamentals);
+  const marketStocks = marketFilter(allStocks, market);
+  const revenueAdjusted = end.endDate
+    ? applyRevenueGrowthAsOf(marketStocks, await fetchRevenueGrowthAsOf(marketStocks, end.anchor))
+    : marketStocks;
+  const filtered = revenueAdjusted.filter(hasWatsonFundamentals);
   const histories = await fetchHistories(filtered, end.anchor, end.period2);
 
   const result = buildWatsonPortfolio(filtered, histories, capital, { maxHoldings });
@@ -128,7 +234,9 @@ export async function GET() {
         capital: "number (default: 1_000_000)",
         market: "US | CHINA | HK | CN | ALL (default: ALL)",
         maxHoldings: `number (default: ${DEFAULT_WATSON_CONFIG.maxHoldings})`,
-        endDate: "optional YYYY-MM-DD; trailing Sharpe/momentum/turnover end at this date",
+        endDate:
+          "optional YYYY-MM-DD; price/volume and revenue growth windows end at this date. " +
+          "Revenue growth is recomputed from historical income statements.",
       },
     },
   });
