@@ -43,6 +43,19 @@ const GENERIC_SKILL_INPUT_SCHEMA = {
     dry_run: { type: "boolean" },
   },
 };
+const GENERIC_SKILL_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    runner: { type: "object", additionalProperties: true },
+    skill: { type: "object", additionalProperties: true },
+    inputs: { type: "object", additionalProperties: true },
+    metadata: { type: ["object", "null"], additionalProperties: true },
+    source_preview: { type: ["string", "null"] },
+    generated_at: { type: "string" },
+  },
+  required: ["runner", "skill", "inputs", "generated_at"],
+};
 const BUILT_IN_INPUT_SCHEMAS = {
   "price-structure-analysis": {
     type: "object",
@@ -82,6 +95,80 @@ const BUILT_IN_INPUT_SCHEMAS = {
       { required: ["symbol"] },
     ],
   },
+};
+const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
+  price_structure_verdict: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      symbol: { type: "string" },
+      as_of: { type: "string" },
+      latest_close: { type: "number" },
+      structure: { type: "string" },
+      key_levels: { type: "object", additionalProperties: true },
+      indicators: { type: "object", additionalProperties: true },
+      evidence: { type: "object", additionalProperties: true },
+      trading_implication: { type: "string" },
+      watch_next: { type: "string" },
+      markdown: { type: "string" },
+    },
+    required: ["symbol", "as_of", "latest_close", "structure", "markdown"],
+  },
+  polymarket_distillation: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      event: { type: "object", additionalProperties: true },
+      markets: { type: "array", items: { type: "object", additionalProperties: true } },
+      mappings: { type: "array", items: { type: "object", additionalProperties: true } },
+      summary_md: { type: "string" },
+      brief_md: { type: "string" },
+      generated_at: { type: "string" },
+      runner: { type: "object", additionalProperties: true },
+    },
+    required: ["event", "markets", "mappings", "summary_md", "brief_md", "generated_at"],
+  },
+  skill_invocation_packet: GENERIC_SKILL_OUTPUT_SCHEMA,
+};
+const DEFAULT_RUNNER_CONFIGS = {
+  "price-structure-analysis": {
+    runner_kind: "built_in",
+    executor: "price_structure_analysis",
+    artifact_type: "price_structure_verdict",
+    timeout_ms: 120000,
+    env_policy: "process",
+    smoke_inputs: {
+      ticker: "AAPL",
+      source: "wpr_audit_smoke_test",
+    },
+    artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.price_structure_verdict,
+  },
+  "polymarket-distiller": {
+    runner_kind: "built_in",
+    executor: "polymarket_distiller",
+    entrypoint: POLYMARKET_DISTILLER_SCRIPT,
+    artifact_type: "polymarket_distillation",
+    timeout_ms: 300000,
+    env_policy: "process",
+    smoke_inputs: {
+      slug: "democratic-presidential-nominee-2028",
+      source: "wpr_audit_smoke_test",
+    },
+    artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.polymarket_distillation,
+  },
+};
+const GENERIC_RUNNER_CONFIG = {
+  runner_kind: "generic",
+  executor: "generic_skill_invocation_packet",
+  artifact_type: "skill_invocation_packet",
+  timeout_ms: 30000,
+  env_policy: "none",
+  smoke_inputs: {
+    input: "WPR audit smoke test",
+    source: "wpr_audit_smoke_test",
+    dry_run: true,
+  },
+  artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_invocation_packet,
 };
 
 const TOOLS = [
@@ -273,6 +360,28 @@ const TOOLS = [
             "When true, create and execute smoke-test runs for every skill with any WPR runner, including generic safe runners.",
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "suggest_task_plan",
+    description:
+      "Given a natural-language user intent, suggest relevant WPR skills as building blocks and compile candidate task plans without executing them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        input: {
+          type: "string",
+          description: "Natural-language user request or task intent.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          default: 12,
+        },
+      },
+      required: ["input"],
       additionalProperties: false,
     },
   },
@@ -495,6 +604,12 @@ function buildSkillOperationMetadata(skill, content, frontmatter) {
   const artifactTypes = inferArtifactTypes(content);
   const approvalRequirements = inferApprovalRequirements(content, sideEffects);
   const inputSchema = BUILT_IN_INPUT_SCHEMAS[skill.slug] ?? GENERIC_SKILL_INPUT_SCHEMA;
+  const runnerConfig = DEFAULT_RUNNER_CONFIGS[skill.slug] ?? GENERIC_RUNNER_CONFIG;
+  const outputSchema =
+    runnerConfig.artifact_contract ?? OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE[runnerConfig.artifact_type] ?? {
+      type: "object",
+      additionalProperties: true,
+    };
 
   return {
     registry_slug: skill.slug,
@@ -504,9 +619,7 @@ function buildSkillOperationMetadata(skill, content, frontmatter) {
     routing_keywords: routingKeywords,
     input_schema: inputSchema,
     output_schema: {
-      type: "object",
-      additionalProperties: true,
-      inferred: true,
+      ...outputSchema,
     },
     required_tools: extractRequiredTools(frontmatter, content),
     side_effects: sideEffects,
@@ -517,6 +630,7 @@ function buildSkillOperationMetadata(skill, content, frontmatter) {
       source_slug: skill.config.source_slug,
       description_terms: descriptionWords.slice(0, 50),
       body_terms: bodyWords,
+      runner_config: runnerConfig,
     },
     risk_level: inferRiskLevel(sideEffects, approvalRequirements),
   };
@@ -865,6 +979,26 @@ function validateProcessRunInputs(item, inputs, metadata) {
   );
 }
 
+function getOutputSchema(metadata, runner, artifactType) {
+  const metadataSchema = metadata?.output_schema;
+  if (hasConcreteInputSchema(metadataSchema)) return metadataSchema;
+  if (runner?.artifact_contract) return runner.artifact_contract;
+  return OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE[artifactType] ?? {
+    type: "object",
+    additionalProperties: true,
+  };
+}
+
+function validateArtifactJsonContent(registrySlug, artifactType, jsonContent, metadata, runner) {
+  const schema = getOutputSchema(metadata, runner, artifactType);
+  const errors = validateJsonValueAgainstSchema(jsonContent, schema, "artifact.json_content");
+  if (errors.length === 0) return;
+
+  throw new Error(
+    `Invalid artifact for ${registrySlug}/${artifactType}: ${errors.join("; ")}`
+  );
+}
+
 async function createProcessRun(args = {}) {
   const sql = getDb();
   const item = await getProcessRegistryItem(args);
@@ -1146,6 +1280,15 @@ async function executePriceStructureRun(run) {
 
   const bars = await fetchDailyBars(symbol);
   const analysis = analyzePriceStructure(symbol, bars);
+  const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
+  const runner = getRunnerInfo(run.registry_slug, metadata);
+  validateArtifactJsonContent(
+    run.registry_slug,
+    "price_structure_verdict",
+    analysis,
+    metadata,
+    runner
+  );
   const sql = getDb();
   const artifactRows = await sql`
     INSERT INTO process_artifacts (
@@ -1249,6 +1392,23 @@ async function executePolymarketDistillerRun(run) {
 
   const distillation = parsePolymarketDistillerOutput(stdout);
   const event = distillation.event ?? {};
+  const artifactContent = {
+    ...distillation,
+    runner: {
+      command: POLYMARKET_DISTILLER_PYTHON,
+      args,
+      stderr: stderr.trim() || null,
+    },
+  };
+  const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
+  const runner = getRunnerInfo(run.registry_slug, metadata);
+  validateArtifactJsonContent(
+    run.registry_slug,
+    "polymarket_distillation",
+    artifactContent,
+    metadata,
+    runner
+  );
   const sql = getDb();
   const artifactRows = await sql`
     INSERT INTO process_artifacts (
@@ -1267,14 +1427,7 @@ async function executePolymarketDistillerRun(run) {
       'polymarket_distillation',
       ${`Polymarket Distillation - ${event.title ?? event.slug ?? "event"}`},
       'needs_review',
-      ${JSON.stringify({
-        ...distillation,
-        runner: {
-          command: POLYMARKET_DISTILLER_PYTHON,
-          args,
-          stderr: stderr.trim() || null,
-        },
-      })}::jsonb,
+      ${JSON.stringify(artifactContent)}::jsonb,
       'execute_polymarket_distiller_run',
       'private'
     )
@@ -1303,51 +1456,43 @@ async function executePolymarketDistillerRun(run) {
 }
 
 function getBuiltInRunnerInfo(slug) {
-  if (slug === "price-structure-analysis") {
-    return {
-      slug,
-      name: "Price Structure Analysis",
-      artifact_type: "price_structure_verdict",
-      smoke_inputs: {
-        ticker: "AAPL",
-        source: "wpr_audit_smoke_test",
-      },
-    };
-  }
-
-  if (slug === "polymarket-distiller") {
-    return {
-      slug,
-      name: "Polymarket Distiller",
-      artifact_type: "polymarket_distillation",
-      smoke_inputs: {
-        slug: "democratic-presidential-nominee-2028",
-        source: "wpr_audit_smoke_test",
-      },
-    };
-  }
-
-  return null;
+  return normalizeRunnerConfig(slug, DEFAULT_RUNNER_CONFIGS[slug]);
 }
 
-function getRunnerInfo(itemOrSlug) {
+function normalizeRunnerConfig(slug, config) {
+  if (!isPlainObject(config)) return null;
+  return {
+    slug,
+    name:
+      config.name ??
+      (config.runner_kind === "generic"
+        ? "Generic Skill Invocation Packet"
+        : config.executor ?? config.runner_kind),
+    runner_kind: config.runner_kind,
+    executor: config.executor ?? config.runner_kind,
+    entrypoint: config.entrypoint ?? null,
+    artifact_type: config.artifact_type,
+    timeout_ms: config.timeout_ms ?? null,
+    env_policy: config.env_policy ?? "none",
+    smoke_inputs: config.smoke_inputs ?? {},
+    artifact_contract:
+      config.artifact_contract ??
+      OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE[config.artifact_type] ??
+      null,
+  };
+}
+
+function getRunnerInfo(itemOrSlug, metadata = null) {
   const slug = typeof itemOrSlug === "string" ? itemOrSlug : itemOrSlug?.slug;
+  const dbRunner = normalizeRunnerConfig(slug, metadata?.operation_hints?.runner_config);
+  if (dbRunner) return dbRunner;
+
   const builtIn = getBuiltInRunnerInfo(slug);
   if (builtIn) return { ...builtIn, runner_kind: "built_in" };
 
   const objectType = typeof itemOrSlug === "string" ? "skill" : itemOrSlug?.object_type;
   if (objectType === "skill") {
-    return {
-      slug,
-      name: "Generic Skill Invocation Packet",
-      runner_kind: "generic",
-      artifact_type: "skill_invocation_packet",
-      smoke_inputs: {
-        input: "WPR audit smoke test",
-        source: "wpr_audit_smoke_test",
-        dry_run: true,
-      },
-    };
+    return normalizeRunnerConfig(slug, GENERIC_RUNNER_CONFIG);
   }
 
   return null;
@@ -1398,6 +1543,14 @@ async function executeGenericSkillRun(run) {
     source_preview: sourcePreview,
     generated_at: new Date().toISOString(),
   };
+  const runner = getRunnerInfo(item, metadata);
+  validateArtifactJsonContent(
+    run.registry_slug,
+    "skill_invocation_packet",
+    packet,
+    metadata,
+    runner
+  );
 
   const sql = getDb();
   const artifactRows = await sql`
@@ -1482,6 +1635,7 @@ async function auditProcessRegistrySkills(args = {}) {
       m.side_effects,
       m.artifact_types,
       m.approval_requirements,
+      m.operation_hints,
       m.risk_level
     FROM process_registry_items r
     LEFT JOIN skill_operation_metadata m ON m.registry_slug = r.slug
@@ -1509,11 +1663,12 @@ async function auditProcessRegistrySkills(args = {}) {
           side_effects: row.side_effects ?? [],
           artifact_types: row.artifact_types ?? [],
           approval_requirements: row.approval_requirements ?? [],
+          operation_hints: row.operation_hints ?? {},
           risk_level: row.risk_level ?? "low",
         }
       : null;
     const inputSchema = getInputSchema(item, metadata);
-    const runner = getRunnerInfo(item);
+    const runner = getRunnerInfo(item, metadata);
     const validationErrors = [];
 
     if (!metadata) validationErrors.push("missing skill_operation_metadata");
@@ -1610,29 +1765,30 @@ async function executeRunningProcessRun(run) {
 
   try {
     let result;
-    if (run.registry_slug === "price-structure-analysis") {
+    const item = await getProcessRegistryItem({ slug: run.registry_slug });
+    const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
+    const runner = getRunnerInfo(item, metadata);
+
+    if (runner?.executor === "price_structure_analysis") {
       result = await executePriceStructureRun(run);
-    } else if (run.registry_slug === "polymarket-distiller") {
+    } else if (runner?.executor === "polymarket_distiller") {
       result = await executePolymarketDistillerRun(run);
-    } else {
-      const item = await getProcessRegistryItem({ slug: run.registry_slug });
-      if (item.object_type === "skill") {
+    } else if (runner?.executor === "generic_skill_invocation_packet") {
         result = await executeGenericSkillRun(run);
-      } else {
-        await sql`
-          UPDATE process_runs
-          SET status = 'blocked',
-            state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify({ blocker: "No built-in runner for registry_slug" })}::jsonb,
-            completed_at = NOW()
-          WHERE id = ${run.id}
-        `;
-        return {
-          id: run.id,
-          registry_slug: run.registry_slug,
-          status: "blocked",
-          message: "No built-in runner exists for this registry object yet.",
-        };
-      }
+    } else {
+      await sql`
+        UPDATE process_runs
+        SET status = 'blocked',
+          state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify({ blocker: "No WPR runner configured for registry_slug" })}::jsonb,
+          completed_at = NOW()
+        WHERE id = ${run.id}
+      `;
+      return {
+        id: run.id,
+        registry_slug: run.registry_slug,
+        status: "blocked",
+        message: "No WPR runner is configured for this registry object yet.",
+      };
     }
 
     const completedRows = await sql`
@@ -1813,7 +1969,7 @@ function buildRunOption(item, input, options = {}) {
   const source = options.source ?? "suggest_data_operations";
   const inputs = buildRunInputs(input, options.operationQuery, source);
   const missingInputs = getMissingRequiredInputs(item, inputs, options.metadata);
-  const runner = getRunnerInfo(item);
+  const runner = getRunnerInfo(item, options.metadata);
   const enabled = item.status === "active" && missingInputs.length === 0 && Boolean(runner);
 
   return {
@@ -1951,6 +2107,474 @@ function operationMatchScore(item, metadata, query) {
   }
 
   return score;
+}
+
+const TASK_STOPWORDS = new Set([
+  "the",
+  "and",
+  "a",
+  "an",
+  "or",
+  "to",
+  "of",
+  "in",
+  "on",
+  "by",
+  "as",
+  "is",
+  "are",
+  "for",
+  "with",
+  "from",
+  "into",
+  "that",
+  "this",
+  "make",
+  "create",
+  "build",
+  "give",
+  "show",
+  "want",
+  "need",
+  "please",
+]);
+
+const NON_TICKER_WORDS = new Set(
+  [
+    ...TASK_STOPWORDS,
+    "analyze",
+    "analysis",
+    "analyst",
+    "artifact",
+    "artifacts",
+    "backtest",
+    "brief",
+    "chart",
+    "compare",
+    "deck",
+    "distill",
+    "entropy",
+    "event",
+    "hmm",
+    "market",
+    "meeting",
+    "memo",
+    "polymarket",
+    "price",
+    "report",
+    "research",
+    "risk",
+    "run",
+    "shannon",
+    "skill",
+    "skills",
+    "stock",
+    "structure",
+    "task",
+    "ticker",
+    "tickers",
+    "video",
+  ].map((term) => term.toUpperCase())
+);
+
+function getTaskTerms(input) {
+  return wordsFromText(input).filter((term) => !TASK_STOPWORDS.has(term));
+}
+
+function extractTickerCandidates(input) {
+  return unique(
+    String(input ?? "")
+      .split(/[\s,;()]+/)
+      .map((raw) => raw.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9.-]+$/g, ""))
+      .filter((part) => {
+        if (!part) return false;
+        const upper = part.toUpperCase();
+        if (NON_TICKER_WORDS.has(upper)) return false;
+        if (!looksLikeTicker(upper)) return false;
+        if (/\d/.test(upper) || /[.-]/.test(upper)) return true;
+        if (part !== upper && part !== part.toLowerCase()) return false;
+        return upper.length >= 2 && upper.length <= 5;
+      })
+      .map((part) => part.toUpperCase())
+  );
+}
+
+function detectTaskType(input, terms, entities) {
+  const text = input.toLowerCase();
+  if (text.includes("meeting") || text.includes("开会") || text.includes("会议")) {
+    return entities.tickers.length ? "stock_research_to_meeting" : "meeting_creation";
+  }
+  if (text.includes("polymarket") || text.includes("poly ") || entities.urls.some((url) => url.includes("polymarket.com"))) {
+    return "polymarket_distillation";
+  }
+  if (text.includes("video") || text.includes("youtube") || text.includes("podcast")) {
+    return "video_or_media_pipeline";
+  }
+  if (terms.some((term) => ["backtest", "回测"].includes(term))) return "backtest";
+  if (entities.tickers.length) return "stock_analysis";
+  return "general_skill_task";
+}
+
+function detectDesiredArtifacts(input, terms) {
+  const text = input.toLowerCase();
+  const artifacts = [];
+
+  if (text.includes("meeting") || text.includes("开会") || text.includes("会议")) {
+    artifacts.push("meeting_topic");
+  }
+  if (text.includes("video") || text.includes("youtube")) artifacts.push("video");
+  if (text.includes("audio") || text.includes("podcast")) artifacts.push("audio");
+  if (text.includes("slide") || text.includes("deck") || text.includes("ppt")) artifacts.push("slides");
+  if (text.includes("chart") || text.includes("graph")) artifacts.push("chart");
+  if (text.includes("report") || text.includes("analysis") || text.includes("analyze")) {
+    artifacts.push("report", "decision_memo");
+  }
+  if (terms.some((term) => ["price", "structure", "breakout", "support", "resistance"].includes(term))) {
+    artifacts.push("price_structure_verdict", "decision_memo");
+  }
+  if (terms.some((term) => ["shannon", "entropy", "hmm", "regime"].includes(term))) {
+    artifacts.push("regime_report", "decision_memo");
+  }
+  if (text.includes("polymarket")) artifacts.push("polymarket_distillation");
+
+  return unique(artifacts);
+}
+
+function parseTaskIntent(input) {
+  const normalized = normalizeInput(input);
+  if (!normalized) throw new Error("input is required");
+
+  const urls = normalized.match(/https?:\/\/\S+/g) ?? [];
+  const tickers = extractTickerCandidates(normalized);
+  const terms = getTaskTerms(normalized);
+  const desiredArtifacts = detectDesiredArtifacts(normalized, terms);
+  const entities = { tickers, urls };
+
+  return {
+    input: normalized,
+    task_type: detectTaskType(normalized, terms, entities),
+    terms,
+    entities,
+    desired_artifacts: desiredArtifacts,
+    side_effect_tolerance:
+      /\b(post|upload|publish|send|tweet|trade|create meeting|开会|会议)\b/i.test(normalized),
+  };
+}
+
+function skillCandidateHaystack(item, metadata) {
+  return [
+    item.slug,
+    item.name,
+    item.description,
+    ...(item.tags ?? []),
+    ...(metadata?.trigger_terms ?? []),
+    ...(metadata?.routing_keywords ?? []),
+    ...(metadata?.artifact_types ?? []),
+    ...(metadata?.side_effects ?? []),
+    ...(metadata?.approval_requirements ?? []),
+    metadata?.operation_hints?.source_name ?? "",
+    metadata?.operation_hints?.source_slug ?? "",
+    metadata?.operation_hints?.operation ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function scoreTaskSkillCandidate(item, metadata, intent, runner = null) {
+  const haystack = skillCandidateHaystack(item, metadata);
+  const reasons = [];
+  let score = 0;
+
+  for (const term of intent.terms) {
+    if (item.slug.toLowerCase().includes(term)) {
+      score += 14;
+      reasons.push(`slug matches "${term}"`);
+    } else if (item.name.toLowerCase().includes(term)) {
+      score += 10;
+      reasons.push(`name matches "${term}"`);
+    } else if (haystack.includes(term)) {
+      score += 5;
+    }
+  }
+
+  if (intent.entities.tickers.length && /\b(stock|ticker|price|market|regime|entropy|analysis)\b/.test(haystack)) {
+    score += 10;
+    reasons.push("accepts stock/ticker-style tasks");
+  }
+
+  for (const artifact of intent.desired_artifacts) {
+    if ((metadata?.artifact_types ?? []).includes(artifact) || runner?.artifact_type === artifact) {
+      score += 12;
+      reasons.push(`can produce ${artifact}`);
+    } else if (haystack.includes(artifact.replace(/_/g, " "))) {
+      score += 5;
+    }
+  }
+
+  if (intent.task_type === "stock_research_to_meeting") {
+    if (["price-structure-analysis", "hmm-entropy-analysis", "narrative-cycle-analysis", "analysis-to-meeting"].includes(item.slug)) {
+      score += 25;
+      reasons.push("part of stock research to meeting pattern");
+    }
+  }
+
+  if (intent.task_type === "polymarket_distillation" && item.slug === "polymarket-distiller") {
+    score += 40;
+    reasons.push("direct Polymarket distillation match");
+  }
+
+  if (intent.task_type === "backtest" && item.slug.includes("backtest")) {
+    score += 30;
+    reasons.push("direct backtest match");
+  }
+
+  if (runner?.runner_kind === "built_in") {
+    score += 10;
+    reasons.push("has built-in artifact runner");
+  } else if (runner?.runner_kind === "generic") {
+    score += 3;
+    reasons.push("has safe generic WPR runner");
+  }
+
+  if (item.status === "active") score += 5;
+  if ((metadata?.approval_requirements ?? []).length > 0) {
+    reasons.push(`requires approval: ${metadata.approval_requirements.join(", ")}`);
+  }
+
+  return {
+    score,
+    reasons: unique(reasons).slice(0, 6),
+  };
+}
+
+function mapIntentToSkillInputs(intent, metadata, runner) {
+  const schema = metadata?.input_schema ?? {};
+  const properties = isPlainObject(schema.properties) ? schema.properties : {};
+  const inputs = {};
+  const ticker = intent.entities.tickers[0];
+  const url = intent.entities.urls[0];
+
+  if (ticker && properties.ticker) inputs.ticker = ticker;
+  else if (ticker && properties.symbol) inputs.symbol = ticker;
+  else if (ticker && !Object.keys(properties).length) inputs.ticker = ticker;
+
+  if (url && properties.url) inputs.url = url;
+  if (!Object.keys(inputs).length && properties.query) inputs.query = intent.input;
+  if (!Object.keys(inputs).length && properties.input) inputs.input = intent.input;
+  if (!Object.keys(inputs).length && runner?.runner_kind === "generic") inputs.input = intent.input;
+
+  inputs.source = "wpr_task_composer";
+  return inputs;
+}
+
+function riskRank(risk) {
+  return { low: 0, medium: 1, high: 2, critical: 3 }[risk] ?? 0;
+}
+
+function summarizePlanRisk(nodes) {
+  const maxRisk = nodes.reduce((risk, node) => {
+    return riskRank(node.risk_level) > riskRank(risk) ? node.risk_level : risk;
+  }, "low");
+  const approvals = unique(nodes.flatMap((node) => node.approval_requirements ?? []));
+  return {
+    risk_level: maxRisk,
+    approval_requirements: approvals,
+    requires_approval: approvals.length > 0,
+  };
+}
+
+function buildPlanNode(candidate, index, dependsOn = []) {
+  return {
+    id: candidate.slug.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || `node_${index + 1}`,
+    slug: candidate.slug,
+    label: candidate.name,
+    runner_kind: candidate.runner_kind,
+    artifact_type: candidate.runner_artifact_type,
+    risk_level: candidate.risk_level,
+    approval_requirements: candidate.approval_requirements,
+    inputs: candidate.suggested_inputs,
+    depends_on: dependsOn,
+    input_valid: candidate.input_valid,
+    input_errors: candidate.input_errors,
+  };
+}
+
+function buildRecommendedTaskPlans(intent, candidates) {
+  const bySlug = new Map(candidates.map((candidate) => [candidate.slug, candidate]));
+  const plans = [];
+
+  const makePlan = (label, slugs) => {
+    const nodes = [];
+    for (const slug of slugs) {
+      const candidate = bySlug.get(slug);
+      if (!candidate) continue;
+      const dependsOn =
+        slug === "narrative-cycle-analysis"
+          ? nodes.filter((node) => ["price_structure_analysis", "hmm_entropy_analysis"].includes(node.id)).map((node) => node.id)
+          : slug === "analysis-to-meeting"
+          ? nodes.map((node) => node.id)
+          : [];
+      nodes.push(buildPlanNode(candidate, nodes.length, dependsOn));
+    }
+    if (!nodes.length) return null;
+    return {
+      label,
+      nodes,
+      ...summarizePlanRisk(nodes),
+      executable_now: nodes.every((node) => node.input_valid),
+    };
+  };
+
+  if (intent.task_type === "stock_research_to_meeting") {
+    const plan = makePlan("Stock research to meeting", [
+      "price-structure-analysis",
+      "hmm-entropy-analysis",
+      "narrative-cycle-analysis",
+      "analysis-to-meeting",
+    ]);
+    if (plan) plans.push(plan);
+  }
+
+  if (intent.task_type === "stock_analysis") {
+    const plan = makePlan("Stock research packet", [
+      "price-structure-analysis",
+      "hmm-entropy-analysis",
+      "narrative-cycle-analysis",
+    ]);
+    if (plan) plans.push(plan);
+  }
+
+  if (intent.task_type === "polymarket_distillation") {
+    const plan = makePlan("Polymarket event distillation", ["polymarket-distiller"]);
+    if (plan) plans.push(plan);
+  }
+
+  if (intent.task_type === "backtest") {
+    const plan = makePlan("Backtest and compare", ["backtest-hmm-entropy", "honest-backtesting"]);
+    if (plan) plans.push(plan);
+  }
+
+  const topNodes = candidates.slice(0, 5).map((candidate, index) =>
+    buildPlanNode(candidate, index, index === 0 ? [] : [candidates[0].slug.replace(/[^a-z0-9]+/g, "_")])
+  );
+  if (topNodes.length) {
+    plans.push({
+      label: "Top matched skill blocks",
+      nodes: topNodes,
+      ...summarizePlanRisk(topNodes),
+      executable_now: topNodes.every((node) => node.input_valid),
+    });
+  }
+
+  return plans;
+}
+
+async function suggestTaskPlan(args = {}) {
+  const input = normalizeInput(args.input);
+  if (!input) throw new Error("input is required");
+
+  const intent = parseTaskIntent(input);
+  const limit = getLimit(args.limit ?? 12);
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      r.slug,
+      r.object_type,
+      r.name,
+      r.status,
+      r.version,
+      r.description,
+      r.tags,
+      r.config,
+      r.updated_at::text AS updated_at,
+      m.trigger_terms,
+      m.routing_keywords,
+      m.input_schema,
+      m.output_schema,
+      m.required_tools,
+      m.side_effects,
+      m.artifact_types,
+      m.approval_requirements,
+      m.operation_hints,
+      m.risk_level
+    FROM process_registry_items r
+    LEFT JOIN skill_operation_metadata m ON m.registry_slug = r.slug
+    WHERE r.object_type = 'skill'
+      AND r.status = 'active'
+  `;
+
+  const candidates = rows
+    .map((row) => {
+      const item = {
+        slug: row.slug,
+        object_type: row.object_type,
+        name: row.name,
+        status: row.status,
+        version: row.version,
+        description: row.description,
+        tags: row.tags ?? [],
+        config: row.config ?? {},
+        updated_at: row.updated_at,
+      };
+      const metadata = {
+        trigger_terms: row.trigger_terms ?? [],
+        routing_keywords: row.routing_keywords ?? [],
+        input_schema: row.input_schema ?? {},
+        output_schema: row.output_schema ?? {},
+        required_tools: row.required_tools ?? [],
+        side_effects: row.side_effects ?? [],
+        artifact_types: row.artifact_types ?? [],
+        approval_requirements: row.approval_requirements ?? [],
+        operation_hints: row.operation_hints ?? {},
+        risk_level: row.risk_level ?? "low",
+      };
+      const runner = getRunnerInfo(item, metadata);
+      const scored = scoreTaskSkillCandidate(item, metadata, intent, runner);
+      const suggestedInputs = mapIntentToSkillInputs(intent, metadata, runner);
+      let inputValid = true;
+      let inputErrors = [];
+
+      try {
+        validateProcessRunInputs(item, suggestedInputs, metadata);
+      } catch (err) {
+        inputValid = false;
+        inputErrors = [err instanceof Error ? err.message : String(err)];
+      }
+
+      return {
+        slug: item.slug,
+        name: item.name,
+        status: item.status,
+        score: scored.score,
+        runner_kind: runner?.runner_kind ?? "missing",
+        runner_artifact_type: runner?.artifact_type ?? null,
+        risk_level: metadata.risk_level,
+        artifact_types: metadata.artifact_types,
+        approval_requirements: metadata.approval_requirements,
+        required_tools: metadata.required_tools,
+        suggested_inputs: suggestedInputs,
+        input_valid: inputValid,
+        input_errors: inputErrors,
+        why: scored.reasons,
+      };
+    })
+    .filter((candidate) => candidate.score > 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        (b.runner_kind === "built_in" ? 1 : 0) - (a.runner_kind === "built_in" ? 1 : 0) ||
+        a.slug.localeCompare(b.slug)
+    );
+
+  const skillCandidates = candidates.slice(0, limit);
+  const plans = buildRecommendedTaskPlans(intent, skillCandidates);
+
+  return {
+    input,
+    intent,
+    skill_candidates: skillCandidates,
+    plans,
+  };
 }
 
 function statusRank(status) {
@@ -2383,6 +3007,7 @@ async function callTool(name, args) {
   if (name === "resolve_operation_path") return resolveOperationPath(args);
   if (name === "import_skills_from_directory") return importSkillsFromDirectory(args);
   if (name === "audit_process_registry_skills") return auditProcessRegistrySkills(args);
+  if (name === "suggest_task_plan") return suggestTaskPlan(args);
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -2489,10 +3114,14 @@ export {
   listProcessRegistry,
   listProcessRuns,
   operationMatchScore,
+  parseTaskIntent,
   resolveOperationPath,
+  scoreTaskSkillCandidate,
   startMcpServer,
   suggestDataOperations,
+  suggestTaskPlan,
   triggerProcessRun,
+  validateArtifactJsonContent,
   validateJsonValueAgainstSchema,
   validateProcessRunInputs,
 };

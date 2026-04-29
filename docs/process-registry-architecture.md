@@ -107,6 +107,7 @@ runner_kind determines execution permissions
 risk_level determines review policy
 input_schema determines allowed args
 artifact_types determine output contracts
+output_schema validates artifact JSON
 ```
 
 Example:
@@ -294,6 +295,8 @@ The app now has:
 - WPR CLI for local operation suggestions, run creation, run triggering, and artifact lookup
 - `wpr audit-skills` and `wpr audit-skills --run-all` to verify schema, runner, and artifact readiness
 - Typed input schemas for all imported skills
+- Typed output schemas for artifact validation
+- DB-backed runner config in `skill_operation_metadata.operation_hints.runner_config`
 - Safe generic WPR runner for skills without bespoke automation
 - Built-in artifact-producing runners for `price-structure-analysis` and `polymarket-distiller`
 
@@ -347,6 +350,186 @@ npm run wpr:worker -- --once
 ```
 
 The worker claims pending rows from `process_runs`, marks them `running`, executes the matching runner, writes artifacts, and marks the run `completed`, `failed`, or `blocked`.
+
+## Task Composition Layer
+
+The next layer above individual skills is a task composer: given a user request, WPR selects relevant skills as building blocks, compiles them into a typed plan, and can later hand that graph to the worker for execution.
+
+```text
+user input
+-> intent frame
+-> candidate skills
+-> typed execution plan
+-> run graph
+-> artifacts
+-> synthesis / answer
+```
+
+This layer is not a free-form agent loop. It is a compiler over the skill registry. The registry already knows each skill's schema, risk level, runner kind, artifact contract, and approval policy. The composer uses that data to build a safe plan.
+
+Current MVP:
+
+```bash
+npm run wpr -- plan "Analyze AAPL and create a meeting"
+npm run wpr -- plan "AAPL shannon entropy analysis" --json
+```
+
+The MCP tool behind the CLI is `suggest_task_plan`. It parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs. It does not execute plans yet.
+
+### Composition Components
+
+```text
+Intent Parser
+  Extracts entities, task type, constraints, desired outputs, urgency, and side-effect tolerance.
+
+Skill Selector
+  Searches skill_operation_metadata trigger terms, routing keywords, artifact types, required tools, and previous success history.
+
+Plan Builder
+  Chooses a small set of skills and orders them as a DAG: fetch -> analyze -> compare -> synthesize -> publish.
+
+Argument Mapper
+  Converts user input and upstream artifacts into each skill's input_schema.
+
+Risk Gate
+  Blocks or pauses plan nodes whose risk_level or approval_requirements exceed the current permission.
+
+Graph Executor
+  Creates process_runs for each node, tracks dependencies, and lets workers claim runnable nodes.
+
+Artifact Synthesizer
+  Reads process_artifacts from completed nodes and produces the final answer, report, meeting topic, or media package.
+
+Evaluator
+  Scores whether the artifact set satisfied the original intent and records quality signals for future routing.
+```
+
+### Building Block Model
+
+Every skill becomes a typed block:
+
+```json
+{
+  "slug": "hmm-entropy-analysis",
+  "inputs": {"ticker": "AAPL"},
+  "outputs": ["regime_report", "decision_memo"],
+  "runner_kind": "generic",
+  "risk_level": "medium",
+  "approval_requirements": ["human_review"]
+}
+```
+
+The task composer can wire blocks together when one block's artifact contract can satisfy another block's input schema.
+
+```text
+artifact.output.symbol -> next.inputs.ticker
+artifact.output.summary_md -> next.inputs.context
+artifact.output.report_uri -> next.inputs.source_doc
+```
+
+### Example: "Analyze AAPL And Create A Meeting"
+
+```mermaid
+flowchart TD
+  User["User request<br/>Analyze AAPL and create a meeting"]
+  Intent["Intent frame<br/>ticker=AAPL, output=meeting"]
+  Price["price-structure-analysis"]
+  Entropy["hmm-entropy-analysis"]
+  Narrative["narrative-cycle-analysis"]
+  Meeting["analysis-to-meeting"]
+  Gate{"Meeting creation approval?"}
+  Artifacts["Artifacts<br/>price verdict + entropy packet + narrative packet + meeting draft"]
+
+  User --> Intent
+  Intent --> Price
+  Intent --> Entropy
+  Price --> Narrative
+  Entropy --> Narrative
+  Narrative --> Meeting
+  Meeting --> Gate
+  Gate --> Artifacts
+```
+
+### Proposed Data Model
+
+The composer should persist plans as first-class process objects, not transient chat state.
+
+```text
+task_plans
+  id
+  user_input
+  intent_frame jsonb
+  status
+  risk_summary jsonb
+  created_at
+
+task_plan_nodes
+  id
+  task_plan_id
+  registry_slug
+  runner_kind
+  inputs jsonb
+  depends_on bigint[]
+  process_run_id
+  status
+
+task_plan_edges
+  id
+  task_plan_id
+  from_node_id
+  to_node_id
+  artifact_selector jsonb
+  input_mapping jsonb
+```
+
+### Planning Contract
+
+The planner should output a typed plan before execution:
+
+```json
+{
+  "intent": {
+    "task_type": "stock_research_to_meeting",
+    "entities": {"ticker": "AAPL"},
+    "desired_artifacts": ["decision_memo", "meeting_topic"]
+  },
+  "nodes": [
+    {
+      "id": "price",
+      "slug": "price-structure-analysis",
+      "inputs": {"ticker": "AAPL"}
+    },
+    {
+      "id": "entropy",
+      "slug": "hmm-entropy-analysis",
+      "inputs": {"ticker": "AAPL"}
+    },
+    {
+      "id": "meeting",
+      "slug": "analysis-to-meeting",
+      "depends_on": ["price", "entropy"],
+      "inputs_from_artifacts": true
+    }
+  ],
+  "approval_gates": ["before_meeting_creation"]
+}
+```
+
+### Execution Rule
+
+The task layer should compose aggressively but execute conservatively:
+
+```text
+select many candidates
+choose few blocks
+validate every input
+respect every risk gate
+write every intermediate artifact
+never hide failed nodes
+synthesize only from completed artifacts
+```
+
+This gives WPR the feeling of a block-based OS: skills are small APIs, artifacts are typed files, runs are processes, and the task composer is the scheduler/compiler that turns user intent into a runnable program.
 
 ## Import Discipline
 

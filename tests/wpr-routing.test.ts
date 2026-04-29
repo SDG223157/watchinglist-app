@@ -165,6 +165,53 @@ describe("WPR routing helpers", () => {
     expect(wpr.getRunnerInfo({ slug: "daily-watchlist-operating-loop", object_type: "process" })).toBeNull();
   });
 
+  it("prefers DB runner config from operation metadata", () => {
+    expect(
+      wpr.getRunnerInfo(
+        { slug: "custom-python-skill", object_type: "skill" },
+        {
+          operation_hints: {
+            runner_config: {
+              runner_kind: "python_script",
+              executor: "python_script",
+              entrypoint: "scripts/custom.py",
+              artifact_type: "custom_report",
+              timeout_ms: 60000,
+              smoke_inputs: { input: "test" },
+            },
+          },
+        }
+      )
+    ).toMatchObject({
+      runner_kind: "python_script",
+      executor: "python_script",
+      entrypoint: "scripts/custom.py",
+      artifact_type: "custom_report",
+      timeout_ms: 60000,
+    });
+  });
+
+  it("validates artifact JSON content against output schemas", () => {
+    expect(() =>
+      wpr.validateArtifactJsonContent(
+        "price-structure-analysis",
+        "price_structure_verdict",
+        { symbol: "AAPL", structure: "Range" },
+        {
+          output_schema: {
+            type: "object",
+            properties: {
+              symbol: { type: "string" },
+              latest_close: { type: "number" },
+            },
+            required: ["symbol", "latest_close"],
+          },
+        },
+        null
+      )
+    ).toThrow("artifact.json_content.latest_close is required");
+  });
+
   it("imports new skills with WPR-ready typed input schemas", () => {
     const item = {
       ...skill("new-example-skill"),
@@ -187,5 +234,40 @@ describe("WPR routing helpers", () => {
         dry_run: { type: "boolean" },
       },
     });
+  });
+
+  it("parses user intent into task entities and desired artifacts", () => {
+    expect(wpr.parseTaskIntent("Analyze AAPL and create a meeting")).toMatchObject({
+      task_type: "stock_research_to_meeting",
+      entities: { tickers: ["AAPL"] },
+      desired_artifacts: expect.arrayContaining(["meeting_topic", "decision_memo"]),
+    });
+  });
+
+  it("scores relevant skill blocks for a task intent", () => {
+    const intent = wpr.parseTaskIntent("AAPL shannon entropy analysis");
+    const item = {
+      ...skill("hmm-entropy-analysis"),
+      status: "active",
+      description: "Analyze a stock using the HMM Shannon entropy framework.",
+    };
+    const metadata = {
+      trigger_terms: ["hmm", "shannon", "entropy"],
+      routing_keywords: ["stock", "regime", "entropy"],
+      artifact_types: ["decision_memo"],
+      approval_requirements: [],
+      side_effects: [],
+      operation_hints: {},
+      risk_level: "medium",
+    };
+
+    expect(
+      wpr.scoreTaskSkillCandidate(
+        item,
+        metadata,
+        intent,
+        { runner_kind: "generic", artifact_type: "skill_invocation_packet" }
+      ).score
+    ).toBeGreaterThan(20);
   });
 });

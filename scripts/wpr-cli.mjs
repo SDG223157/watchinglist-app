@@ -17,6 +17,7 @@ const COMMANDS = new Set([
   "run",
   "worker",
   "path",
+  "plan",
   "audit-skills",
   "import-skills",
 ]);
@@ -30,6 +31,7 @@ Usage:
   wpr <input> <operation...> --create Create a pending run
   wpr <input> <operation...> --run    Create and trigger a run
   wpr path "wpr/aapl/price structure" Resolve a slash path
+  wpr plan "analyze AAPL and create a meeting" Suggest skill building blocks
   wpr run <run_id>                    Trigger a pending run
   wpr worker [--once]                 Run the Postgres-backed worker
 
@@ -69,7 +71,7 @@ function parseArgv(argv) {
       continue;
     }
 
-    if (["type", "status"].includes(rawKey)) {
+    if (["type", "status", "limit"].includes(rawKey)) {
       values[key] = argv[i + 1];
       i += 1;
       continue;
@@ -251,6 +253,42 @@ function printSkillAudit(result) {
   }
 }
 
+function printTaskPlan(result) {
+  const intent = result.intent;
+  console.log(`Intent: ${intent.task_type}`);
+  if (intent.entities?.tickers?.length) console.log(`tickers: ${intent.entities.tickers.join(", ")}`);
+  if (intent.desired_artifacts?.length) {
+    console.log(`desired artifacts: ${intent.desired_artifacts.join(", ")}`);
+  }
+
+  console.log("");
+  console.log("Skill candidates:");
+  for (const candidate of result.skill_candidates.slice(0, 12)) {
+    const approvals = candidate.approval_requirements?.length
+      ? ` approvals=${candidate.approval_requirements.join(",")}`
+      : "";
+    console.log(
+      `- ${candidate.slug} score=${candidate.score} runner=${candidate.runner_kind} risk=${candidate.risk_level}${approvals}`
+    );
+    if (candidate.why?.length) console.log(`  why: ${candidate.why.join("; ")}`);
+    console.log(`  inputs: ${JSON.stringify(candidate.suggested_inputs)}`);
+  }
+
+  if (result.plans?.length) {
+    console.log("");
+    console.log("Recommended plans:");
+    for (const plan of result.plans) {
+      console.log(
+        `- ${plan.label} risk=${plan.risk_level} approval=${plan.requires_approval ? "yes" : "no"} executable=${plan.executable_now ? "yes" : "no"}`
+      );
+      for (const node of plan.nodes) {
+        const deps = node.depends_on?.length ? ` after=${node.depends_on.join(",")}` : "";
+        console.log(`  - ${node.id}: ${node.slug} (${node.runner_kind})${deps}`);
+      }
+    }
+  }
+}
+
 async function createAndMaybeTrigger(path, shouldCreate, shouldRun) {
   const resolved = await resolveOperationPath({
     path,
@@ -353,6 +391,13 @@ async function main() {
           printTrigger(value.triggered);
         }
       : printResolved;
+  } else if (command === "plan") {
+    if (!args[1]) throw new Error("plan requires a user intent");
+    result = await callTool("suggest_task_plan", {
+      input: args.slice(1).join(" "),
+      limit: values.limit ? Number(values.limit) : undefined,
+    });
+    printer = printTaskPlan;
   } else if (command === "audit-skills") {
     result = await callTool("audit_process_registry_skills", {
       run_built_ins: flags.has("runBuiltIns"),
