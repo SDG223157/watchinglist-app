@@ -2,10 +2,15 @@
   "name": "watchinglist-app",
   "version": "1.0.0",
   "private": true,
+  "bin": {
+    "wpr": "./scripts/wpr-cli.mjs"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "wpr": "node scripts/wpr-cli.mjs",
+    "wpr:worker": "node scripts/wpr-worker.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
