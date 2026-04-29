@@ -136,6 +136,8 @@ const DEFAULT_RUNNER_CONFIGS = {
     executor: "price_structure_analysis",
     artifact_type: "price_structure_verdict",
     timeout_ms: 120000,
+    max_attempts: 2,
+    retry_backoff_ms: 5000,
     env_policy: "process",
     smoke_inputs: {
       ticker: "AAPL",
@@ -149,6 +151,8 @@ const DEFAULT_RUNNER_CONFIGS = {
     entrypoint: POLYMARKET_DISTILLER_SCRIPT,
     artifact_type: "polymarket_distillation",
     timeout_ms: 300000,
+    max_attempts: 2,
+    retry_backoff_ms: 15000,
     env_policy: "process",
     smoke_inputs: {
       slug: "democratic-presidential-nominee-2028",
@@ -162,6 +166,8 @@ const GENERIC_RUNNER_CONFIG = {
   executor: "generic_skill_invocation_packet",
   artifact_type: "skill_invocation_packet",
   timeout_ms: 30000,
+  max_attempts: 1,
+  retry_backoff_ms: 0,
   env_policy: "none",
   smoke_inputs: {
     input: "WPR audit smoke test",
@@ -1012,6 +1018,11 @@ async function createProcessRun(args = {}) {
   const inputs = args.inputs ?? {};
   const metadata = await getSkillOperationMetadataOptional(item.slug);
   validateProcessRunInputs(item, inputs, metadata);
+  const runner = getRunnerInfo(item, metadata);
+  const state = {
+    created_by: SERVER_INFO.name,
+    ...(isPlainObject(args.state) ? args.state : {}),
+  };
 
   const rows = await sql`
     INSERT INTO process_runs (
@@ -1019,22 +1030,43 @@ async function createProcessRun(args = {}) {
       registry_version,
       status,
       inputs,
-      state
+      state,
+      max_attempts,
+      timeout_ms,
+      retry_backoff_ms,
+      frozen_registry,
+      frozen_metadata,
+      frozen_runner
     )
     VALUES (
       ${item.slug},
       ${item.version},
       'pending',
       ${JSON.stringify(inputs)}::jsonb,
-      ${JSON.stringify({ created_by: SERVER_INFO.name })}::jsonb
+      ${JSON.stringify(state)}::jsonb,
+      ${runner?.max_attempts ?? 1},
+      ${runner?.timeout_ms ?? null},
+      ${runner?.retry_backoff_ms ?? 0},
+      ${JSON.stringify(item)}::jsonb,
+      ${JSON.stringify(metadata ?? {})}::jsonb,
+      ${JSON.stringify(runner ?? {})}::jsonb
     )
     RETURNING
       id,
       registry_slug,
       registry_version,
       status,
+      attempt,
+      max_attempts,
+      timeout_ms,
+      retry_backoff_ms,
+      failure_category,
+      next_retry_at::text AS next_retry_at,
       inputs,
       state,
+      frozen_registry,
+      frozen_metadata,
+      frozen_runner,
       created_at::text AS created_at
   `;
 
@@ -1274,14 +1306,13 @@ function analyzePriceStructure(symbol, bars) {
   };
 }
 
-async function executePriceStructureRun(run) {
+async function executePriceStructureRun(run, context = null) {
   const symbol = normalizeInput(run.inputs?.ticker || run.inputs?.symbol).toUpperCase();
   if (!symbol) throw new Error("price-structure-analysis requires inputs.ticker");
 
   const bars = await fetchDailyBars(symbol);
   const analysis = analyzePriceStructure(symbol, bars);
-  const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
-  const runner = getRunnerInfo(run.registry_slug, metadata);
+  const { metadata, runner } = context ?? (await getRunExecutionContext(run));
   validateArtifactJsonContent(
     run.registry_slug,
     "price_structure_verdict",
@@ -1370,16 +1401,18 @@ function parsePolymarketDistillerOutput(stdout) {
   }
 }
 
-async function executePolymarketDistillerRun(run) {
+async function executePolymarketDistillerRun(run, context = null) {
   const args = buildPolymarketDistillerArgs(run.inputs ?? {});
   let stdout = "";
   let stderr = "";
+  const { metadata, runner } = context ?? (await getRunExecutionContext(run));
 
   try {
     const result = await execFileAsync(POLYMARKET_DISTILLER_PYTHON, args, {
       cwd: BOTBOARD_PRIVATE_DIR,
       env: process.env,
       maxBuffer: 20 * 1024 * 1024,
+      timeout: runner?.timeout_ms ?? 300000,
     });
     stdout = result.stdout;
     stderr = result.stderr;
@@ -1400,8 +1433,6 @@ async function executePolymarketDistillerRun(run) {
       stderr: stderr.trim() || null,
     },
   };
-  const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
-  const runner = getRunnerInfo(run.registry_slug, metadata);
   validateArtifactJsonContent(
     run.registry_slug,
     "polymarket_distillation",
@@ -1473,6 +1504,8 @@ function normalizeRunnerConfig(slug, config) {
     entrypoint: config.entrypoint ?? null,
     artifact_type: config.artifact_type,
     timeout_ms: config.timeout_ms ?? null,
+    max_attempts: Math.max(1, Number(config.max_attempts ?? 1)),
+    retry_backoff_ms: Math.max(0, Number(config.retry_backoff_ms ?? 0)),
     env_policy: config.env_policy ?? "none",
     smoke_inputs: config.smoke_inputs ?? {},
     artifact_contract:
@@ -1498,9 +1531,26 @@ function getRunnerInfo(itemOrSlug, metadata = null) {
   return null;
 }
 
-async function executeGenericSkillRun(run) {
-  const item = await getProcessRegistryItem({ slug: run.registry_slug });
-  const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
+function getFrozenJson(value) {
+  return isPlainObject(value) && Object.keys(value).length > 0 ? value : null;
+}
+
+async function getRunExecutionContext(run) {
+  const item =
+    getFrozenJson(run.frozen_registry) ??
+    (await getProcessRegistryItem({ slug: run.registry_slug }));
+  const metadata =
+    getFrozenJson(run.frozen_metadata) ??
+    (await getSkillOperationMetadataOptional(run.registry_slug));
+  const runner =
+    getFrozenJson(run.frozen_runner) ??
+    getRunnerInfo(item, metadata);
+
+  return { item, metadata, runner };
+}
+
+async function executeGenericSkillRun(run, context = null) {
+  const { item, metadata, runner } = context ?? (await getRunExecutionContext(run));
   const sourcePath = metadata?.source_path ?? item.config?.source_path ?? null;
   let sourcePreview = null;
 
@@ -1543,7 +1593,6 @@ async function executeGenericSkillRun(run) {
     source_preview: sourcePreview,
     generated_at: new Date().toISOString(),
   };
-  const runner = getRunnerInfo(item, metadata);
   validateArtifactJsonContent(
     run.registry_slug,
     "skill_invocation_packet",
@@ -1760,25 +1809,79 @@ async function auditProcessRegistrySkills(args = {}) {
   };
 }
 
+function categorizeRunFailure(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+
+  if (lower.includes("timed out") || lower.includes("timeout")) return "timeout";
+  if (lower.includes("invalid inputs") || lower.includes("requires inputs")) return "validation";
+  if (lower.includes("invalid artifact")) return "artifact_schema";
+  if (lower.includes("no wpr runner") || lower.includes("no built-in runner")) return "no_runner";
+  if (lower.includes("fetch") || lower.includes("yahoo") || lower.includes("market")) return "market_data";
+  if (lower.includes("failed:")) return "external_runner";
+  return "unknown";
+}
+
+function isRetryableFailure(category) {
+  return ["timeout", "market_data", "external_runner", "unknown"].includes(category);
+}
+
+function getRetryDelayMs(run) {
+  const backoff = Number(run.retry_backoff_ms ?? 0);
+  const attempt = Number(run.attempt ?? 1);
+  if (!Number.isFinite(backoff) || backoff <= 0) return 0;
+  return backoff * Math.max(1, attempt);
+}
+
+async function withTimeout(promise, timeoutMs, label) {
+  const ms = Number(timeoutMs);
+  if (!Number.isFinite(ms) || ms <= 0) return promise;
+
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function executeRunningProcessRun(run) {
   const sql = getDb();
 
   try {
     let result;
-    const item = await getProcessRegistryItem({ slug: run.registry_slug });
-    const metadata = await getSkillOperationMetadataOptional(run.registry_slug);
-    const runner = getRunnerInfo(item, metadata);
+    const context = await getRunExecutionContext(run);
+    const runner = context.runner;
 
     if (runner?.executor === "price_structure_analysis") {
-      result = await executePriceStructureRun(run);
+      result = await withTimeout(
+        executePriceStructureRun(run, context),
+        run.timeout_ms ?? runner.timeout_ms,
+        runner.executor
+      );
     } else if (runner?.executor === "polymarket_distiller") {
-      result = await executePolymarketDistillerRun(run);
+      result = await withTimeout(
+        executePolymarketDistillerRun(run, context),
+        run.timeout_ms ?? runner.timeout_ms,
+        runner.executor
+      );
     } else if (runner?.executor === "generic_skill_invocation_packet") {
-        result = await executeGenericSkillRun(run);
+      result = await withTimeout(
+        executeGenericSkillRun(run, context),
+        run.timeout_ms ?? runner.timeout_ms,
+        runner.executor
+      );
     } else {
       await sql`
         UPDATE process_runs
         SET status = 'blocked',
+          failure_category = 'no_runner',
           state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify({ blocker: "No WPR runner configured for registry_slug" })}::jsonb,
           completed_at = NOW()
         WHERE id = ${run.id}
@@ -1795,6 +1898,8 @@ async function executeRunningProcessRun(run) {
       UPDATE process_runs
       SET status = 'completed',
         outputs = ${JSON.stringify(result.output)}::jsonb,
+        failure_category = NULL,
+        next_retry_at = NULL,
         state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify({ completed_by: SERVER_INFO.name })}::jsonb,
         completed_at = NOW()
       WHERE id = ${run.id}
@@ -1803,9 +1908,18 @@ async function executeRunningProcessRun(run) {
         registry_slug,
         registry_version,
         status,
+        attempt,
+        max_attempts,
+        timeout_ms,
+        retry_backoff_ms,
+        failure_category,
+        next_retry_at::text AS next_retry_at,
         inputs,
         outputs,
         state,
+        frozen_registry,
+        frozen_metadata,
+        frozen_runner,
         started_at::text AS started_at,
         completed_at::text AS completed_at
     `;
@@ -1815,16 +1929,55 @@ async function executeRunningProcessRun(run) {
       artifacts: result.artifacts,
     };
   } catch (err) {
-    await sql`
+    const category = categorizeRunFailure(err);
+    const attempt = Number(run.attempt ?? 1);
+    const maxAttempts = Number(run.max_attempts ?? 1);
+    const shouldRetry = attempt < maxAttempts && isRetryableFailure(category);
+    const retryDelayMs = getRetryDelayMs(run);
+    const nextRetryAt = shouldRetry
+      ? new Date(Date.now() + retryDelayMs).toISOString()
+      : null;
+    const errorState = {
+      last_error: err instanceof Error ? err.message : String(err),
+      failure_category: category,
+      failed_attempt: attempt,
+      retry_scheduled: shouldRetry,
+      next_retry_at: nextRetryAt,
+    };
+
+    const failureRows = await sql`
       UPDATE process_runs
-      SET status = 'failed',
-        state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
-        })}::jsonb,
-        completed_at = NOW()
+      SET status = ${shouldRetry ? "pending" : "failed"},
+        attempt = ${shouldRetry ? attempt + 1 : attempt},
+        failure_category = ${category},
+        next_retry_at = ${nextRetryAt},
+        state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify(errorState)}::jsonb,
+        completed_at = CASE WHEN ${shouldRetry}::boolean THEN NULL ELSE NOW() END
       WHERE id = ${run.id}
+      RETURNING
+        id,
+        registry_slug,
+        registry_version,
+        status,
+        attempt,
+        max_attempts,
+        timeout_ms,
+        retry_backoff_ms,
+        failure_category,
+        next_retry_at::text AS next_retry_at,
+        inputs,
+        outputs,
+        state,
+        started_at::text AS started_at,
+        completed_at::text AS completed_at
     `;
-    throw err;
+    return {
+      ...failureRows[0],
+      message: shouldRetry
+        ? `Run failed with ${category}; retry ${attempt + 1}/${maxAttempts} scheduled.`
+        : `Run failed with ${category}; retry limit reached or failure is not retryable.`,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -1836,6 +1989,7 @@ async function claimPendingProcessRun(args = {}) {
       SELECT id
       FROM process_runs
       WHERE status = 'pending'
+        AND (next_retry_at IS NULL OR next_retry_at <= NOW())
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT 1
@@ -1851,9 +2005,18 @@ async function claimPendingProcessRun(args = {}) {
       r.registry_slug,
       r.registry_version,
       r.status,
+      r.attempt,
+      r.max_attempts,
+      r.timeout_ms,
+      r.retry_backoff_ms,
+      r.failure_category,
+      r.next_retry_at::text AS next_retry_at,
       r.inputs,
       r.outputs,
       r.state,
+      r.frozen_registry,
+      r.frozen_metadata,
+      r.frozen_runner,
       r.created_at::text AS created_at,
       r.started_at::text AS started_at
   `;
@@ -1875,9 +2038,18 @@ async function triggerProcessRun(args = {}) {
       registry_slug,
       registry_version,
       status,
+      attempt,
+      max_attempts,
+      timeout_ms,
+      retry_backoff_ms,
+      failure_category,
+      next_retry_at::text AS next_retry_at,
       inputs,
       outputs,
       state,
+      frozen_registry,
+      frozen_metadata,
+      frozen_runner,
       created_at::text AS created_at,
       started_at::text AS started_at
   `;
@@ -1905,9 +2077,18 @@ async function listProcessRuns(args = {}) {
       registry_slug,
       registry_version,
       status,
+      attempt,
+      max_attempts,
+      timeout_ms,
+      retry_backoff_ms,
+      failure_category,
+      next_retry_at::text AS next_retry_at,
       inputs,
       outputs,
       state,
+      frozen_registry,
+      frozen_metadata,
+      frozen_runner,
       started_at::text AS started_at,
       completed_at::text AS completed_at,
       created_at::text AS created_at

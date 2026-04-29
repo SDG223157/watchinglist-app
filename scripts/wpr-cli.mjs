@@ -140,7 +140,11 @@ function printMetadata(meta) {
 function printRuns(result) {
   for (const run of result.runs) {
     const output = run.outputs ? ` -> ${JSON.stringify(run.outputs)}` : "";
-    console.log(`#${run.id} ${run.registry_slug} [${run.status}]${output}`);
+    const retry = run.next_retry_at ? ` next_retry=${run.next_retry_at}` : "";
+    const failure = run.failure_category ? ` failure=${run.failure_category}` : "";
+    console.log(
+      `#${run.id} ${run.registry_slug} [${run.status}] attempt=${run.attempt ?? 1}/${run.max_attempts ?? 1}${failure}${retry}${output}`
+    );
   }
 }
 
@@ -202,10 +206,16 @@ function printResolved(result) {
 
 function printTrigger(result) {
   if (result.run) {
-    console.log(`#${result.run.id} ${result.run.registry_slug} [${result.run.status}]`);
+    console.log(
+      `#${result.run.id} ${result.run.registry_slug} [${result.run.status}] attempt=${result.run.attempt ?? 1}/${result.run.max_attempts ?? 1}`
+    );
     if (result.run.outputs) console.log(JSON.stringify(result.run.outputs, null, 2));
   } else {
-    console.log(`#${result.id} ${result.registry_slug} [${result.status}]`);
+    const retry = result.next_retry_at ? ` next_retry=${result.next_retry_at}` : "";
+    const failure = result.failure_category ? ` failure=${result.failure_category}` : "";
+    console.log(
+      `#${result.id} ${result.registry_slug} [${result.status}] attempt=${result.attempt ?? 1}/${result.max_attempts ?? 1}${failure}${retry}`
+    );
     if (result.message) console.log(result.message);
   }
 

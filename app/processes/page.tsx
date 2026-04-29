@@ -42,6 +42,7 @@ function getPrimaryAction(item: ProcessRegistryItem): RegistryAction {
 }
 
 function getActionHref(item: ProcessRegistryItem, action: RegistryAction) {
+  if (action === "runs") return `/processes/runs?slug=${item.slug}`;
   return `/processes?slug=${item.slug}&action=${action}`;
 }
 
@@ -282,11 +283,11 @@ function RegistryFlow() {
           </p>
         </div>
         <Link
-          href="/api/processes"
+          href="/processes/artifacts"
           className="w-fit rounded-md px-3 py-2 text-xs font-semibold transition-colors hover:brightness-125"
           style={{ background: "#2563eb", color: "#fff" }}
         >
-          View JSON
+          Artifact Inbox
         </Link>
       </div>
 

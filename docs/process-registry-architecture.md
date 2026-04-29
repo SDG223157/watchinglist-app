@@ -351,6 +351,51 @@ npm run wpr:worker -- --once
 
 The worker claims pending rows from `process_runs`, marks them `running`, executes the matching runner, writes artifacts, and marks the run `completed`, `failed`, or `blocked`.
 
+## Run Detail And Artifact Inbox
+
+WPR artifacts should be inspectable operational objects, not hidden log output. The app exposes:
+
+```text
+/processes/runs
+/processes/runs/[id]
+/processes/artifacts
+```
+
+Run detail shows the frozen registry version, frozen skill metadata, frozen runner config, inputs, outputs, runtime state, retry policy, artifacts, and audit events. The artifact inbox shows durable outputs across runs and lets the operator move artifacts through:
+
+```text
+needs_review -> approved -> published -> archived
+```
+
+Status changes write `process_audit_events`, so approval and publication decisions are observable.
+
+## Retry, Timeout, And Failure Policy
+
+Every run now carries runner policy fields copied from the runner config at creation time:
+
+```text
+attempt
+max_attempts
+timeout_ms
+retry_backoff_ms
+failure_category
+next_retry_at
+```
+
+Workers only claim pending runs whose `next_retry_at` is due. Retryable failures such as timeouts, market-data failures, external runner failures, and unknown transient failures can be rescheduled with backoff. Deterministic failures such as validation errors, artifact schema errors, or missing runners fail or block without retry churn.
+
+## Version Immutability
+
+Each `process_runs` row freezes the exact executable contract used by that run:
+
+```text
+frozen_registry
+frozen_metadata
+frozen_runner
+```
+
+This makes artifacts reproducible even after a skill definition, input schema, output schema, or runner config changes. Execution prefers the frozen snapshots on the run row, while new runs pick up the latest active registry metadata.
+
 ## Task Composition Layer
 
 The next layer above individual skills is a task composer: given a user request, WPR selects relevant skills as building blocks, compiles them into a typed plan, and can later hand that graph to the worker for execution.

@@ -30,6 +30,71 @@ export interface ProcessRegistrySummary {
   byType: Record<RegistryObjectType, number>;
 }
 
+export type ProcessRunStatus =
+  | "pending"
+  | "running"
+  | "blocked"
+  | "failed"
+  | "completed"
+  | "superseded";
+
+export type ProcessArtifactStatus =
+  | "needs_review"
+  | "approved"
+  | "published"
+  | "archived";
+
+export interface ProcessRun {
+  id: number;
+  registry_slug: string;
+  registry_version: number;
+  status: ProcessRunStatus;
+  attempt: number;
+  max_attempts: number;
+  timeout_ms: number | null;
+  retry_backoff_ms: number;
+  failure_category: string | null;
+  next_retry_at: string | null;
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown>;
+  state: Record<string, unknown>;
+  frozen_registry: Record<string, unknown>;
+  frozen_metadata: Record<string, unknown>;
+  frozen_runner: Record<string, unknown>;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface ProcessArtifact {
+  id: number;
+  run_id: number | null;
+  registry_slug: string | null;
+  artifact_type: string;
+  title: string;
+  status: ProcessArtifactStatus;
+  content_uri: string | null;
+  json_content: Record<string, unknown>;
+  created_by_step: string | null;
+  visibility: string;
+  created_at: string;
+  run_status?: ProcessRunStatus | null;
+  run_attempt?: number | null;
+  run_max_attempts?: number | null;
+}
+
+export interface ProcessRunDetail {
+  run: ProcessRun;
+  artifacts: ProcessArtifact[];
+  auditEvents: Array<{
+    id: number;
+    event_type: string;
+    actor: string;
+    details: Record<string, unknown>;
+    created_at: string;
+  }>;
+}
+
 const SEEDED_ITEMS: ProcessRegistryItem[] = [
   {
     slug: "schema-first-stock-analysis",
@@ -184,4 +249,230 @@ export function summarizeRegistry(
   }
 
   return summary;
+}
+
+export async function fetchProcessRuns(
+  slug?: string,
+  limit = 50
+): Promise<ProcessRun[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      registry_slug,
+      registry_version,
+      status,
+      attempt,
+      max_attempts,
+      timeout_ms,
+      retry_backoff_ms,
+      failure_category,
+      next_retry_at::text AS next_retry_at,
+      inputs,
+      outputs,
+      state,
+      frozen_registry,
+      frozen_metadata,
+      frozen_runner,
+      started_at::text AS started_at,
+      completed_at::text AS completed_at,
+      created_at::text AS created_at
+    FROM process_runs
+    WHERE (${slug ?? null}::text IS NULL OR registry_slug = ${slug ?? null})
+    ORDER BY created_at DESC
+    LIMIT ${Math.max(1, Math.min(100, Math.trunc(limit)))}
+  `;
+
+  return rows as unknown as ProcessRun[];
+}
+
+export async function fetchProcessArtifacts(
+  status?: ProcessArtifactStatus,
+  slug?: string,
+  limit = 100
+): Promise<ProcessArtifact[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      a.id,
+      a.run_id,
+      a.registry_slug,
+      a.artifact_type,
+      a.title,
+      a.status,
+      a.content_uri,
+      a.json_content,
+      a.created_by_step,
+      a.visibility,
+      a.created_at::text AS created_at,
+      r.status AS run_status,
+      r.attempt AS run_attempt,
+      r.max_attempts AS run_max_attempts
+    FROM process_artifacts a
+    LEFT JOIN process_runs r ON r.id = a.run_id
+    WHERE (${status ?? null}::text IS NULL OR a.status = ${status ?? null})
+      AND (${slug ?? null}::text IS NULL OR a.registry_slug = ${slug ?? null})
+    ORDER BY a.created_at DESC
+    LIMIT ${Math.max(1, Math.min(200, Math.trunc(limit)))}
+  `;
+
+  return rows as unknown as ProcessArtifact[];
+}
+
+export async function fetchProcessRunDetail(
+  id: number
+): Promise<ProcessRunDetail | null> {
+  const sql = getDb();
+  const runRows = await sql`
+    SELECT
+      id,
+      registry_slug,
+      registry_version,
+      status,
+      attempt,
+      max_attempts,
+      timeout_ms,
+      retry_backoff_ms,
+      failure_category,
+      next_retry_at::text AS next_retry_at,
+      inputs,
+      outputs,
+      state,
+      frozen_registry,
+      frozen_metadata,
+      frozen_runner,
+      started_at::text AS started_at,
+      completed_at::text AS completed_at,
+      created_at::text AS created_at
+    FROM process_runs
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+
+  const run = runRows[0] as unknown as ProcessRun | undefined;
+  if (!run) return null;
+
+  const artifactRows = await sql`
+    SELECT
+      a.id,
+      a.run_id,
+      a.registry_slug,
+      a.artifact_type,
+      a.title,
+      a.status,
+      a.content_uri,
+      a.json_content,
+      a.created_by_step,
+      a.visibility,
+      a.created_at::text AS created_at,
+      r.status AS run_status,
+      r.attempt AS run_attempt,
+      r.max_attempts AS run_max_attempts
+    FROM process_artifacts a
+    LEFT JOIN process_runs r ON r.id = a.run_id
+    WHERE a.run_id = ${id}
+    ORDER BY a.created_at DESC
+  `;
+  const auditRows = await sql`
+    SELECT
+      id,
+      event_type,
+      actor,
+      details,
+      created_at::text AS created_at
+    FROM process_audit_events
+    WHERE registry_slug = ${run.registry_slug}
+      AND (
+        details->>'run_id' = ${String(id)}
+        OR details->>'retry_of_run_id' = ${String(id)}
+      )
+    ORDER BY created_at DESC
+    LIMIT 30
+  `;
+
+  return {
+    run,
+    artifacts: artifactRows as unknown as ProcessArtifact[],
+    auditEvents: auditRows as unknown as ProcessRunDetail["auditEvents"],
+  };
+}
+
+export async function updateProcessArtifactStatus(
+  id: number,
+  status: ProcessArtifactStatus,
+  actor = "web-ui"
+) {
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE process_artifacts
+    SET status = ${status}
+    WHERE id = ${id}
+    RETURNING id, registry_slug, run_id, status
+  `;
+  const artifact = rows[0];
+  if (!artifact) throw new Error(`Artifact ${id} not found`);
+
+  await sql`
+    INSERT INTO process_audit_events (
+      registry_slug,
+      event_type,
+      actor,
+      details
+    )
+    VALUES (
+      ${artifact.registry_slug},
+      'artifact_status_changed',
+      ${actor},
+      ${JSON.stringify({
+        artifact_id: artifact.id,
+        run_id: artifact.run_id,
+        status,
+      })}::jsonb
+    )
+  `;
+
+  return artifact;
+}
+
+export async function retryProcessRun(id: number, actor = "web-ui") {
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE process_runs
+    SET status = 'pending',
+      attempt = LEAST(attempt + 1, GREATEST(max_attempts, attempt + 1)),
+      max_attempts = GREATEST(max_attempts, attempt + 1),
+      failure_category = NULL,
+      next_retry_at = NULL,
+      completed_at = NULL,
+      state = COALESCE(state, '{}'::jsonb) || ${JSON.stringify({
+        manually_retried_by: actor,
+        manually_retried_at: new Date().toISOString(),
+      })}::jsonb
+    WHERE id = ${id}
+      AND status IN ('failed', 'blocked')
+    RETURNING id, registry_slug, status, attempt, max_attempts
+  `;
+  const run = rows[0];
+  if (!run) throw new Error(`Run ${id} is not failed or blocked`);
+
+  await sql`
+    INSERT INTO process_audit_events (
+      registry_slug,
+      event_type,
+      actor,
+      details
+    )
+    VALUES (
+      ${run.registry_slug},
+      'run_retry_requested',
+      ${actor},
+      ${JSON.stringify({
+        run_id: run.id,
+        attempt: run.attempt,
+        max_attempts: run.max_attempts,
+      })}::jsonb
+    )
+  `;
+
+  return run;
 }
