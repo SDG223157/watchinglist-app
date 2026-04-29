@@ -59,6 +59,20 @@ bespoke runner -> workflow-specific artifact
 pipeline runner -> multi-step operating loop
 ```
 
+The core idea is to turn skills from loose prompt magic into typed, inspectable, runnable infrastructure. Each new capability should enter the system through the same durable path:
+
+```text
+new skill
+-> typed contract
+-> risk/approval policy
+-> runner strategy
+-> durable run
+-> artifact
+-> audit trail
+```
+
+That is how WPR becomes an operating layer instead of a folder of scripts.
+
 ## Runner Taxonomy
 
 WPR uses runner kinds to decide what execution is allowed and what artifact contract to expect.
