@@ -376,6 +376,38 @@ npm run wpr -- plan "AAPL shannon entropy analysis" --json
 
 The MCP tool behind the CLI is `suggest_task_plan`. It parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs. It does not execute plans yet.
 
+### Running Recommended Block Graphs
+
+Today, recommended block graphs are planning output. The operator can inspect the plan, then run the suggested blocks manually.
+
+```bash
+wpr plan "Analyze AAPL and create a meeting"
+```
+
+Then run the selected blocks:
+
+```bash
+wpr AAPL price structure --run
+wpr AAPL hmm entropy analysis --run
+wpr AAPL narrative cycle analysis --run
+wpr AAPL analysis to meeting --run
+```
+
+Or create pending runs and let the worker process them:
+
+```bash
+wpr AAPL price structure --create
+wpr AAPL hmm entropy analysis --create
+wpr AAPL narrative cycle analysis --create
+wpr AAPL analysis to meeting --create
+
+wpr worker
+```
+
+Only skills with real executors produce true domain artifacts. `price-structure-analysis` and `polymarket-distiller` have built-in runners. Other active skills currently use the generic WPR runner, which creates a durable `skill_invocation_packet` artifact that records the selected skill, typed inputs, metadata, and source preview.
+
+The next upgrade is `wpr plan "..." --run`: persist the task graph, create dependent `process_runs`, and let workers execute runnable nodes in DAG order while respecting schema validation and approval gates.
+
 ### Composition Components
 
 ```text
