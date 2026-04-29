@@ -26,6 +26,29 @@ const STATUS_STYLES: Record<RegistryStatus, { bg: string; color: string }> = {
   archived: { bg: "rgba(161,161,170,0.12)", color: "#a1a1aa" },
 };
 
+type RegistryAction = "run" | "edit" | "review" | "runs";
+
+const ACTION_LABELS: Record<RegistryAction, string> = {
+  run: "Run",
+  edit: "Edit Draft",
+  review: "Review",
+  runs: "View Runs",
+};
+
+function getPrimaryAction(item: ProcessRegistryItem): RegistryAction {
+  if (item.status === "active") return "run";
+  if (item.status === "review") return "review";
+  return "edit";
+}
+
+function getActionHref(item: ProcessRegistryItem, action: RegistryAction) {
+  return `/processes?slug=${item.slug}&action=${action}`;
+}
+
+function isRegistryAction(value: string | undefined): value is RegistryAction {
+  return value === "run" || value === "edit" || value === "review" || value === "runs";
+}
+
 function StatTile({
   label,
   value,
@@ -66,13 +89,23 @@ function StatusBadge({ status }: { status: RegistryStatus }) {
   );
 }
 
-function RegistryCard({ item }: { item: ProcessRegistryItem }) {
+function RegistryCard({
+  item,
+  selected,
+}: {
+  item: ProcessRegistryItem;
+  selected: boolean;
+}) {
   const configEntries = Object.entries(item.config).slice(0, 3);
+  const primaryAction = getPrimaryAction(item);
 
   return (
     <article
       className="rounded-lg p-5"
-      style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+      style={{
+        background: "var(--card)",
+        border: selected ? "1px solid #3b82f6" : "1px solid var(--border)",
+      }}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -126,7 +159,106 @@ function RegistryCard({ item }: { item: ProcessRegistryItem }) {
           </div>
         ))}
       </dl>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <Link
+          href={getActionHref(item, primaryAction)}
+          className="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors hover:brightness-125"
+          style={{ background: "#2563eb", color: "#fff" }}
+        >
+          {ACTION_LABELS[primaryAction]}
+        </Link>
+        <Link
+          href={getActionHref(item, "runs")}
+          className="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors hover:brightness-125"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: "var(--muted)",
+          }}
+        >
+          View Runs
+        </Link>
+      </div>
     </article>
+  );
+}
+
+function SelectedActionPanel({
+  item,
+  action,
+}: {
+  item: ProcessRegistryItem;
+  action: RegistryAction;
+}) {
+  const actionCopy: Record<RegistryAction, { title: string; body: string; command: string }> = {
+    run: {
+      title: "Run Preview",
+      body: "This object is active and ready for a runtime-backed execution step.",
+      command: `create_process_run("${item.slug}", v${item.version})`,
+    },
+    edit: {
+      title: "Draft Editor",
+      body: "Draft objects can be changed before they are reviewed or activated.",
+      command: `open_registry_editor("${item.slug}")`,
+    },
+    review: {
+      title: "Review Gate",
+      body: "Review objects are waiting for approval before becoming active.",
+      command: `approve_registry_version("${item.slug}", v${item.version})`,
+    },
+    runs: {
+      title: "Run History",
+      body: "Run history will show status, inputs, outputs, artifacts, and failures for this object.",
+      command: `list_process_runs("${item.slug}")`,
+    },
+  };
+
+  const selected = actionCopy[action];
+
+  return (
+    <section
+      className="mt-6 rounded-lg p-5"
+      style={{ background: "var(--card)", border: "1px solid #3b82f6" }}
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--blue)" }}
+          >
+            {TYPE_LABELS[item.object_type]} / {item.status} / v{item.version}
+          </div>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">
+            {selected.title}: {item.name}
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6" style={{ color: "var(--muted)" }}>
+            {selected.body}
+          </p>
+        </div>
+        <Link
+          href="/processes"
+          className="w-fit rounded-md px-3 py-2 text-xs font-semibold transition-colors hover:brightness-125"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: "var(--muted)",
+          }}
+        >
+          Clear
+        </Link>
+      </div>
+      <div
+        className="mt-4 rounded-lg p-4 font-mono text-xs"
+        style={{
+          background: "rgba(0,0,0,0.22)",
+          border: "1px solid rgba(255,255,255,0.07)",
+          color: "var(--text)",
+        }}
+      >
+        {selected.command}
+      </div>
+    </section>
   );
 }
 
@@ -182,10 +314,21 @@ function RegistryFlow() {
   );
 }
 
-export default async function ProcessesPage() {
+export default async function ProcessesPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ slug?: string; action?: string }>;
+}) {
   const [session, items] = await Promise.all([auth(), fetchProcessRegistry()]);
   if (!session?.user) redirect("/login");
 
+  const params = await searchParams;
+  const selectedItem = items.find((item) => item.slug === params?.slug);
+  const selectedAction = isRegistryAction(params?.action)
+    ? params.action
+    : selectedItem
+      ? getPrimaryAction(selectedItem)
+      : undefined;
   const summary = summarizeRegistry(items);
 
   return (
@@ -228,14 +371,22 @@ export default async function ProcessesPage() {
 
       <RegistryFlow />
 
+      {selectedItem && selectedAction && (
+        <SelectedActionPanel item={selectedItem} action={selectedAction} />
+      )}
+
       <section className="mt-6 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => (
-          <RegistryCard key={item.slug} item={item} />
+          <RegistryCard
+            key={item.slug}
+            item={item}
+            selected={item.slug === selectedItem?.slug}
+          />
         ))}
       </section>
 
       <footer className="mt-12 pb-8 text-right text-xs" style={{ color: "var(--muted)" }}>
-        Registry definitions fall back to seeded data until the migration is applied.
+        Registry definitions are loaded from the Process Registry database.
       </footer>
     </main>
   );
