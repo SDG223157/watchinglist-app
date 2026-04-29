@@ -33,6 +33,7 @@ Usage:
   wpr <input> <operation...> --run    Create and trigger a run
   wpr path "wpr/aapl/price structure" Resolve a slash path
   wpr plan "analyze AAPL and create a meeting" Suggest skill building blocks
+  wpr plan "analyze AAPL and create a meeting" --llm Refine plan with configured LLM
   wpr run <run_id>                    Trigger a pending run
   wpr worker [--once]                 Run the Postgres-backed worker
 
@@ -50,6 +51,8 @@ Other commands:
 Options:
   --create   Create a pending run when resolving a path
   --run      Create then immediately trigger the pending run
+  --llm      Use configured LLM support for planning
+  --model    Override WPR_LLM_MODEL for one LLM planning call
   --json     Print raw JSON
 `;
 }
@@ -73,7 +76,7 @@ function parseArgv(argv) {
       continue;
     }
 
-    if (["type", "status", "limit"].includes(rawKey)) {
+    if (["type", "status", "limit", "model", "provider"].includes(rawKey)) {
       values[key] = argv[i + 1];
       i += 1;
       continue;
@@ -311,6 +314,27 @@ function printTaskPlan(result) {
       }
     }
   }
+
+  if (result.llm?.enabled) {
+    console.log("");
+    console.log(
+      `LLM planner: ${result.llm.status} provider=${result.llm.provider} model=${result.llm.model}`
+    );
+    if (result.llm.error) console.log(`  error: ${result.llm.error}`);
+    if (result.llm.plan) {
+      const plan = result.llm.plan;
+      console.log(`  ${plan.label}: ${plan.summary || "no summary"}`);
+      for (const node of plan.nodes ?? []) {
+        const deps = node.depends_on?.length ? ` after=${node.depends_on.join(",")}` : "";
+        const reason = node.llm_reason ? ` - ${node.llm_reason}` : "";
+        console.log(`  - ${node.id}: ${node.slug}${deps}${reason}`);
+      }
+      if (plan.risk_notes?.length) console.log(`  risk: ${plan.risk_notes.join("; ")}`);
+      if (plan.missing_capabilities?.length) {
+        console.log(`  gaps: ${plan.missing_capabilities.join("; ")}`);
+      }
+    }
+  }
 }
 
 async function createAndMaybeTrigger(path, shouldCreate, shouldRun) {
@@ -427,6 +451,9 @@ async function main() {
     result = await callTool("suggest_task_plan", {
       input: args.slice(1).join(" "),
       limit: values.limit ? Number(values.limit) : undefined,
+      use_llm: flags.has("llm"),
+      llm_provider: values.provider,
+      llm_model: values.model,
     });
     printer = printTaskPlan;
   } else if (command === "audit-skills") {

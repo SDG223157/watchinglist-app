@@ -409,6 +409,21 @@ const TOOLS = [
           maximum: 50,
           default: 12,
         },
+        use_llm: {
+          type: "boolean",
+          default: false,
+          description:
+            "When true, ask a configured LLM to refine the deterministic candidate plan. Deterministic planning remains the fallback.",
+        },
+        llm_provider: {
+          type: "string",
+          description:
+            "Optional provider override. Supported values are openrouter, openai, or compatible.",
+        },
+        llm_model: {
+          type: "string",
+          description: "Optional model override for this planning call.",
+        },
       },
       required: ["input"],
       additionalProperties: false,
@@ -2795,6 +2810,233 @@ function summarizePlanRisk(nodes) {
   };
 }
 
+function getLlmPlannerConfig(args = {}) {
+  const provider = normalizeInput(
+    args.llm_provider || process.env.WPR_LLM_PROVIDER || (process.env.OPENROUTER_API_KEY ? "openrouter" : "openai")
+  ).toLowerCase();
+  const apiKey =
+    process.env.WPR_LLM_API_KEY ||
+    (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : null) ||
+    process.env.OPENAI_API_KEY ||
+    process.env.OPENROUTER_API_KEY;
+  const baseUrl = (
+    process.env.WPR_LLM_BASE_URL ||
+    (provider === "openrouter"
+      ? "https://openrouter.ai/api/v1"
+      : provider === "openai"
+      ? "https://api.openai.com/v1"
+      : "https://api.openai.com/v1")
+  ).replace(/\/+$/, "");
+  const model = normalizeInput(
+    args.llm_model ||
+      process.env.WPR_LLM_MODEL ||
+      (provider === "openrouter" ? process.env.OPENROUTER_MODEL : process.env.OPENAI_MODEL) ||
+      (provider === "openrouter" ? "openai/gpt-4.1-mini" : "gpt-4.1-mini")
+  );
+
+  return {
+    provider,
+    apiKey,
+    baseUrl,
+    model,
+    timeout_ms: Math.max(1000, Number(process.env.WPR_LLM_TIMEOUT_MS ?? 30000)),
+  };
+}
+
+function compactCandidateForLlm(candidate) {
+  return {
+    slug: candidate.slug,
+    name: candidate.name,
+    score: candidate.score,
+    runner_kind: candidate.runner_kind,
+    artifact_type: candidate.runner_artifact_type,
+    risk_level: candidate.risk_level,
+    artifact_types: candidate.artifact_types,
+    approval_requirements: candidate.approval_requirements,
+    suggested_inputs: candidate.suggested_inputs,
+    input_valid: candidate.input_valid,
+    why: candidate.why,
+  };
+}
+
+function buildLlmPlannerMessages(input, intent, candidates, plans) {
+  const candidateJson = JSON.stringify(candidates.map(compactCandidateForLlm), null, 2);
+  const planJson = JSON.stringify(plans, null, 2);
+
+  return [
+    {
+      role: "system",
+      content:
+        "You are the WatchingList Process Registry planner. Refine a deterministic skill plan without inventing skills. You may only select slugs present in the provided candidate list. Return strict JSON only.",
+    },
+    {
+      role: "user",
+      content: `User intent:\n${input}\n\nParsed intent:\n${JSON.stringify(intent, null, 2)}\n\nCandidate skills:\n${candidateJson}\n\nDeterministic plans:\n${planJson}\n\nReturn JSON with this shape:\n{\n  "summary": "one sentence",\n  "recommended_plan_label": "short label",\n  "selected_nodes": [\n    {"slug": "candidate-slug", "depends_on": ["candidate-slug"], "reason": "why this block is useful"}\n  ],\n  "artifact_strategy": ["what each selected block should produce"],\n  "risk_notes": ["approval or execution caveats"],\n  "missing_capabilities": ["optional gaps"]\n}`,
+    },
+  ];
+}
+
+async function fetchJsonWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+
+    if (!response.ok) {
+      const message = json?.error?.message || text || response.statusText;
+      throw new Error(`LLM planner request failed (${response.status}): ${String(message).slice(0, 500)}`);
+    }
+
+    return json;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseLlmJsonContent(content) {
+  const text = normalizeInput(content);
+  if (!text) throw new Error("LLM planner returned empty content");
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("LLM planner did not return JSON");
+    return JSON.parse(match[0]);
+  }
+}
+
+function sanitizeLlmPlan(rawPlan, candidates) {
+  const bySlug = new Map(candidates.map((candidate) => [candidate.slug, candidate]));
+  const selected = Array.isArray(rawPlan?.selected_nodes) ? rawPlan.selected_nodes : [];
+  const nodes = [];
+
+  for (const node of selected) {
+    const slug = normalizeInput(node?.slug);
+    const candidate = bySlug.get(slug);
+    if (!candidate) continue;
+    const dependsOnSlugs = Array.isArray(node?.depends_on)
+      ? node.depends_on.map(normalizeInput).filter((dep) => bySlug.has(dep))
+      : [];
+    nodes.push({
+      ...buildPlanNode(candidate, nodes.length, dependsOnSlugs.map((dep) => dep.replace(/[^a-z0-9]+/g, "_"))),
+      llm_reason: normalizeInput(node?.reason),
+    });
+  }
+
+  const risk = summarizePlanRisk(nodes);
+  return {
+    summary: normalizeInput(rawPlan?.summary),
+    label: normalizeInput(rawPlan?.recommended_plan_label) || "LLM-refined plan",
+    nodes,
+    artifact_strategy: Array.isArray(rawPlan?.artifact_strategy)
+      ? rawPlan.artifact_strategy.map(normalizeInput).filter(Boolean).slice(0, 10)
+      : [],
+    risk_notes: Array.isArray(rawPlan?.risk_notes)
+      ? rawPlan.risk_notes.map(normalizeInput).filter(Boolean).slice(0, 10)
+      : [],
+    missing_capabilities: Array.isArray(rawPlan?.missing_capabilities)
+      ? rawPlan.missing_capabilities.map(normalizeInput).filter(Boolean).slice(0, 10)
+      : [],
+    ...risk,
+    executable_now: nodes.length > 0 && nodes.every((node) => node.input_valid),
+  };
+}
+
+async function suggestTaskPlanWithLlm({ input, intent, candidates, plans, args }) {
+  const config = getLlmPlannerConfig(args);
+  const base = {
+    enabled: true,
+    provider: config.provider,
+    model: config.model,
+    status: "skipped",
+  };
+
+  if (!config.apiKey) {
+    return {
+      ...base,
+      error:
+        "No LLM API key configured. Set WPR_LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.",
+    };
+  }
+
+  try {
+    const messages = buildLlmPlannerMessages(input, intent, candidates, plans);
+    const json = await fetchJsonWithTimeout(
+      `${config.baseUrl}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          "Content-Type": "application/json",
+          ...(config.provider === "openrouter"
+            ? {
+                "HTTP-Referer": "https://watchinglist.app",
+                "X-Title": "WatchingList Process Registry",
+              }
+            : {}),
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+      },
+      config.timeout_ms
+    );
+    const content = json?.choices?.[0]?.message?.content;
+    const rawPlan = parseLlmJsonContent(content);
+    const plan = sanitizeLlmPlan(rawPlan, candidates);
+
+    try {
+      const sql = getDb();
+      await sql`
+        INSERT INTO process_audit_events (
+          event_type,
+          actor,
+          details
+        )
+        VALUES (
+          'llm_task_plan_suggested',
+          ${SERVER_INFO.name},
+          ${JSON.stringify({
+            provider: config.provider,
+            model: config.model,
+            input,
+            selected_slugs: plan.nodes.map((node) => node.slug),
+          })}::jsonb
+        )
+      `;
+    } catch {
+      // Planning should still succeed if audit logging is temporarily unavailable.
+    }
+
+    return {
+      ...base,
+      status: "completed",
+      plan,
+      usage: json?.usage ?? null,
+    };
+  } catch (err) {
+    return {
+      ...base,
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 function buildPlanNode(candidate, index, dependsOn = []) {
   return {
     id: candidate.slug.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || `node_${index + 1}`,
@@ -2980,12 +3222,22 @@ async function suggestTaskPlan(args = {}) {
 
   const skillCandidates = candidates.slice(0, limit);
   const plans = buildRecommendedTaskPlans(intent, skillCandidates);
+  const llm = args.use_llm === true
+    ? await suggestTaskPlanWithLlm({
+        input,
+        intent,
+        candidates: skillCandidates,
+        plans,
+        args,
+      })
+    : { enabled: false };
 
   return {
     input,
     intent,
     skill_candidates: skillCandidates,
     plans,
+    llm,
   };
 }
 

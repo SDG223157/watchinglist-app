@@ -446,6 +446,38 @@ npm run wpr -- plan "AAPL shannon entropy analysis" --json
 
 The MCP tool behind the CLI is `suggest_task_plan`. It parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs. It does not execute plans yet.
 
+### Optional LLM Planner
+
+Default WPR planning is deterministic. LLM support is explicit:
+
+```bash
+wpr plan "Analyze AAPL and create a meeting" --llm
+wpr plan "Analyze AAPL and create a meeting" --llm --provider openrouter --model openai/gpt-4.1-mini
+```
+
+The deterministic planner still runs first. The LLM receives only the user intent, parsed intent, candidate skill metadata, and deterministic plans. Its response is sanitized so it can only choose real active skill slugs from the candidate list. The returned object includes:
+
+```text
+llm.enabled
+llm.provider
+llm.model
+llm.status
+llm.plan
+llm.usage
+```
+
+Configuration:
+
+```text
+WPR_LLM_PROVIDER=openrouter | openai | compatible
+WPR_LLM_MODEL=openai/gpt-4.1-mini
+WPR_LLM_BASE_URL=https://openrouter.ai/api/v1
+WPR_LLM_API_KEY=...
+WPR_LLM_TIMEOUT_MS=30000
+```
+
+If `WPR_LLM_API_KEY` is empty, WPR falls back to `OPENROUTER_API_KEY` or `OPENAI_API_KEY`. LLM planning writes a `process_audit_events` row with provider, model, input, and selected slugs. Secrets are never written to audit rows.
+
 ### Running Recommended Block Graphs
 
 Today, recommended block graphs are planning output. The operator can inspect the plan, then run the suggested blocks manually.
