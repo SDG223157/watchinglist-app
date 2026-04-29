@@ -101,6 +101,13 @@ export default async function Dashboard() {
               Sim
             </Link>
             <Link
+              href="/processes"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted)" }}
+            >
+              Processes
+            </Link>
+            <Link
               href="/portfolio"
               className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
               style={{ background: "#2563eb", border: "1px solid #2563eb", color: "#fff" }}
