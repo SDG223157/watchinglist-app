@@ -452,7 +452,7 @@ Default WPR planning is deterministic. LLM support is explicit:
 
 ```bash
 wpr plan "Analyze AAPL and create a meeting" --llm
-wpr plan "Analyze AAPL and create a meeting" --llm --provider openrouter --model openai/gpt-4.1-mini
+wpr plan "Analyze AAPL and create a meeting" --llm --provider openai --model gpt-4.1-mini
 ```
 
 The deterministic planner still runs first. The LLM receives only the user intent, parsed intent, candidate skill metadata, and deterministic plans. Its response is sanitized so it can only choose real active skill slugs from the candidate list. The returned object includes:
@@ -469,14 +469,15 @@ llm.usage
 Configuration:
 
 ```text
-WPR_LLM_PROVIDER=openrouter | openai | compatible
-WPR_LLM_MODEL=openai/gpt-4.1-mini
-WPR_LLM_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_API_KEY=...
+WPR_LLM_PROVIDER=openai | compatible
+WPR_LLM_MODEL=gpt-4.1-mini
+WPR_LLM_BASE_URL=https://api.openai.com/v1
 WPR_LLM_API_KEY=...
 WPR_LLM_TIMEOUT_MS=30000
 ```
 
-If `WPR_LLM_API_KEY` is empty, WPR falls back to `OPENROUTER_API_KEY` or `OPENAI_API_KEY`. LLM planning writes a `process_audit_events` row with provider, model, input, and selected slugs. Secrets are never written to audit rows.
+If `WPR_LLM_API_KEY` is empty, WPR falls back to `OPENAI_API_KEY`. `OPENROUTER_API_KEY` is intentionally ignored because that route is blocked in this environment. LLM planning writes a `process_audit_events` row with provider, model, input, and selected slugs. Secrets are never written to audit rows.
 
 ### Running Recommended Block Graphs
 

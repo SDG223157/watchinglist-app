@@ -418,7 +418,7 @@ const TOOLS = [
         llm_provider: {
           type: "string",
           description:
-            "Optional provider override. Supported values are openrouter, openai, or compatible.",
+            "Optional provider override. Supported values are openai or compatible.",
         },
         llm_model: {
           type: "string",
@@ -2812,26 +2812,18 @@ function summarizePlanRisk(nodes) {
 
 function getLlmPlannerConfig(args = {}) {
   const provider = normalizeInput(
-    args.llm_provider || process.env.WPR_LLM_PROVIDER || (process.env.OPENROUTER_API_KEY ? "openrouter" : "openai")
+    args.llm_provider || process.env.WPR_LLM_PROVIDER || "openai"
   ).toLowerCase();
-  const apiKey =
-    process.env.WPR_LLM_API_KEY ||
-    (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : null) ||
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY;
+  const apiKey = process.env.WPR_LLM_API_KEY || process.env.OPENAI_API_KEY;
   const baseUrl = (
     process.env.WPR_LLM_BASE_URL ||
-    (provider === "openrouter"
-      ? "https://openrouter.ai/api/v1"
-      : provider === "openai"
-      ? "https://api.openai.com/v1"
-      : "https://api.openai.com/v1")
+    (provider === "openai" ? "https://api.openai.com/v1" : "https://api.openai.com/v1")
   ).replace(/\/+$/, "");
   const model = normalizeInput(
     args.llm_model ||
       process.env.WPR_LLM_MODEL ||
-      (provider === "openrouter" ? process.env.OPENROUTER_MODEL : process.env.OPENAI_MODEL) ||
-      (provider === "openrouter" ? "openai/gpt-4.1-mini" : "gpt-4.1-mini")
+      process.env.OPENAI_MODEL ||
+      "gpt-4.1-mini"
   );
 
   return {
@@ -2966,7 +2958,7 @@ async function suggestTaskPlanWithLlm({ input, intent, candidates, plans, args }
     return {
       ...base,
       error:
-        "No LLM API key configured. Set WPR_LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.",
+        "No LLM API key configured. Set WPR_LLM_API_KEY or OPENAI_API_KEY.",
     };
   }
 
@@ -2979,12 +2971,6 @@ async function suggestTaskPlanWithLlm({ input, intent, candidates, plans, args }
         headers: {
           Authorization: `Bearer ${config.apiKey}`,
           "Content-Type": "application/json",
-          ...(config.provider === "openrouter"
-            ? {
-                "HTTP-Referer": "https://watchinglist.app",
-                "X-Title": "WatchingList Process Registry",
-              }
-            : {}),
         },
         body: JSON.stringify({
           model: config.model,
