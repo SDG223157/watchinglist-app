@@ -386,15 +386,40 @@ Workers only claim pending runs whose `next_retry_at` is due. Retryable failures
 
 ## Version Immutability
 
-Each `process_runs` row freezes the exact executable contract used by that run:
+The current registry row is an active pointer. Immutable history lives in `process_registry_versions`:
 
 ```text
+process_registry_items
+  slug = current active pointer
+  version = latest current version
+
+process_registry_versions
+  registry_slug
+  version
+  definition_snapshot
+  metadata_snapshot
+  runner_snapshot
+  source_hash
+```
+
+If a skill is modified several times, WPR should mint `v1`, `v2`, `v3`, and so on. Imports and run creation ensure a version snapshot exists. If a DB row is edited without bumping `version`, WPR detects the changed snapshot hash and advances the current row to the next version before creating a run.
+
+Each `process_runs` row points to the immutable version and also freezes the exact executable contract used by that run:
+
+```text
+registry_version_id
 frozen_registry
 frozen_metadata
 frozen_runner
 ```
 
 This makes artifacts reproducible even after a skill definition, input schema, output schema, or runner config changes. Execution prefers the frozen snapshots on the run row, while new runs pick up the latest active registry metadata.
+
+Useful inspection command:
+
+```bash
+wpr versions price-structure-analysis 5
+```
 
 ## Task Composition Layer
 

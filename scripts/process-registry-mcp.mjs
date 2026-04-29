@@ -3,6 +3,7 @@
 import { neon } from "@neondatabase/serverless";
 import dotenv from "dotenv";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -269,6 +270,28 @@ const TOOLS = [
     },
   },
   {
+    name: "list_process_registry_versions",
+    description:
+      "List immutable version snapshots for a Process Registry item.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: {
+          type: "string",
+          description: "Registry slug to list versions for.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          default: 10,
+        },
+      },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_process_artifacts",
     description:
       "List recent process_artifacts rows, optionally filtered by registry slug or artifact status.",
@@ -420,6 +443,23 @@ function getLimit(value) {
 
 function normalizeInput(value) {
   return String(value ?? "").trim();
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function snapshotHash(...values) {
+  return createHash("sha256")
+    .update(values.map(stableJson).join("\n"))
+    .digest("hex");
 }
 
 function looksLikeTicker(value) {
@@ -816,6 +856,156 @@ async function getSkillOperationMetadataOptional(slug) {
   }
 }
 
+function buildRegistryVersionSnapshots(item, metadata, runner) {
+  const definitionSnapshot = {
+    slug: item.slug,
+    object_type: item.object_type,
+    name: item.name,
+    status: item.status,
+    version: item.version,
+    description: item.description,
+    tags: item.tags ?? [],
+    config: item.config ?? {},
+  };
+  const metadataSnapshot = metadata
+    ? Object.fromEntries(
+        Object.entries(metadata).filter(([key]) => !["created_at", "updated_at"].includes(key))
+      )
+    : {};
+  const runnerSnapshot = runner ?? {};
+
+  return {
+    definitionSnapshot,
+    metadataSnapshot,
+    runnerSnapshot,
+    sourceHash: snapshotHash(definitionSnapshot, metadataSnapshot, runnerSnapshot),
+  };
+}
+
+async function ensureProcessRegistryVersion(item, metadata, runner, options = {}) {
+  const sql = getDb();
+  let currentItem = item;
+  let snapshots = buildRegistryVersionSnapshots(currentItem, metadata, runner);
+
+  const latestRows = await sql`
+    SELECT id, version, source_hash, created_by
+    FROM process_registry_versions
+    WHERE registry_slug = ${currentItem.slug}
+    ORDER BY version DESC
+    LIMIT 1
+  `;
+  const latest = latestRows[0] ?? null;
+
+  if (
+    latest &&
+    latest.created_by === "migration_008_backfill" &&
+    Number(latest.version) === Number(currentItem.version) &&
+    latest.source_hash !== snapshots.sourceHash
+  ) {
+    const rows = await sql`
+      UPDATE process_registry_versions
+      SET definition_snapshot = ${JSON.stringify(snapshots.definitionSnapshot)}::jsonb,
+        metadata_snapshot = ${JSON.stringify(snapshots.metadataSnapshot)}::jsonb,
+        runner_snapshot = ${JSON.stringify(snapshots.runnerSnapshot)}::jsonb,
+        source_hash = ${snapshots.sourceHash},
+        created_by = ${options.created_by ?? SERVER_INFO.name},
+        activated_at = CASE WHEN ${currentItem.status === "active"}::boolean THEN COALESCE(activated_at, NOW()) ELSE activated_at END
+      WHERE id = ${latest.id}
+      RETURNING
+        id,
+        registry_slug,
+        version,
+        object_type,
+        status,
+        definition_snapshot,
+        metadata_snapshot,
+        runner_snapshot,
+        source_hash,
+        created_by,
+        activated_at::text AS activated_at,
+        created_at::text AS created_at
+    `;
+    return {
+      item: currentItem,
+      version: rows[0],
+    };
+  }
+
+  if (
+    latest &&
+    Number(latest.version) === Number(currentItem.version) &&
+    latest.source_hash !== snapshots.sourceHash
+  ) {
+    const nextVersion = Math.max(Number(latest.version), Number(currentItem.version)) + 1;
+    const itemRows = await sql`
+      UPDATE process_registry_items
+      SET version = ${nextVersion},
+        updated_at = NOW()
+      WHERE slug = ${currentItem.slug}
+      RETURNING
+        slug,
+        object_type,
+        name,
+        status,
+        version,
+        description,
+        tags,
+        config,
+        updated_at::text AS updated_at
+    `;
+    currentItem = itemRows[0];
+    snapshots = buildRegistryVersionSnapshots(currentItem, metadata, runner);
+  }
+
+  const rows = await sql`
+    INSERT INTO process_registry_versions (
+      registry_slug,
+      version,
+      object_type,
+      status,
+      definition_snapshot,
+      metadata_snapshot,
+      runner_snapshot,
+      source_hash,
+      created_by,
+      activated_at
+    )
+    VALUES (
+      ${currentItem.slug},
+      ${currentItem.version},
+      ${currentItem.object_type},
+      ${currentItem.status},
+      ${JSON.stringify(snapshots.definitionSnapshot)}::jsonb,
+      ${JSON.stringify(snapshots.metadataSnapshot)}::jsonb,
+      ${JSON.stringify(snapshots.runnerSnapshot)}::jsonb,
+      ${snapshots.sourceHash},
+      ${options.created_by ?? SERVER_INFO.name},
+      CASE WHEN ${currentItem.status === "active"}::boolean THEN NOW() ELSE NULL END
+    )
+    ON CONFLICT (registry_slug, version) DO UPDATE SET
+      status = EXCLUDED.status,
+      activated_at = COALESCE(process_registry_versions.activated_at, EXCLUDED.activated_at)
+    RETURNING
+      id,
+      registry_slug,
+      version,
+      object_type,
+      status,
+      definition_snapshot,
+      metadata_snapshot,
+      runner_snapshot,
+      source_hash,
+      created_by,
+      activated_at::text AS activated_at,
+      created_at::text AS created_at
+  `;
+
+  return {
+    item: currentItem,
+    version: rows[0],
+  };
+}
+
 function getInputSchema(item, metadata) {
   const schema = metadata?.input_schema ?? item.config?.input_schema ?? {};
   if (schema?.inferred && BUILT_IN_INPUT_SCHEMAS[item.slug]) {
@@ -1007,7 +1197,7 @@ function validateArtifactJsonContent(registrySlug, artifactType, jsonContent, me
 
 async function createProcessRun(args = {}) {
   const sql = getDb();
-  const item = await getProcessRegistryItem(args);
+  let item = await getProcessRegistryItem(args);
 
   if (item.status !== "active") {
     throw new Error(
@@ -1019,8 +1209,13 @@ async function createProcessRun(args = {}) {
   const metadata = await getSkillOperationMetadataOptional(item.slug);
   validateProcessRunInputs(item, inputs, metadata);
   const runner = getRunnerInfo(item, metadata);
+  const versionRecord = await ensureProcessRegistryVersion(item, metadata, runner, {
+    created_by: SERVER_INFO.name,
+  });
+  item = versionRecord.item;
   const state = {
     created_by: SERVER_INFO.name,
+    registry_version_id: versionRecord.version.id,
     ...(isPlainObject(args.state) ? args.state : {}),
   };
 
@@ -1028,6 +1223,7 @@ async function createProcessRun(args = {}) {
     INSERT INTO process_runs (
       registry_slug,
       registry_version,
+      registry_version_id,
       status,
       inputs,
       state,
@@ -1041,6 +1237,7 @@ async function createProcessRun(args = {}) {
     VALUES (
       ${item.slug},
       ${item.version},
+      ${versionRecord.version.id},
       'pending',
       ${JSON.stringify(inputs)}::jsonb,
       ${JSON.stringify(state)}::jsonb,
@@ -1055,6 +1252,7 @@ async function createProcessRun(args = {}) {
       id,
       registry_slug,
       registry_version,
+      registry_version_id,
       status,
       attempt,
       max_attempts,
@@ -1907,6 +2105,7 @@ async function executeRunningProcessRun(run) {
         id,
         registry_slug,
         registry_version,
+        registry_version_id,
         status,
         attempt,
         max_attempts,
@@ -1958,6 +2157,7 @@ async function executeRunningProcessRun(run) {
         id,
         registry_slug,
         registry_version,
+        registry_version_id,
         status,
         attempt,
         max_attempts,
@@ -2004,6 +2204,7 @@ async function claimPendingProcessRun(args = {}) {
       r.id,
       r.registry_slug,
       r.registry_version,
+      r.registry_version_id,
       r.status,
       r.attempt,
       r.max_attempts,
@@ -2037,6 +2238,7 @@ async function triggerProcessRun(args = {}) {
       id,
       registry_slug,
       registry_version,
+      registry_version_id,
       status,
       attempt,
       max_attempts,
@@ -2076,6 +2278,7 @@ async function listProcessRuns(args = {}) {
       id,
       registry_slug,
       registry_version,
+      registry_version_id,
       status,
       attempt,
       max_attempts,
@@ -2099,6 +2302,34 @@ async function listProcessRuns(args = {}) {
   `;
 
   return { runs: rows };
+}
+
+async function listProcessRegistryVersions(args = {}) {
+  const slug = normalizeInput(args.slug);
+  if (!slug) throw new Error("slug is required");
+
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      registry_slug,
+      version,
+      object_type,
+      status,
+      definition_snapshot,
+      metadata_snapshot,
+      runner_snapshot,
+      source_hash,
+      created_by,
+      activated_at::text AS activated_at,
+      created_at::text AS created_at
+    FROM process_registry_versions
+    WHERE registry_slug = ${slug}
+    ORDER BY version DESC
+    LIMIT ${getLimit(args.limit)}
+  `;
+
+  return { versions: rows };
 }
 
 async function listProcessArtifacts(args = {}) {
@@ -3093,14 +3324,19 @@ async function importSkillsFromDirectory(args = {}) {
         updated_at = NOW()
       RETURNING
         slug,
+        object_type,
         name,
         status,
         version,
+        description,
+        tags,
+        config,
         updated_at::text AS updated_at
     `;
 
+    let metadata = null;
     if (skill.operation_metadata) {
-      const meta = skill.operation_metadata;
+      metadata = skill.operation_metadata;
       await sql`
         INSERT INTO skill_operation_metadata (
           registry_slug,
@@ -3118,19 +3354,19 @@ async function importSkillsFromDirectory(args = {}) {
           risk_level
         )
         VALUES (
-          ${meta.registry_slug},
-          ${meta.source_kind},
-          ${meta.source_path},
-          ${meta.trigger_terms},
-          ${meta.routing_keywords},
-          ${JSON.stringify(meta.input_schema)}::jsonb,
-          ${JSON.stringify(meta.output_schema)}::jsonb,
-          ${JSON.stringify(meta.required_tools)}::jsonb,
-          ${meta.side_effects},
-          ${meta.artifact_types},
-          ${meta.approval_requirements},
-          ${JSON.stringify(meta.operation_hints)}::jsonb,
-          ${meta.risk_level}
+          ${metadata.registry_slug},
+          ${metadata.source_kind},
+          ${metadata.source_path},
+          ${metadata.trigger_terms},
+          ${metadata.routing_keywords},
+          ${JSON.stringify(metadata.input_schema)}::jsonb,
+          ${JSON.stringify(metadata.output_schema)}::jsonb,
+          ${JSON.stringify(metadata.required_tools)}::jsonb,
+          ${metadata.side_effects},
+          ${metadata.artifact_types},
+          ${metadata.approval_requirements},
+          ${JSON.stringify(metadata.operation_hints)}::jsonb,
+          ${metadata.risk_level}
         )
         ON CONFLICT (registry_slug) DO UPDATE SET
           source_kind = EXCLUDED.source_kind,
@@ -3149,7 +3385,16 @@ async function importSkillsFromDirectory(args = {}) {
       `;
     }
 
-    imported.push(rows[0]);
+    const runner = getRunnerInfo(rows[0], metadata);
+    const versionRecord = await ensureProcessRegistryVersion(rows[0], metadata, runner, {
+      created_by: "import_skills_from_directory",
+    });
+
+    imported.push({
+      ...versionRecord.item,
+      version_id: versionRecord.version.id,
+      source_hash: versionRecord.version.source_hash,
+    });
   }
 
   await sql`
@@ -3183,6 +3428,7 @@ async function callTool(name, args) {
   if (name === "create_process_run") return createProcessRun(args);
   if (name === "trigger_process_run") return triggerProcessRun(args);
   if (name === "list_process_runs") return listProcessRuns(args);
+  if (name === "list_process_registry_versions") return listProcessRegistryVersions(args);
   if (name === "list_process_artifacts") return listProcessArtifacts(args);
   if (name === "suggest_data_operations") return suggestDataOperations(args);
   if (name === "resolve_operation_path") return resolveOperationPath(args);
@@ -3293,6 +3539,7 @@ export {
   importSkillsFromDirectory,
   listProcessArtifacts,
   listProcessRegistry,
+  listProcessRegistryVersions,
   listProcessRuns,
   operationMatchScore,
   parseTaskIntent,

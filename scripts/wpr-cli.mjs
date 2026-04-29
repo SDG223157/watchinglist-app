@@ -12,6 +12,7 @@ const COMMANDS = new Set([
   "list",
   "item",
   "metadata",
+  "versions",
   "runs",
   "artifacts",
   "run",
@@ -39,6 +40,7 @@ Other commands:
   wpr list [--type skill] [--status active]
   wpr item <slug>
   wpr metadata <skill_slug>
+  wpr versions <slug> [limit]
   wpr runs <slug> [limit]
   wpr artifacts [slug] [limit]
   wpr audit-skills [--run-built-ins|--run-all]
@@ -142,8 +144,20 @@ function printRuns(result) {
     const output = run.outputs ? ` -> ${JSON.stringify(run.outputs)}` : "";
     const retry = run.next_retry_at ? ` next_retry=${run.next_retry_at}` : "";
     const failure = run.failure_category ? ` failure=${run.failure_category}` : "";
+    const version = run.registry_version_id
+      ? ` v${run.registry_version}#${run.registry_version_id}`
+      : ` v${run.registry_version ?? "?"}`;
     console.log(
-      `#${run.id} ${run.registry_slug} [${run.status}] attempt=${run.attempt ?? 1}/${run.max_attempts ?? 1}${failure}${retry}${output}`
+      `#${run.id} ${run.registry_slug}${version} [${run.status}] attempt=${run.attempt ?? 1}/${run.max_attempts ?? 1}${failure}${retry}${output}`
+    );
+  }
+}
+
+function printVersions(result) {
+  for (const version of result.versions) {
+    const activated = version.activated_at ? ` activated=${version.activated_at}` : "";
+    console.log(
+      `#${version.id} ${version.registry_slug} v${version.version} [${version.status}] hash=${String(version.source_hash).slice(0, 12)}${activated}`
     );
   }
 }
@@ -207,7 +221,7 @@ function printResolved(result) {
 function printTrigger(result) {
   if (result.run) {
     console.log(
-      `#${result.run.id} ${result.run.registry_slug} [${result.run.status}] attempt=${result.run.attempt ?? 1}/${result.run.max_attempts ?? 1}`
+      `#${result.run.id} ${result.run.registry_slug} v${result.run.registry_version ?? "?"}${result.run.registry_version_id ? `#${result.run.registry_version_id}` : ""} [${result.run.status}] attempt=${result.run.attempt ?? 1}/${result.run.max_attempts ?? 1}`
     );
     if (result.run.outputs) console.log(JSON.stringify(result.run.outputs, null, 2));
   } else {
@@ -366,6 +380,13 @@ async function main() {
     if (!args[1]) throw new Error("metadata requires a skill slug");
     result = await callTool("get_skill_operation_metadata", { slug: args[1] });
     printer = printMetadata;
+  } else if (command === "versions") {
+    if (!args[1]) throw new Error("versions requires a registry slug");
+    result = await callTool("list_process_registry_versions", {
+      slug: args[1],
+      limit: args[2] ? Number(args[2]) : undefined,
+    });
+    printer = printVersions;
   } else if (command === "runs") {
     if (!args[1]) throw new Error("runs requires a registry slug");
     result = await callTool("list_process_runs", {

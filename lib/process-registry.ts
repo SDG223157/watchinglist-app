@@ -48,6 +48,7 @@ export interface ProcessRun {
   id: number;
   registry_slug: string;
   registry_version: number;
+  registry_version_id: number | null;
   status: ProcessRunStatus;
   attempt: number;
   max_attempts: number;
@@ -261,6 +262,7 @@ export async function fetchProcessRuns(
       id,
       registry_slug,
       registry_version,
+      registry_version_id,
       status,
       attempt,
       max_attempts,
@@ -328,6 +330,7 @@ export async function fetchProcessRunDetail(
       id,
       registry_slug,
       registry_version,
+      registry_version_id,
       status,
       attempt,
       max_attempts,

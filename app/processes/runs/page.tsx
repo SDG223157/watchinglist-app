@@ -72,6 +72,7 @@ export default async function ProcessRunsPage({
               <div>
                 <div className="font-mono text-xs" style={{ color: "var(--muted)" }}>
                   #{run.id} / {run.registry_slug} / v{run.registry_version}
+                  {run.registry_version_id ? ` #${run.registry_version_id}` : ""}
                 </div>
                 <Link
                   href={`/processes/runs/${run.id}`}

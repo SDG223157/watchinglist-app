@@ -103,7 +103,8 @@ export default async function ProcessRunDetailPage({
             Run #{run.id}: {run.registry_slug}
           </h1>
           <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-            Immutable registry snapshot, retry policy, artifacts, and audit trail.
+            Immutable registry snapshot
+            {run.registry_version_id ? ` #${run.registry_version_id}` : ""}, retry policy, artifacts, and audit trail.
           </p>
         </div>
         {retryable ? (
