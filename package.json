@@ -11,6 +11,7 @@
     "start": "next start",
     "wpr": "node scripts/wpr-cli.mjs",
     "wpr:worker": "node scripts/wpr-worker.mjs",
+    "financials:backfill": "node scripts/backfill-financials.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

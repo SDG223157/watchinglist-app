@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { fetchAllLatest, type WatchlistStock } from "@/lib/db";
+import { fetchAllLatest, fetchFinancialMetricsAsOf, type FinancialMetricAsOf, type WatchlistStock } from "@/lib/db";
 import {
   buildWatsonPortfolio,
   computeWatsonHistory,
@@ -71,6 +71,22 @@ interface RevenueGrowthAsOf {
   revenue_growth_ttm: number | null;
   revenue_cagr_3y: number | null;
   revenue_growth_recent_q: number | null;
+}
+
+function metricToRevenueGrowth(metric: FinancialMetricAsOf | undefined): RevenueGrowthAsOf | null {
+  if (!metric) return null;
+  if (
+    !isFiniteValue(metric.revenue_growth_ttm) ||
+    !isFiniteValue(metric.revenue_growth_recent_q) ||
+    !isFiniteValue(metric.revenue_cagr_3y)
+  ) {
+    return null;
+  }
+  return {
+    revenue_growth_ttm: Number(metric.revenue_growth_ttm),
+    revenue_growth_recent_q: Number(metric.revenue_growth_recent_q),
+    revenue_cagr_3y: Number(metric.revenue_cagr_3y),
+  };
 }
 
 function sumRevenue(rows: FmpIncomeQ[]): number | null {
@@ -147,6 +163,26 @@ async function fetchRevenueGrowthAsOf(stocks: WatchlistStock[], anchor: Date): P
   return out;
 }
 
+async function loadRevenueGrowthAsOf(stocks: WatchlistStock[], asOfDate: string, anchor: Date): Promise<Record<string, RevenueGrowthAsOf | null>> {
+  const symbols = stocks.map((s) => s.symbol);
+  const dbMetrics = await fetchFinancialMetricsAsOf(symbols, asOfDate);
+  const out: Record<string, RevenueGrowthAsOf | null> = {};
+  const missing: WatchlistStock[] = [];
+
+  for (const stock of stocks) {
+    const metric = metricToRevenueGrowth(dbMetrics[stock.symbol]);
+    if (metric) out[stock.symbol] = metric;
+    else missing.push(stock);
+  }
+
+  if (missing.length > 0) {
+    const fallback = await fetchRevenueGrowthAsOf(missing, anchor);
+    for (const stock of missing) out[stock.symbol] = fallback[stock.symbol] ?? null;
+  }
+
+  return out;
+}
+
 function applyRevenueGrowthAsOf(
   stocks: WatchlistStock[],
   growthMap: Record<string, RevenueGrowthAsOf | null>
@@ -213,7 +249,7 @@ export async function POST(req: NextRequest) {
   const allStocks = await fetchAllLatest();
   const marketStocks = marketFilter(allStocks, market);
   const revenueAdjusted = end.endDate
-    ? applyRevenueGrowthAsOf(marketStocks, await fetchRevenueGrowthAsOf(marketStocks, end.anchor))
+    ? applyRevenueGrowthAsOf(marketStocks, await loadRevenueGrowthAsOf(marketStocks, end.endDate, end.anchor))
     : marketStocks;
   const filtered = revenueAdjusted.filter(hasWatsonFundamentals);
   const histories = await fetchHistories(filtered, end.anchor, end.period2);

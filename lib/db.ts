@@ -227,6 +227,17 @@ export interface WatchlistStock {
   created_at: string;
 }
 
+export interface FinancialMetricAsOf {
+  symbol: string;
+  as_of_date: string;
+  revenue_growth_recent_q: number | null;
+  revenue_growth_ttm: number | null;
+  revenue_cagr_3y: number | null;
+  revenue_cagr_5y: number | null;
+  source_periods_used: Record<string, unknown>;
+  computed_at: string;
+}
+
 /**
  * A stock is "analyzed" only if GPT-5.4 has run on it, producing wall colors
  * and moat data. Batch-added stocks (index scans) have all-zero walls and
@@ -272,6 +283,35 @@ export async function fetchStockHistory(
     LIMIT ${limit}
   `;
   return rows as unknown as WatchlistStock[];
+}
+
+export async function fetchFinancialMetricsAsOf(
+  symbols: string[],
+  asOfDate: string
+): Promise<Record<string, FinancialMetricAsOf>> {
+  if (symbols.length === 0) return {};
+  const sql = getDb();
+  const rows = await sql`
+    SELECT DISTINCT ON (symbol)
+      symbol,
+      as_of_date::text AS as_of_date,
+      revenue_growth_recent_q,
+      revenue_growth_ttm,
+      revenue_cagr_3y,
+      revenue_cagr_5y,
+      source_periods_used,
+      computed_at::text AS computed_at
+    FROM financial_metrics_asof
+    WHERE symbol = ANY(${symbols})
+      AND as_of_date <= ${asOfDate}::date
+    ORDER BY symbol, as_of_date DESC
+  `;
+
+  const out: Record<string, FinancialMetricAsOf> = {};
+  for (const row of rows as unknown as FinancialMetricAsOf[]) {
+    out[row.symbol] = row;
+  }
+  return out;
 }
 
 export interface HeatmapRow {

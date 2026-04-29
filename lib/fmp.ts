@@ -201,6 +201,14 @@ export async function fetchFmpIncomeAnnual(symbol: string, limit = 7): Promise<F
   return data ?? [];
 }
 
+export async function fetchFmpIncomeQuarterlyHistory(symbol: string, years = 10): Promise<FmpIncomeQ[]> {
+  return fetchFmpIncomeQuarterly(symbol, Math.max(years * 4 + 8, 48));
+}
+
+export async function fetchFmpIncomeAnnualHistory(symbol: string, years = 10): Promise<FmpIncomeQ[]> {
+  return fetchFmpIncomeAnnual(symbol, Math.max(years + 6, 16));
+}
+
 export async function fetchFmpCashFlowQuarterly(symbol: string, limit = 8): Promise<FmpCashFlowQ[]> {
   const data = await fmpGet<FmpCashFlowQ[]>("cash-flow-statement", {
     symbol,
