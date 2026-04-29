@@ -73,6 +73,35 @@ new skill
 
 That is how WPR becomes an operating layer instead of a folder of scripts.
 
+## Operations Checklist
+
+Use this checklist when changing WPR:
+
+```text
+1. Define or update the skill source.
+2. Import/sync into the DB registry.
+3. Confirm input_schema and output_schema.
+4. Confirm runner_config and retry policy.
+5. Confirm risk_level and approval_requirements.
+6. Confirm immutable version snapshot.
+7. Run deterministic planner or path resolver.
+8. Create a run or enqueue for worker.
+9. Inspect artifacts in the inbox.
+10. Approve, publish, archive, retry, or fix.
+```
+
+Minimal health commands:
+
+```bash
+wpr list --type skill --status active
+wpr audit-skills
+wpr plan "Analyze AAPL and create a meeting"
+wpr plan "Analyze AAPL and create a meeting" --llm
+wpr versions price-structure-analysis 5
+wpr runs price-structure-analysis 5
+wpr artifacts price-structure-analysis 5
+```
+
 ## Runner Taxonomy
 
 WPR uses runner kinds to decide what execution is allowed and what artifact contract to expect.
@@ -187,14 +216,31 @@ flowchart LR
 
 ## Data Model
 
-The current migration creates the minimum useful backbone.
+The current schema gives WPR a registry, immutable version ledger, run queue, artifact store, audit trail, and skill-operation metadata.
+
+WPR-related migrations:
+
+```text
+002_process_registry.sql
+003_skill_operation_metadata.sql
+004_skill_input_schemas.sql
+005_generic_skill_wpr_schema.sql
+006_runner_configs_and_output_schemas.sql
+007_run_policy_and_versions.sql
+008_process_registry_versions.sql
+```
+
+`001_financials_history.sql` is separate from WPR. It supports financial metric history and Watson as-of revenue calculations.
 
 ```mermaid
 erDiagram
   process_registry_items ||--o{ process_runs : "defines"
+  process_registry_items ||--o{ process_registry_versions : "versions"
   process_registry_items ||--o{ process_artifacts : "owns"
   process_registry_items ||--o{ process_audit_events : "records"
+  process_registry_versions ||--o{ process_runs : "freezes"
   process_runs ||--o{ process_artifacts : "produces"
+  process_registry_items ||--o| skill_operation_metadata : "operates"
 
   process_registry_items {
     text slug PK
@@ -212,12 +258,35 @@ erDiagram
     bigserial id PK
     text registry_slug FK
     int registry_version
+    bigint registry_version_id FK
     text status
+    int attempt
+    int max_attempts
+    int timeout_ms
+    int retry_backoff_ms
+    text failure_category
+    timestamptz next_retry_at
     jsonb inputs
     jsonb outputs
     jsonb state
+    jsonb frozen_registry
+    jsonb frozen_metadata
+    jsonb frozen_runner
     timestamptz started_at
     timestamptz completed_at
+  }
+
+  process_registry_versions {
+    bigserial id PK
+    text registry_slug FK
+    int version
+    text object_type
+    text status
+    jsonb definition_snapshot
+    jsonb metadata_snapshot
+    jsonb runner_snapshot
+    text source_hash
+    timestamptz activated_at
   }
 
   process_artifacts {
@@ -229,6 +298,22 @@ erDiagram
     text status
     text content_uri
     jsonb json_content
+  }
+
+  skill_operation_metadata {
+    text registry_slug PK
+    text source_kind
+    text source_path
+    text_array trigger_terms
+    text_array routing_keywords
+    jsonb input_schema
+    jsonb output_schema
+    jsonb required_tools
+    text_array side_effects
+    text_array artifact_types
+    text_array approval_requirements
+    jsonb operation_hints
+    text risk_level
   }
 
   process_audit_events {
@@ -287,18 +372,39 @@ The app now has:
 
 - `/processes` registry dashboard
 - `/api/processes` JSON endpoint
+- `/processes/runs` run history
+- `/processes/runs/[id]` run detail
+- `/processes/artifacts` artifact inbox
+- `POST /api/processes/artifacts/[id]` artifact status updates
+- `POST /api/processes/runs/[id]/retry` manual retry for failed or blocked runs
 - `process_registry_items` seed objects
+- `process_registry_versions` immutable version snapshots
 - `skill_operation_metadata` routing and operation table
 - `process_runs`, `process_artifacts`, and `process_audit_events` tables
+- `process_runs.registry_version_id` links each run to an immutable registry version
+- `process_runs.frozen_registry`, `frozen_metadata`, and `frozen_runner` preserve the exact execution contract
 - URL-addressable action panel for run, edit, review, and run history previews
 - WPR MCP path routing for commands such as `wpr/aapl/price structure`
 - WPR CLI for local operation suggestions, run creation, run triggering, and artifact lookup
 - `wpr audit-skills` and `wpr audit-skills --run-all` to verify schema, runner, and artifact readiness
+- `wpr plan` deterministic task planner
+- `wpr plan --llm` optional OpenAI planner refinement
+- `wpr versions` immutable version inspection
 - Typed input schemas for all imported skills
 - Typed output schemas for artifact validation
 - DB-backed runner config in `skill_operation_metadata.operation_hints.runner_config`
+- Retry, timeout, backoff, and failure-category policy on every run
 - Safe generic WPR runner for skills without bespoke automation
 - Built-in artifact-producing runners for `price-structure-analysis` and `polymarket-distiller`
+
+Current bespoke executors:
+
+```text
+price-structure-analysis -> price_structure_verdict artifact
+polymarket-distiller     -> polymarket_distillation artifact
+```
+
+All other active skills are runnable through the generic safe runner, which creates a `skill_invocation_packet` artifact rather than executing the full external workflow.
 
 ## WPR Path Syntax
 
@@ -327,9 +433,13 @@ npm run wpr -- AAPL
 npm run wpr -- META price structure
 npm run wpr -- META price structure --create
 npm run wpr -- META price structure --run
+npm run wpr -- plan "Analyze AAPL and create a meeting"
+npm run wpr -- plan "Analyze AAPL and create a meeting" --llm
 npm run wpr -- run 3
+npm run wpr -- runs price-structure-analysis 10
 npm run wpr -- artifacts price-structure-analysis 5
 npm run wpr -- metadata price-structure-analysis
+npm run wpr -- versions price-structure-analysis 5
 npm run wpr -- audit-skills
 npm run wpr -- audit-skills --run-all
 ```
@@ -350,6 +460,36 @@ npm run wpr:worker -- --once
 ```
 
 The worker claims pending rows from `process_runs`, marks them `running`, executes the matching runner, writes artifacts, and marks the run `completed`, `failed`, or `blocked`.
+
+## MCP Tool Surface
+
+The WPR MCP server exposes the same DB-backed operations used by the CLI:
+
+```text
+list_process_registry
+get_process_registry_item
+get_skill_operation_metadata
+list_process_registry_versions
+create_process_run
+trigger_process_run
+list_process_runs
+list_process_artifacts
+suggest_data_operations
+resolve_operation_path
+suggest_task_plan
+import_skills_from_directory
+audit_process_registry_skills
+```
+
+Shorthand MCP-style paths are resolved by `resolve_operation_path`:
+
+```text
+wpr/aapl
+wpr/aapl/price structure
+wpr/600519.ss/polymarket-distiller
+```
+
+The important invariant: MCP calls are DB operations and deterministic runner dispatch unless `suggest_task_plan` is explicitly called with `use_llm: true`.
 
 ## Run Detail And Artifact Inbox
 
@@ -384,6 +524,41 @@ next_retry_at
 
 Workers only claim pending runs whose `next_retry_at` is due. Retryable failures such as timeouts, market-data failures, external runner failures, and unknown transient failures can be rescheduled with backoff. Deterministic failures such as validation errors, artifact schema errors, or missing runners fail or block without retry churn.
 
+Runner config lives in `skill_operation_metadata.operation_hints.runner_config`:
+
+```json
+{
+  "runner_kind": "built_in",
+  "executor": "price_structure_analysis",
+  "artifact_type": "price_structure_verdict",
+  "timeout_ms": 120000,
+  "max_attempts": 2,
+  "retry_backoff_ms": 5000,
+  "env_policy": "process"
+}
+```
+
+Failure categories:
+
+```text
+timeout
+validation
+artifact_schema
+no_runner
+market_data
+external_runner
+unknown
+```
+
+Retryable categories:
+
+```text
+timeout
+market_data
+external_runner
+unknown
+```
+
 ## Version Immutability
 
 The current registry row is an active pointer. Immutable history lives in `process_registry_versions`:
@@ -402,7 +577,7 @@ process_registry_versions
   source_hash
 ```
 
-If a skill is modified several times, WPR should mint `v1`, `v2`, `v3`, and so on. Imports and run creation ensure a version snapshot exists. If a DB row is edited without bumping `version`, WPR detects the changed snapshot hash and advances the current row to the next version before creating a run.
+If a skill is modified several times, WPR mints `v1`, `v2`, `v3`, and so on. Imports and run creation ensure a version snapshot exists. If a DB row is edited without bumping `version`, WPR detects the changed snapshot hash and advances the current row to the next version before creating a run.
 
 Each `process_runs` row points to the immutable version and also freezes the exact executable contract used by that run:
 
@@ -419,6 +594,43 @@ Useful inspection command:
 
 ```bash
 wpr versions price-structure-analysis 5
+```
+
+### Editing A Skill In DB
+
+Treat DB edits as changes to the current active pointer, not as historical rewrites:
+
+```text
+edit registry row or metadata
+-> WPR computes snapshot hash
+-> if hash differs from current version snapshot, WPR increments version
+-> WPR inserts process_registry_versions row
+-> new process_runs point to the new registry_version_id
+-> old runs keep their frozen snapshots
+```
+
+That means a skill modified several times becomes:
+
+```text
+hmm-entropy-analysis v1
+hmm-entropy-analysis v2
+hmm-entropy-analysis v3
+```
+
+Past artifacts remain reproducible because every run stores:
+
+```text
+registry_version_id
+frozen_registry
+frozen_metadata
+frozen_runner
+```
+
+Operational rule:
+
+```text
+Do not mutate historical process_registry_versions rows.
+Create or let WPR mint a new version for behavior/schema/runner changes.
 ```
 
 ## Task Composition Layer
@@ -672,19 +884,39 @@ New skills imported into WPR should fit the OS contract immediately:
 
 1. Create or update the skill definition in the source skill directory.
 2. Import the skill into `process_registry_items`.
-3. Store `skill_operation_metadata` with a concrete `input_schema`.
+3. Store `skill_operation_metadata` with concrete `input_schema` and `output_schema`.
 4. Assign a runner strategy:
    - generic runner by default
    - bespoke runner when a real executable workflow exists
    - approval-gated runner for external side effects
-5. Verify with `wpr audit-skills`.
-6. For executable coverage, run `wpr audit-skills --run-all` and confirm every skill creates at least one artifact.
+5. Store runner policy in `operation_hints.runner_config`.
+6. Mint or update `process_registry_versions`.
+7. Verify with `wpr audit-skills`.
+8. For executable coverage, run `wpr audit-skills --run-all` and confirm every skill creates at least one artifact.
+
+Recommended command flow:
+
+```bash
+wpr import-skills ~/.codex/skills
+wpr metadata <skill-slug>
+wpr versions <skill-slug> 5
+wpr audit-skills
+wpr audit-skills --run-all
+```
+
+For skills edited in `~/.cursor/skills`, follow the workspace skill sync rule first, then import into WPR:
+
+```bash
+python3 /Users/sdg223157/botboard-private/scripts/sync_skills.py
+wpr import-skills ~/.codex/skills
+```
 
 ## Next Steps
 
-1. Add `POST /api/processes/:slug/runs` to create a real `process_runs` row from the web app.
-2. Add a run detail page at `/processes/runs/:id`.
-3. Add an artifact inbox view backed by `process_artifacts`.
-4. Add immutable version tables before allowing production edits.
-5. Add approval actions that write `process_audit_events`.
-6. Add runner-class config for Python, Node, browser automation, notebook/video, and approval-gated external actions.
+1. Add `wpr plan "..." --run` to persist task graphs and create dependent `process_runs`.
+2. Add `task_plans`, `task_plan_nodes`, and `task_plan_edges` for first-class graph execution.
+3. Add approval queue objects for risky nodes before external upload/post/trade actions.
+4. Add bespoke runner classes for Python script, Node script, browser automation, notebook/video, and external-action workflows.
+5. Add artifact synthesizer that combines completed node artifacts into a final answer/report/meeting package.
+6. Add evaluator signals: artifact quality score, human edit distance, rerun reason, and user approval outcome.
+7. Add UI run creation from `/processes` so operators can create runs without CLI/MCP.
