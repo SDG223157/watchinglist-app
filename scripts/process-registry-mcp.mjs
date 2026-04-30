@@ -425,6 +425,19 @@ const TOOLS = [
           type: "string",
           description: "Ticker, slug, company name, or other data identifier.",
         },
+        include_all: {
+          type: "boolean",
+          default: false,
+          description:
+            "When true, include every registry object. Default returns concise top relevant suggestions.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          default: 12,
+          description: "Maximum number of registry-backed operation suggestions before utility actions.",
+        },
       },
       required: ["input"],
       additionalProperties: false,
@@ -3760,6 +3773,49 @@ function buildInspectOption(item, reason) {
   };
 }
 
+function scoreSuggestionItem(item, metadata, input, isTicker) {
+  const queryTerms = wordsFromText(input);
+  const haystack = [
+    item.slug,
+    item.name,
+    item.description,
+    item.object_type,
+    item.status,
+    ...(item.tags ?? []),
+    ...(metadata?.trigger_terms ?? []),
+    ...(metadata?.routing_keywords ?? []),
+    ...(metadata?.artifact_types ?? []),
+    metadata?.operation_hints?.source_name ?? "",
+    metadata?.operation_hints?.operation ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const runner = getRunnerInfo(item, metadata);
+  let score = 0;
+
+  for (const term of queryTerms) {
+    if (item.slug.toLowerCase().includes(term)) score += 12;
+    if (item.name.toLowerCase().includes(term)) score += 10;
+    if (haystack.includes(term)) score += 4;
+  }
+
+  if (isTicker && /\b(stock|ticker|price|market|regime|entropy|portfolio|analysis|research|hmm|trend|narrative)\b/.test(haystack)) {
+    score += 15;
+  }
+  if (isTicker && item.slug === "price-structure-analysis") score += 30;
+  if (isTicker && item.slug === "hmm-entropy-analysis") score += 24;
+  if (isTicker && item.slug === "narrative-cycle-analysis") score += 20;
+  if (isTicker && item.slug === "analysis-to-meeting") score += 18;
+  if (isTicker && item.slug === "stock-analysis") score += 16;
+  if (isTicker && item.slug === "market-dynamics-geometry") score += 14;
+  if (runner?.runner_kind === "built_in") score += 8;
+  if (runner?.runner_kind === "generic") score += 2;
+  if (item.status === "active") score += 5;
+  if (item.object_type !== "skill" && item.object_type !== "template") score -= 10;
+
+  return { score, runner };
+}
+
 function parseOperationPath(path) {
   const parts = normalizeInput(path)
     .split("/")
@@ -5137,25 +5193,81 @@ async function suggestDataOperations(args = {}) {
   const input = normalizeInput(args.input);
   if (!input) throw new Error("input is required");
 
-  const registry = await listProcessRegistry({});
-  const activeItems = registry.items.filter((item) => item.status === "active");
-  const matchingRegistryItems = registry.items.filter((item) => {
-    const haystack = [
-      item.slug,
-      item.name,
-      item.description,
-      item.object_type,
-      item.status,
-      ...(item.tags ?? []),
-    ]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(input.toLowerCase());
-  });
-
   const isTicker = looksLikeTicker(input);
   const symbol = input.toUpperCase();
   const stock = isTicker ? await getLatestWatchlistStock(symbol) : null;
+  const includeAll = args.include_all === true;
+  const limit = getLimit(args.limit ?? 12);
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      r.slug,
+      r.object_type,
+      r.name,
+      r.status,
+      r.version,
+      r.description,
+      r.tags,
+      r.config,
+      r.updated_at::text AS updated_at,
+      m.registry_slug AS metadata_slug,
+      m.trigger_terms,
+      m.routing_keywords,
+      m.input_schema,
+      m.output_schema,
+      m.required_tools,
+      m.side_effects,
+      m.artifact_types,
+      m.approval_requirements,
+      m.operation_hints,
+      m.risk_level
+    FROM process_registry_items r
+    LEFT JOIN skill_operation_metadata m ON m.registry_slug = r.slug
+  `;
+  const registryItems = rows.map((row) => ({
+    item: {
+      slug: row.slug,
+      object_type: row.object_type,
+      name: row.name,
+      status: row.status,
+      version: row.version,
+      description: row.description,
+      tags: row.tags ?? [],
+      config: row.config ?? {},
+      updated_at: row.updated_at,
+    },
+    metadata: row.metadata_slug
+      ? {
+          trigger_terms: row.trigger_terms ?? [],
+          routing_keywords: row.routing_keywords ?? [],
+          input_schema: row.input_schema ?? {},
+          output_schema: row.output_schema ?? {},
+          required_tools: row.required_tools ?? [],
+          side_effects: row.side_effects ?? [],
+          artifact_types: row.artifact_types ?? [],
+          approval_requirements: row.approval_requirements ?? [],
+          operation_hints: row.operation_hints ?? {},
+          risk_level: row.risk_level ?? "low",
+        }
+      : null,
+  }));
+  const matchingRegistryItems = registryItems
+    .filter(({ item, metadata }) => {
+      const haystack = [
+        item.slug,
+        item.name,
+        item.description,
+        item.object_type,
+        item.status,
+        ...(item.tags ?? []),
+        ...(metadata?.trigger_terms ?? []),
+        ...(metadata?.routing_keywords ?? []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(input.toLowerCase());
+    })
+    .map(({ item }) => item);
   const options = [];
   const optionedSlugs = new Set();
 
@@ -5178,46 +5290,55 @@ async function suggestDataOperations(args = {}) {
     });
   }
 
-  for (const item of activeItems) {
-    if (item.object_type === "skill" || item.object_type === "template") {
-      options.push(buildRunOption(item, input));
-      optionedSlugs.add(item.slug);
+  const scoredItems = registryItems
+    .map(({ item, metadata }) => ({
+      item,
+      metadata,
+      ...scoreSuggestionItem(item, metadata, input, isTicker),
+    }))
+    .filter(({ item, score }) => {
+      if (includeAll) return true;
+      if (item.status !== "active") return false;
+      if (!["skill", "template"].includes(item.object_type)) return false;
+      return score > 0;
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        (b.runner?.runner_kind === "built_in" ? 1 : 0) - (a.runner?.runner_kind === "built_in" ? 1 : 0) ||
+        a.item.slug.localeCompare(b.item.slug)
+    );
+
+  for (const { item, metadata, score } of scoredItems.slice(0, includeAll ? scoredItems.length : limit)) {
+    if (optionedSlugs.has(item.slug)) continue;
+    optionedSlugs.add(item.slug);
+    if (item.status === "active" && (item.object_type === "skill" || item.object_type === "template")) {
+      options.push({
+        ...buildRunOption(item, input, { metadata }),
+        score,
+      });
+    } else {
+      options.push(buildInspectOption(item, `Registry match score ${score}; item is ${item.status}.`));
     }
   }
 
-  if (isTicker) {
-    const tickerSkillOptions = registry.items
-      .filter((item) => !optionedSlugs.has(item.slug))
-      .map((item) => ({ item, score: scoreTickerSkill(item) }))
-      .filter(({ score }) => score >= 6)
-      .sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name));
-
-    for (const { item, score } of tickerSkillOptions) {
-      optionedSlugs.add(item.slug);
-      options.push(
-        buildInspectOption(
-          item,
-          `Ticker-compatible ${item.object_type} is currently ${item.status}; score ${score}.`
-        )
-      );
-    }
-  }
-
-  for (const item of matchingRegistryItems) {
+  for (const item of includeAll ? matchingRegistryItems : matchingRegistryItems.slice(0, 3)) {
     if (optionedSlugs.has(item.slug)) continue;
     optionedSlugs.add(item.slug);
     options.push(buildInspectOption(item));
   }
 
-  for (const item of registry.items) {
-    if (optionedSlugs.has(item.slug)) continue;
-    optionedSlugs.add(item.slug);
-    options.push(
-      buildInspectOption(
-        item,
-        "Included by default so the suggestion list covers every registry object."
-      )
-    );
+  if (includeAll) {
+    for (const { item } of registryItems) {
+      if (optionedSlugs.has(item.slug)) continue;
+      optionedSlugs.add(item.slug);
+      options.push(
+        buildInspectOption(
+          item,
+          "Included because include_all=true."
+        )
+      );
+    }
   }
 
   if (isTicker) {
@@ -5233,18 +5354,24 @@ async function suggestDataOperations(args = {}) {
   }
 
   options.push({
-    label: "List all registry objects",
+    label: includeAll ? "List all registry objects" : "Show all registry objects",
     kind: "mcp_tool",
     tool: "list_process_registry",
     arguments: {},
     enabled: true,
-    description: "Shows every skill, pipeline, process, application, and template.",
+    description: includeAll
+      ? "Shows every skill, pipeline, process, application, and template."
+      : "Use `wpr <input> --all` to include every registry object in suggestions.",
   });
 
   return {
     input,
     detected_type: isTicker ? "ticker" : "text",
     matched_stock: stock,
+    concise: !includeAll,
+    hidden_registry_count: includeAll
+      ? 0
+      : Math.max(0, registryItems.length - optionedSlugs.size),
     registry_matches: matchingRegistryItems,
     options,
   };

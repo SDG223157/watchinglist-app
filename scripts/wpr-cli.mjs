@@ -58,6 +58,7 @@ Options:
   --run      Create then immediately trigger the pending run
              With plan, execute selected blocks and create a task_synthesis artifact
   --llm      Use configured LLM support for planning
+  --all      Include every registry object in default input suggestions
   --create-file Also create ~/.cursor/skills/<slug>/SKILL.md for skill-draft
   --activate Create a skill-draft as active instead of draft
   --model    Override WPR_LLM_MODEL for one LLM planning call
@@ -202,6 +203,10 @@ function printSuggestions(result) {
       : option.url ?? option.kind;
     console.log(`- ${option.label} [${state}]`);
     console.log(`  ${target}`);
+  }
+  if (result.concise && result.hidden_registry_count > 0) {
+    console.log("");
+    console.log(`Showing concise suggestions. Use --all to include ${result.hidden_registry_count} more registry object(s).`);
   }
 }
 
@@ -582,12 +587,20 @@ async function main() {
   } else if (COMMANDS.has(command)) {
     throw new Error(`Unhandled command: ${command}`);
   } else if (args.length === 1 && !args[0].includes("/")) {
-    result = await callTool("suggest_data_operations", { input: args[0] });
+    result = await callTool("suggest_data_operations", {
+      input: args[0],
+      include_all: flags.has("all"),
+      limit: values.limit ? Number(values.limit) : undefined,
+    });
     printer = printSuggestions;
   } else if (args.length === 1 && args[0].includes("/")) {
     const parsedPath = parseSinglePathArg(args[0]);
     if (!parsedPath.operationQuery && !flags.has("create") && !flags.has("run")) {
-      result = await callTool("suggest_data_operations", { input: parsedPath.dataInput });
+      result = await callTool("suggest_data_operations", {
+        input: parsedPath.dataInput,
+        include_all: flags.has("all"),
+        limit: values.limit ? Number(values.limit) : undefined,
+      });
       printer = printSuggestions;
     } else {
       result = await createAndMaybeTrigger(

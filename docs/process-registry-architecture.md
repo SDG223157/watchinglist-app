@@ -507,6 +507,15 @@ wpr/aapl/price structure
 wpr/600519.ss/polymarket-distiller
 ```
 
+Plain data suggestions are concise by default:
+
+```bash
+wpr BSX
+wpr BSX --all
+```
+
+Default mode shows the most relevant app actions and skill runs. `--all` expands the list to every registry object for inspection or debugging.
+
 The important invariant: MCP calls are DB operations and deterministic runner dispatch unless `suggest_task_plan` is explicitly called with `use_llm: true`.
 
 ## Bot-Facing WPR Bridge
