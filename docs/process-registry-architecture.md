@@ -305,8 +305,8 @@ Current verified baseline:
 ```text
 95 active skills
 95 typed schemas
-3 built-in runners
-92 LLM read-only runners
+4 built-in runners
+91 LLM read-only runners
 0 generic runners
 0 missing runners
 ```
@@ -622,7 +622,7 @@ The app now has:
 - Asset resolution frozen into `process_runs.state.asset_context`
 - Retry, timeout, backoff, and failure-category policy on every run
 - Safe LLM read-only WPR runner for skills without bespoke automation
-- Built-in artifact-producing runners for `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction`
+- Built-in artifact-producing runners for `price-structure-analysis`, `polymarket-distiller`, `us-portfolio-construction`, and `trendwise-signal`
 
 Current bespoke executors:
 
@@ -630,6 +630,7 @@ Current bespoke executors:
 price-structure-analysis -> price_structure_verdict artifact
 polymarket-distiller     -> polymarket_distillation artifact
 us-portfolio-construction -> portfolio_allocation artifact
+trendwise-signal          -> trendwise_signal artifact
 ```
 
 All other active skills are runnable through the LLM read-only runner, which creates a `skill_report` artifact from the skill source, typed inputs, and resolved WPR assets. It does not execute external publish/upload/trade side effects or fabricate missing tool results.
@@ -1032,7 +1033,7 @@ wpr AAPL analysis to meeting --create
 wpr worker
 ```
 
-Skills with bespoke executors produce true domain artifacts. `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction` have built-in runners. Other active skills use the LLM read-only runner, which creates a durable `skill_report` artifact and states limitations when exact tools or raw data are unavailable.
+Skills with bespoke executors produce true domain artifacts. `price-structure-analysis`, `polymarket-distiller`, `us-portfolio-construction`, and `trendwise-signal` have built-in runners. Other active skills use the LLM read-only runner, which creates a durable `skill_report` artifact and states limitations when exact tools or raw data are unavailable.
 
 Portfolio construction is now a first-class WPR block:
 

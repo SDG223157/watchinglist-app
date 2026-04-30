@@ -129,6 +129,19 @@ const BUILT_IN_INPUT_SCHEMAS = {
     },
     required: ["market", "max_holdings", "capital_usd"],
   },
+  "trendwise-signal": {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      ticker: { type: "string", minLength: 1 },
+      symbol: { type: "string", minLength: 1 },
+      lookback_days: { type: "integer", minimum: 30, maximum: 2000 },
+      crossover_days: { type: "integer", minimum: 30, maximum: 2000 },
+      operation_query: { type: "string" },
+      source: { type: "string" },
+    },
+    anyOf: [{ required: ["ticker"] }, { required: ["symbol"] }],
+  },
 };
 const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
   price_structure_verdict: {
@@ -185,6 +198,39 @@ const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
       "max_holdings",
       "count",
       "holdings",
+      "markdown",
+      "generated_at",
+    ],
+  },
+  trendwise_signal: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      symbol: { type: "string" },
+      as_of: { type: "string" },
+      latest_close: { type: "number" },
+      lookback_days: { type: "integer" },
+      crossover_days: { type: "integer" },
+      current_status: { type: "string" },
+      latest_signal: { type: ["object", "null"], additionalProperties: true },
+      indicators: { type: "object", additionalProperties: true },
+      crossovers: { type: "array", items: { type: "object", additionalProperties: true } },
+      closed_trades: { type: "array", items: { type: "object", additionalProperties: true } },
+      stats: { type: "object", additionalProperties: true },
+      markdown: { type: "string" },
+      generated_at: { type: "string" },
+      runner: { type: "object", additionalProperties: true },
+    },
+    required: [
+      "symbol",
+      "as_of",
+      "latest_close",
+      "lookback_days",
+      "crossover_days",
+      "current_status",
+      "indicators",
+      "crossovers",
+      "closed_trades",
       "markdown",
       "generated_at",
     ],
@@ -253,6 +299,20 @@ const DEFAULT_RUNNER_CONFIGS = {
     },
     artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.portfolio_allocation,
   },
+  "trendwise-signal": {
+    runner_kind: "built_in",
+    executor: "trendwise_signal",
+    artifact_type: "trendwise_signal",
+    timeout_ms: 120000,
+    max_attempts: 2,
+    retry_backoff_ms: 5000,
+    env_policy: "process",
+    smoke_inputs: {
+      ticker: "AAPL",
+      source: "wpr_audit_smoke_test",
+    },
+    artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.trendwise_signal,
+  },
 };
 const GENERIC_RUNNER_CONFIG = {
   runner_kind: "generic",
@@ -299,6 +359,11 @@ const DEFAULT_ASSET_HINTS_BY_SLUG = {
     required_assets: ["watchlist_snapshot"],
     optional_assets: ["entropy_state", "financial_metrics", "prior_artifacts"],
     produced_assets: ["portfolio_allocation"],
+  },
+  "trendwise-signal": {
+    required_assets: ["price_history"],
+    optional_assets: ["watchlist_snapshot", "prior_artifacts"],
+    produced_assets: ["trendwise_signal"],
   },
 };
 
@@ -2428,10 +2493,10 @@ function pct(value, digits = 2) {
   return round(n * 100, digits);
 }
 
-async function fetchDailyBars(symbol) {
+async function fetchDailyBars(symbol, lookbackDays = 430) {
   const period2 = new Date();
   const period1 = new Date();
-  period1.setDate(period1.getDate() - 430);
+  period1.setDate(period1.getDate() - Math.max(30, Number(lookbackDays) || 430));
 
   const rows = await yahooFinance.historical(symbol.toUpperCase(), {
     period1,
@@ -2685,6 +2750,291 @@ async function executePriceStructureRun(run, context = null) {
       structure: analysis.structure,
       latest_close: analysis.latest_close,
       artifact_id: artifactRows[0].id,
+    },
+    artifacts: artifactRows,
+  };
+}
+
+function buildTrendwiseMarkdown(analysis) {
+  const latestSignal = analysis.latest_signal
+    ? `${analysis.latest_signal.signal} on ${analysis.latest_signal.date} @ $${analysis.latest_signal.price}`
+    : "None in display window";
+  const crossoverRows = analysis.crossovers.length
+    ? analysis.crossovers
+        .map(
+          (signal) =>
+            `| ${signal.signal} | ${signal.date} | $${signal.price} | ${signal.note ?? ""} |`
+        )
+        .join("\n")
+    : "| None | - | - | No crossover signals detected in display window |";
+  const tradeRows = analysis.closed_trades.length
+    ? analysis.closed_trades
+        .map(
+          (trade) =>
+            `| ${trade.entry_date} | $${trade.entry_price} | ${trade.exit_date} | $${trade.exit_price} | ${trade.return_pct}% | ${trade.days_held} |`
+        )
+        .join("\n")
+    : "| - | - | - | - | - | No closed trades in display window |";
+
+  return `## TrendWise Signal Report
+
+**Symbol:** ${analysis.symbol}
+**As of:** ${analysis.as_of}
+**Latest close:** $${analysis.latest_close}
+**Current status:** ${analysis.current_status}
+**Latest signal:** ${latestSignal}
+
+### Indicators
+
+- Retracement S1: ${analysis.indicators.retracement_s1_pct}%
+- Position S2: ${analysis.indicators.position_s2_pct}%
+- Diff S1-S2: ${analysis.indicators.diff}
+- Bias: ${analysis.indicators.bias}
+- Window: ${analysis.crossover_days} calendar days
+- Display lookback: ${analysis.lookback_days} calendar days
+
+### Signal History
+
+| Signal | Date | Price | Note |
+|---|---:|---:|---|
+${crossoverRows}
+
+### Closed Trades
+
+| Entry Date | Entry Price | Exit Date | Exit Price | Return | Days Held |
+|---|---:|---|---:|---:|---:|
+${tradeRows}
+
+### Stats
+
+- Closed trades: ${analysis.stats.closed_trade_count}
+- Wins / losses: ${analysis.stats.win_count} / ${analysis.stats.loss_count}
+- Average return: ${analysis.stats.avg_return_pct ?? "n/a"}%
+- Best / worst: ${analysis.stats.best_return_pct ?? "n/a"}% / ${analysis.stats.worst_return_pct ?? "n/a"}%
+
+### Interpretation
+
+${analysis.interpretation}
+`;
+}
+
+function analyzeTrendwiseSignal(symbol, bars, options = {}) {
+  const lookbackDays = Math.max(30, Number(options.lookback_days ?? 365));
+  const crossoverDays = Math.max(30, Number(options.crossover_days ?? 365));
+  if (bars.length < 30) {
+    throw new Error(`Need at least 30 daily bars for TrendWise; got ${bars.length}`);
+  }
+
+  const latest = bars[bars.length - 1];
+  const displayStart = new Date(latest.date);
+  displayStart.setDate(displayStart.getDate() - lookbackDays);
+  const rows = [];
+
+  for (let i = 0; i < bars.length; i += 1) {
+    const current = bars[i];
+    const windowStart = new Date(current.date);
+    windowStart.setDate(windowStart.getDate() - crossoverDays);
+    const windowBars = bars.filter((bar) => bar.date > windowStart && bar.date <= current.date);
+    if (windowBars.length < 2) {
+      rows.push({
+        date: current.date,
+        close: current.close,
+        s1: 0,
+        s2: 100,
+        diff: -100,
+      });
+      continue;
+    }
+    const high = Math.max(...windowBars.map((bar) => bar.close));
+    const low = Math.min(...windowBars.map((bar) => bar.close));
+    const range = high - low;
+    const s1 = range > 0 ? ((high - current.close) / range) * 100 : 0;
+    const s2 = range > 0 ? ((current.close - low) / range) * 100 : 0;
+    rows.push({
+      date: current.date,
+      close: current.close,
+      high,
+      low,
+      s1,
+      s2,
+      diff: s1 - s2,
+    });
+  }
+
+  const displayRows = rows.filter((row) => row.date >= displayStart);
+  if (displayRows.length < 2) {
+    throw new Error(`Need at least 2 display bars for TrendWise; got ${displayRows.length}`);
+  }
+
+  const crossovers = [];
+  for (let i = 1; i < displayRows.length; i += 1) {
+    const prev = displayRows[i - 1];
+    const row = displayRows[i];
+    if (prev.diff <= 0 && row.diff > 0) {
+      crossovers.push({
+        signal: "SELL",
+        date: row.date.toISOString().slice(0, 10),
+        price: round(row.close),
+        diff: round(row.diff, 2),
+        note: "Retracement crossed above Position",
+      });
+    } else if (prev.diff >= 0 && row.diff < 0) {
+      crossovers.push({
+        signal: "BUY",
+        date: row.date.toISOString().slice(0, 10),
+        price: round(row.close),
+        diff: round(row.diff, 2),
+        note: "Position crossed above Retracement",
+      });
+    }
+  }
+
+  let openTrade = null;
+  const closedTrades = [];
+  for (const signal of crossovers) {
+    if (signal.signal === "BUY") {
+      openTrade = signal;
+    } else if (signal.signal === "SELL" && openTrade) {
+      const entryDate = new Date(openTrade.date);
+      const exitDate = new Date(signal.date);
+      closedTrades.push({
+        entry_date: openTrade.date,
+        entry_price: openTrade.price,
+        exit_date: signal.date,
+        exit_price: signal.price,
+        return_pct: pct(signal.price / openTrade.price - 1),
+        days_held: Math.round((exitDate.getTime() - entryDate.getTime()) / 86400000),
+      });
+      openTrade = null;
+    }
+  }
+
+  const current = displayRows[displayRows.length - 1];
+  const latestSignal = crossovers[crossovers.length - 1] ?? null;
+  let currentStatus = "No Signal";
+  if (openTrade) {
+    currentStatus = `OPEN BUY since ${openTrade.date}`;
+  } else if (latestSignal?.signal === "SELL") {
+    currentStatus = `CLOSED after SELL on ${latestSignal.date}`;
+  } else if (latestSignal?.signal === "BUY") {
+    currentStatus = `OPEN BUY since ${latestSignal.date}`;
+  }
+
+  const returns = closedTrades.map((trade) => numeric(trade.return_pct)).filter((value) => value != null);
+  const wins = returns.filter((value) => value > 0);
+  const losses = returns.filter((value) => value <= 0);
+  const bias = current.diff > 0 ? "bearish/retracement-dominant" : "bullish/position-dominant";
+  const interpretation =
+    current.diff > 0
+      ? `${symbol} is currently retracement-dominant in the TrendWise frame. A fresh BUY requires Position to cross back above Retracement.`
+      : `${symbol} is currently position-dominant in the TrendWise frame. The signal remains constructive until Retracement crosses back above Position.`;
+
+  const analysis = {
+    symbol,
+    as_of: current.date.toISOString().slice(0, 10),
+    latest_close: round(current.close),
+    lookback_days: lookbackDays,
+    crossover_days: crossoverDays,
+    current_status: currentStatus,
+    latest_signal: latestSignal,
+    indicators: {
+      retracement_s1_pct: round(current.s1, 2),
+      position_s2_pct: round(current.s2, 2),
+      diff: round(current.diff, 2),
+      rolling_high: round(current.high),
+      rolling_low: round(current.low),
+      bias,
+    },
+    crossovers,
+    closed_trades: closedTrades,
+    stats: {
+      closed_trade_count: closedTrades.length,
+      win_count: wins.length,
+      loss_count: losses.length,
+      avg_return_pct: returns.length ? round(average(returns), 2) : null,
+      best_return_pct: returns.length ? round(Math.max(...returns), 2) : null,
+      worst_return_pct: returns.length ? round(Math.min(...returns), 2) : null,
+    },
+    interpretation,
+    generated_at: new Date().toISOString(),
+  };
+
+  return {
+    ...analysis,
+    markdown: buildTrendwiseMarkdown(analysis),
+  };
+}
+
+async function executeTrendwiseSignalRun(run, context = null) {
+  const symbol = normalizeInput(run.inputs?.ticker || run.inputs?.symbol).toUpperCase();
+  if (!symbol) throw new Error("trendwise-signal requires inputs.ticker");
+
+  const lookbackDays = Math.max(30, Number(run.inputs?.lookback_days ?? 365));
+  const crossoverDays = Math.max(30, Number(run.inputs?.crossover_days ?? 365));
+  const fetchDays = Math.max(lookbackDays + crossoverDays + 45, 430);
+  const bars = await fetchDailyBars(symbol, fetchDays);
+  const analysis = analyzeTrendwiseSignal(symbol, bars, {
+    lookback_days: lookbackDays,
+    crossover_days: crossoverDays,
+  });
+  const { metadata, runner } = context ?? (await getRunExecutionContext(run));
+  const artifactContent = {
+    ...analysis,
+    runner: {
+      kind: "trendwise_signal",
+      data_provider: "yahoo-finance2",
+      bars_fetched: bars.length,
+      fetch_days: fetchDays,
+    },
+  };
+  validateArtifactJsonContent(
+    run.registry_slug,
+    "trendwise_signal",
+    artifactContent,
+    metadata,
+    runner
+  );
+
+  const sql = getDb();
+  const artifactRows = await sql`
+    INSERT INTO process_artifacts (
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_by_step,
+      visibility
+    )
+    VALUES (
+      ${run.id},
+      ${run.registry_slug},
+      'trendwise_signal',
+      ${`${symbol} TrendWise Signal`},
+      'needs_review',
+      ${JSON.stringify(artifactContent)}::jsonb,
+      'execute_trendwise_signal_run',
+      'private'
+    )
+    RETURNING
+      id,
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_at::text AS created_at
+  `;
+
+  return {
+    output: {
+      symbol,
+      current_status: analysis.current_status,
+      latest_close: analysis.latest_close,
+      artifact_id: artifactRows[0].id,
+      artifact_type: "trendwise_signal",
     },
     artifacts: artifactRows,
   };
@@ -3567,6 +3917,12 @@ async function executeRunningProcessRun(run) {
     } else if (runner?.executor === "us_portfolio_construction") {
       result = await withTimeout(
         executeUSPortfolioConstructionRun(run, context),
+        run.timeout_ms ?? runner.timeout_ms,
+        runner.executor
+      );
+    } else if (runner?.executor === "trendwise_signal") {
+      result = await withTimeout(
+        executeTrendwiseSignalRun(run, context),
         run.timeout_ms ?? runner.timeout_ms,
         runner.executor
       );
@@ -5078,6 +5434,18 @@ function summarizeArtifactForSynthesis(artifact) {
       artifact_type: artifact.artifact_type,
       title: artifact.title,
       summary: `${json.market ?? "US"} model portfolio: ${json.count ?? 0}/${json.max_holdings ?? "?"} holdings, ${json.total_weight_pct ?? "n/a"}% target weight`,
+      markdown: json.markdown ?? null,
+      json_content: json,
+    };
+  }
+  if (artifact.artifact_type === "trendwise_signal") {
+    return {
+      id: artifact.id,
+      run_id: artifact.run_id,
+      registry_slug: artifact.registry_slug,
+      artifact_type: artifact.artifact_type,
+      title: artifact.title,
+      summary: `${json.symbol ?? artifact.registry_slug}: ${json.current_status ?? "status unknown"}; close ${json.latest_close ?? "n/a"}; S1 ${json.indicators?.retracement_s1_pct ?? "n/a"} / S2 ${json.indicators?.position_s2_pct ?? "n/a"}`,
       markdown: json.markdown ?? null,
       json_content: json,
     };
