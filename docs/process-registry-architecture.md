@@ -491,6 +491,28 @@ wpr/600519.ss/polymarket-distiller
 
 The important invariant: MCP calls are DB operations and deterministic runner dispatch unless `suggest_task_plan` is explicitly called with `use_llm: true`.
 
+## Bot-Facing WPR Bridge
+
+Remote Hermes agents can use WPR without installing the full WatchingList app by calling the authenticated bridge:
+
+```text
+POST /api/wpr/bridge
+Authorization: Bearer $WPR_BRIDGE_TOKEN
+Content-Type: application/json
+
+{"args":["plan","Analyze AAPL and create a meeting"]}
+```
+
+The bridge runs the same WPR CLI surface on the server and returns plain text. It is read-only by default: `suggest`, `path`, `plan`, `metadata`, `versions`, `runs`, and `artifacts` are allowed. `--run` and `--create` are blocked unless `WPR_BRIDGE_ALLOW_RUN=true` on the server and the request explicitly sets `allow_run:true`.
+
+The BotBoard Hermes helper uses this bridge when `WPR_BRIDGE_URL` and `WPR_BRIDGE_TOKEN` are present on the bot server:
+
+```bash
+python3 /root/wpr_bot_tool.py plan "Analyze AAPL and create a meeting"
+python3 /root/wpr_bot_tool.py path "wpr/aapl/price structure"
+python3 /root/wpr_bot_tool.py artifacts price-structure-analysis 10
+```
+
 ## Run Detail And Artifact Inbox
 
 WPR artifacts should be inspectable operational objects, not hidden log output. The app exposes:
