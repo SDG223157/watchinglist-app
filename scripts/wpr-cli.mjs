@@ -63,6 +63,27 @@ Options:
   --activate Create a skill-draft as active instead of draft
   --model    Override WPR_LLM_MODEL for one LLM planning call
   --json     Print raw JSON
+
+Examples:
+  wpr AAPL
+  wpr AAPL --json
+  wpr BSX --all
+  wpr AAPL price structure
+  wpr path "wpr/aapl/price structure"
+  wpr AAPL price structure --run
+  wpr MSFT price structure --create
+  wpr run <run_id>
+  wpr scan_stocks_moat_deterioration --run
+  wpr plan "why bsx underperform lately"
+  wpr plan "scan US stocks for moat deterioration"
+  wpr plan "Build a 25 stocks portfolio from US"
+  wpr plan "Build a 25 stocks portfolio from US" --run
+  wpr plan "Analyze AAPL and create a meeting" --llm
+  wpr item price-structure-analysis
+  wpr metadata price-structure-analysis
+  wpr versions scan-stocks-moat-deterioration-skill 5
+  wpr assets price_history
+  wpr audit-skills
 `;
 }
 
