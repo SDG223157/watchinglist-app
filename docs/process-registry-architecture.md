@@ -657,7 +657,7 @@ Create or let WPR mint a new version for behavior/schema/runner changes.
 
 ## Task Composition Layer
 
-The next layer above individual skills is a task composer: given a user request, WPR selects relevant skills as building blocks, compiles them into a typed plan, and can later hand that graph to the worker for execution.
+The next layer above individual skills is a task composer: given a user request, WPR selects relevant skills as building blocks, compiles them into a typed plan, optionally executes the safe artifact-producing blocks, and writes a final synthesis artifact.
 
 ```text
 user input
@@ -675,10 +675,20 @@ Current MVP:
 
 ```bash
 npm run wpr -- plan "Analyze AAPL and create a meeting"
+npm run wpr -- plan "Analyze AAPL and create a meeting" --run
 npm run wpr -- plan "AAPL shannon entropy analysis" --json
 ```
 
-The MCP tool behind the CLI is `suggest_task_plan`. It parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs. It does not execute plans yet.
+The MCP tools behind the CLI are:
+
+```text
+suggest_task_plan  -> plan only
+execute_task_plan  -> plan, execute safe blocks, collect artifacts, synthesize final artifact
+```
+
+`suggest_task_plan` parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs.
+
+`execute_task_plan` selects the executable plan, creates child `process_runs`, triggers each safe built-in or generic runner, collects the child `process_artifacts`, and writes one durable `task_synthesis` artifact. It does not perform external publish/upload/trade side effects.
 
 ### Optional LLM Planner
 
@@ -715,13 +725,28 @@ If `WPR_LLM_API_KEY` is empty, WPR falls back to `OPENAI_API_KEY`. `OPENROUTER_A
 
 ### Running Recommended Block Graphs
 
-Today, recommended block graphs are planning output. The operator can inspect the plan, then run the suggested blocks manually.
+The operator can inspect the plan:
 
 ```bash
 wpr plan "Analyze AAPL and create a meeting"
 ```
 
-Then run the selected blocks:
+Then execute safe blocks and synthesize the final result:
+
+```bash
+wpr plan "Analyze AAPL and create a meeting" --run
+```
+
+This creates:
+
+```text
+child process_runs        one per selected skill block
+child process_artifacts   one or more per selected block
+task_synthesis artifact   integrated final result
+process_audit_events      task_plan_executed trace
+```
+
+Operators can still run selected blocks manually:
 
 ```bash
 wpr AAPL price structure --run
@@ -743,7 +768,7 @@ wpr worker
 
 Only skills with real executors produce true domain artifacts. `price-structure-analysis` and `polymarket-distiller` have built-in runners. Other active skills currently use the generic WPR runner, which creates a durable `skill_invocation_packet` artifact that records the selected skill, typed inputs, metadata, and source preview.
 
-The next upgrade is `wpr plan "..." --run`: persist the task graph, create dependent `process_runs`, and let workers execute runnable nodes in DAG order while respecting schema validation and approval gates.
+Current `wpr plan "..." --run` is synchronous and conservative: it executes safe built-in or generic artifact runners, then synthesizes from completed artifacts. The next upgrade is to persist task graphs as first-class records and let workers execute runnable nodes in DAG order while respecting schema validation and approval gates.
 
 ### Composition Components
 
@@ -935,10 +960,10 @@ wpr import-skills ~/.codex/skills
 
 ## Next Steps
 
-1. Add `wpr plan "..." --run` to persist task graphs and create dependent `process_runs`.
-2. Add `task_plans`, `task_plan_nodes`, and `task_plan_edges` for first-class graph execution.
+1. Add `task_plans`, `task_plan_nodes`, and `task_plan_edges` for first-class graph execution.
+2. Move `wpr plan "..." --run` from synchronous execution to worker-backed DAG scheduling.
 3. Add approval queue objects for risky nodes before external upload/post/trade actions.
 4. Add bespoke runner classes for Python script, Node script, browser automation, notebook/video, and external-action workflows.
-5. Add artifact synthesizer that combines completed node artifacts into a final answer/report/meeting package.
+5. Upgrade the artifact synthesizer from deterministic markdown assembly to schema-aware synthesis per final artifact type.
 6. Add evaluator signals: artifact quality score, human edit distance, rerun reason, and user approval outcome.
 7. Add UI run creation from `/processes` so operators can create runs without CLI/MCP.

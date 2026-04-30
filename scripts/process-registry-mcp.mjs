@@ -130,6 +130,19 @@ const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
     required: ["event", "markets", "mappings", "summary_md", "brief_md", "generated_at"],
   },
   skill_invocation_packet: GENERIC_SKILL_OUTPUT_SCHEMA,
+  task_synthesis: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      intent: { type: "object", additionalProperties: true },
+      plan: { type: "object", additionalProperties: true },
+      child_runs: { type: "array", items: { type: "object", additionalProperties: true } },
+      source_artifacts: { type: "array", items: { type: "object", additionalProperties: true } },
+      markdown: { type: "string" },
+      generated_at: { type: "string" },
+    },
+    required: ["intent", "plan", "child_runs", "source_artifacts", "markdown", "generated_at"],
+  },
 };
 const DEFAULT_RUNNER_CONFIGS = {
   "price-structure-analysis": {
@@ -424,6 +437,36 @@ const TOOLS = [
           type: "string",
           description: "Optional model override for this planning call.",
         },
+      },
+      required: ["input"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "execute_task_plan",
+    description:
+      "Plan a natural-language WPR intent, execute the selected skill blocks, collect child artifacts, and write one durable task_synthesis artifact.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        input: {
+          type: "string",
+          description: "Natural-language user request or task intent.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          default: 12,
+        },
+        use_llm: {
+          type: "boolean",
+          default: false,
+          description:
+            "When true, ask a configured LLM to refine the deterministic candidate plan before execution.",
+        },
+        llm_provider: { type: "string" },
+        llm_model: { type: "string" },
       },
       required: ["input"],
       additionalProperties: false,
@@ -3227,6 +3270,256 @@ async function suggestTaskPlan(args = {}) {
   };
 }
 
+function selectExecutableTaskPlan(planning) {
+  const llmPlan =
+    planning.llm?.status === "completed" &&
+    planning.llm?.plan?.nodes?.length &&
+    planning.llm.plan.executable_now
+      ? planning.llm.plan
+      : null;
+  const deterministicPlan =
+    planning.plans?.find((plan) => plan.executable_now && !plan.requires_approval) ??
+    planning.plans?.find((plan) => plan.executable_now);
+
+  const plan = llmPlan ?? deterministicPlan;
+  if (!plan) {
+    throw new Error("No executable WPR plan is available for this intent.");
+  }
+  const safeArtifactOnlyExecution = (plan.nodes ?? []).every((node) =>
+    ["built_in", "generic"].includes(node.runner_kind)
+  );
+  if (plan.requires_approval && !safeArtifactOnlyExecution) {
+    throw new Error(
+      `Plan "${plan.label}" requires approval: ${(plan.approval_requirements ?? []).join(", ")}`
+    );
+  }
+  return plan;
+}
+
+function summarizeArtifactForSynthesis(artifact) {
+  const json = artifact.json_content ?? {};
+  if (artifact.artifact_type === "price_structure_verdict") {
+    return {
+      id: artifact.id,
+      run_id: artifact.run_id,
+      registry_slug: artifact.registry_slug,
+      artifact_type: artifact.artifact_type,
+      title: artifact.title,
+      summary: `${json.symbol ?? artifact.registry_slug}: ${json.structure ?? "structure unknown"}; close ${json.latest_close ?? "n/a"}`,
+      markdown: json.markdown ?? null,
+      json_content: json,
+    };
+  }
+  if (artifact.artifact_type === "polymarket_distillation") {
+    return {
+      id: artifact.id,
+      run_id: artifact.run_id,
+      registry_slug: artifact.registry_slug,
+      artifact_type: artifact.artifact_type,
+      title: artifact.title,
+      summary: json.event?.title ?? json.event?.slug ?? artifact.title,
+      markdown: json.brief_md ?? json.summary_md ?? null,
+      json_content: json,
+    };
+  }
+  if (artifact.artifact_type === "skill_invocation_packet") {
+    return {
+      id: artifact.id,
+      run_id: artifact.run_id,
+      registry_slug: artifact.registry_slug,
+      artifact_type: artifact.artifact_type,
+      title: artifact.title,
+      summary: `Invocation packet for ${json.skill?.slug ?? artifact.registry_slug}`,
+      markdown: null,
+      json_content: {
+        skill: json.skill,
+        inputs: json.inputs,
+        metadata: json.metadata,
+        runner: json.runner,
+      },
+    };
+  }
+  return {
+    id: artifact.id,
+    run_id: artifact.run_id,
+    registry_slug: artifact.registry_slug,
+    artifact_type: artifact.artifact_type,
+    title: artifact.title,
+    summary: artifact.title,
+    markdown: json.markdown ?? json.brief_md ?? json.summary_md ?? null,
+    json_content: json,
+  };
+}
+
+function buildTaskSynthesisMarkdown({ intent, plan, childRuns, sourceArtifacts }) {
+  const lines = [
+    "## WPR Task Synthesis",
+    "",
+    `**Intent:** ${intent.input}`,
+    `**Plan:** ${plan.label}`,
+    `**Status:** ${childRuns.every((run) => run.status === "completed") ? "completed" : "partial"}`,
+    "",
+    "### Executed Blocks",
+    "",
+  ];
+
+  for (const run of childRuns) {
+    const artifactIds = (run.artifacts ?? []).map((artifact) => `#${artifact.id}`).join(", ") || "none";
+    lines.push(`- ${run.slug}: ${run.status} run #${run.run_id ?? "n/a"} artifacts ${artifactIds}`);
+  }
+
+  if (sourceArtifacts.length) {
+    lines.push("", "### Integrated Artifacts", "");
+    for (const artifact of sourceArtifacts) {
+      lines.push(`- #${artifact.id} ${artifact.registry_slug}/${artifact.artifact_type}: ${artifact.summary}`);
+    }
+  }
+
+  const markdownArtifacts = sourceArtifacts.filter((artifact) => artifact.markdown);
+  if (markdownArtifacts.length) {
+    lines.push("", "### Evidence", "");
+    for (const artifact of markdownArtifacts) {
+      lines.push(`#### ${artifact.title}`, "", artifact.markdown.trim(), "");
+    }
+  }
+
+  if (intent.desired_artifacts?.includes("meeting_topic")) {
+    lines.push(
+      "",
+      "### Meeting-Ready Frame",
+      "",
+      `Discuss how the completed WPR artifacts change the decision for ${intent.entities?.tickers?.[0] ?? "the target"}: what is confirmed, what is still uncertain, and which level or condition should trigger the next action.`
+    );
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function executeTaskPlan(args = {}) {
+  const planning = await suggestTaskPlan(args);
+  const plan = selectExecutableTaskPlan(planning);
+  const childRuns = [];
+  const sourceArtifacts = [];
+
+  for (const node of plan.nodes ?? []) {
+    if (!node.input_valid) {
+      throw new Error(`Plan node ${node.slug} has invalid inputs: ${(node.input_errors ?? []).join("; ")}`);
+    }
+    const pendingRun = await createProcessRun({
+      slug: node.slug,
+      inputs: node.inputs ?? {},
+      state: {
+        task_plan_label: plan.label,
+        task_intent: planning.intent.input,
+        task_plan_node_id: node.id,
+        task_plan_node_depends_on: node.depends_on ?? [],
+      },
+    });
+    const triggered = await triggerProcessRun({ run_id: Number(pendingRun.id) });
+    const completedRun = triggered.run ?? triggered;
+    const artifacts = (triggered.artifacts ?? []).map(summarizeArtifactForSynthesis);
+
+    childRuns.push({
+      id: node.id,
+      slug: node.slug,
+      run_id: completedRun.id ?? pendingRun.id,
+      status: completedRun.status,
+      output: completedRun.outputs ?? completedRun.output ?? {},
+      artifacts,
+      error: triggered.error ?? null,
+    });
+    sourceArtifacts.push(...artifacts);
+  }
+
+  const synthesis = {
+    intent: planning.intent,
+    plan: {
+      label: plan.label,
+      risk_level: plan.risk_level,
+      nodes: plan.nodes,
+    },
+    child_runs: childRuns,
+    source_artifacts: sourceArtifacts,
+    generated_at: new Date().toISOString(),
+  };
+  synthesis.markdown = buildTaskSynthesisMarkdown({
+    intent: planning.intent,
+    plan,
+    childRuns,
+    sourceArtifacts,
+  });
+
+  const synthesisErrors = validateJsonValueAgainstSchema(
+    synthesis,
+    OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.task_synthesis,
+    "artifact.json_content"
+  );
+  if (synthesisErrors.length) {
+    throw new Error(`Invalid task_synthesis artifact: ${synthesisErrors.join("; ")}`);
+  }
+
+  const sql = getDb();
+  const artifactRows = await sql`
+    INSERT INTO process_artifacts (
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_by_step,
+      visibility
+    )
+    VALUES (
+      NULL,
+      NULL,
+      'task_synthesis',
+      ${`WPR Task Synthesis - ${plan.label}`},
+      'needs_review',
+      ${JSON.stringify(synthesis)}::jsonb,
+      'execute_task_plan',
+      'private'
+    )
+    RETURNING
+      id,
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_at::text AS created_at
+  `;
+
+  await sql`
+    INSERT INTO process_audit_events (
+      event_type,
+      actor,
+      details
+    )
+    VALUES (
+      'task_plan_executed',
+      ${SERVER_INFO.name},
+      ${JSON.stringify({
+        input: planning.intent.input,
+        plan_label: plan.label,
+        child_run_ids: childRuns.map((run) => run.run_id),
+        synthesis_artifact_id: artifactRows[0].id,
+      })}::jsonb
+    )
+  `;
+
+  return {
+    input: planning.input,
+    intent: planning.intent,
+    plan,
+    child_runs: childRuns,
+    source_artifacts: sourceArtifacts,
+    synthesis_artifact: artifactRows[0],
+    planning,
+  };
+}
+
 function statusRank(status) {
   return { active: 0, review: 1, draft: 2, archived: 3 }[status] ?? 4;
 }
@@ -3673,6 +3966,7 @@ async function callTool(name, args) {
   if (name === "import_skills_from_directory") return importSkillsFromDirectory(args);
   if (name === "audit_process_registry_skills") return auditProcessRegistrySkills(args);
   if (name === "suggest_task_plan") return suggestTaskPlan(args);
+  if (name === "execute_task_plan") return executeTaskPlan(args);
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -3768,6 +4062,7 @@ export {
   compareOperationMatches,
   createProcessRun,
   executeRunningProcessRun,
+  executeTaskPlan,
   getBuiltInRunnerInfo,
   getRunnerInfo,
   getMissingRequiredInputs,

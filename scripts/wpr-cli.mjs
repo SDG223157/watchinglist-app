@@ -33,6 +33,7 @@ Usage:
   wpr <input> <operation...> --run    Create and trigger a run
   wpr path "wpr/aapl/price structure" Resolve a slash path
   wpr plan "analyze AAPL and create a meeting" Suggest skill building blocks
+  wpr plan "analyze AAPL and create a meeting" --run Execute plan blocks and synthesize artifacts
   wpr plan "analyze AAPL and create a meeting" --llm Refine plan with configured LLM
   wpr run <run_id>                    Trigger a pending run
   wpr worker [--once]                 Run the Postgres-backed worker
@@ -51,6 +52,7 @@ Other commands:
 Options:
   --create   Create a pending run when resolving a path
   --run      Create then immediately trigger the pending run
+             With plan, execute selected blocks and create a task_synthesis artifact
   --llm      Use configured LLM support for planning
   --model    Override WPR_LLM_MODEL for one LLM planning call
   --json     Print raw JSON
@@ -337,6 +339,28 @@ function printTaskPlan(result) {
   }
 }
 
+function printTaskExecution(result) {
+  printTaskPlan(result.planning);
+  console.log("");
+  console.log("Executed plan:");
+  console.log(`- ${result.plan.label}`);
+  for (const run of result.child_runs ?? []) {
+    const artifactIds = (run.artifacts ?? []).map((artifact) => `#${artifact.id}`).join(", ") || "none";
+    const error = run.error ? ` error=${run.error}` : "";
+    console.log(`  - ${run.slug}: ${run.status} run #${run.run_id} artifacts ${artifactIds}${error}`);
+  }
+  if (result.synthesis_artifact) {
+    console.log("");
+    console.log(
+      `synthesis artifact: #${result.synthesis_artifact.id} ${result.synthesis_artifact.title} [${result.synthesis_artifact.status}]`
+    );
+    if (result.synthesis_artifact.json_content?.markdown) {
+      console.log("");
+      console.log(result.synthesis_artifact.json_content.markdown.trim());
+    }
+  }
+}
+
 async function createAndMaybeTrigger(path, shouldCreate, shouldRun) {
   const resolved = await resolveOperationPath({
     path,
@@ -448,14 +472,14 @@ async function main() {
       : printResolved;
   } else if (command === "plan") {
     if (!args[1]) throw new Error("plan requires a user intent");
-    result = await callTool("suggest_task_plan", {
+    result = await callTool(flags.has("run") ? "execute_task_plan" : "suggest_task_plan", {
       input: args.slice(1).join(" "),
       limit: values.limit ? Number(values.limit) : undefined,
       use_llm: flags.has("llm"),
       llm_provider: values.provider,
       llm_model: values.model,
     });
-    printer = printTaskPlan;
+    printer = flags.has("run") ? printTaskExecution : printTaskPlan;
   } else if (command === "audit-skills") {
     result = await callTool("audit_process_registry_skills", {
       run_built_ins: flags.has("runBuiltIns"),
