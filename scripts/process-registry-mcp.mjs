@@ -3924,6 +3924,9 @@ const NON_TICKER_WORDS = new Set(
     "entropy",
     "event",
     "hmm",
+    "lag",
+    "lagging",
+    "lately",
     "market",
     "meeting",
     "memo",
@@ -3938,6 +3941,9 @@ const NON_TICKER_WORDS = new Set(
     "price",
     "report",
     "research",
+    "recent",
+    "recently",
+    "relative",
     "risk",
     "run",
     "scan",
@@ -3955,7 +3961,14 @@ const NON_TICKER_WORDS = new Set(
     "usa",
     "u.s.",
     "us",
+    "underperform",
+    "underperformed",
+    "underperformance",
     "video",
+    "vs",
+    "weak",
+    "weakness",
+    "why",
     "refrigerator",
   ].map((term) => term.toUpperCase())
 );
@@ -4021,6 +4034,14 @@ function detectTaskType(input, terms, entities) {
     return "video_or_media_pipeline";
   }
   if (terms.some((term) => ["backtest", "回测"].includes(term))) return "backtest";
+  if (
+    entities.tickers.length &&
+    terms.some((term) =>
+      ["underperform", "underperformed", "underperformance", "lag", "lagging", "weak", "weakness", "why"].includes(term)
+    )
+  ) {
+    return "stock_diagnosis";
+  }
   if (entities.tickers.length) return "stock_analysis";
   return "general_skill_task";
 }
@@ -4040,6 +4061,13 @@ function detectDesiredArtifacts(input, terms) {
     artifacts.push("portfolio_allocation", "decision_memo");
   }
   if (text.includes("report") || text.includes("analysis") || text.includes("analyze")) {
+    artifacts.push("report", "decision_memo");
+  }
+  if (
+    terms.some((term) =>
+      ["underperform", "underperformed", "underperformance", "lag", "lagging", "weak", "weakness", "why"].includes(term)
+    )
+  ) {
     artifacts.push("report", "decision_memo");
   }
   if (terms.some((term) => ["price", "structure", "breakout", "support", "resistance"].includes(term))) {
@@ -4140,6 +4168,24 @@ function scoreTaskSkillCandidate(item, metadata, intent, runner = null) {
   if (intent.task_type === "polymarket_distillation" && item.slug === "polymarket-distiller") {
     score += 40;
     reasons.push("direct Polymarket distillation match");
+  }
+
+  if (intent.task_type === "stock_diagnosis") {
+    const diagnosisScores = {
+      "stock-analysis": 40,
+      "price-structure-analysis": 30,
+      "hmm-entropy-analysis": 28,
+      "narrative-cycle-analysis": 24,
+      "market-dynamics-geometry": 18,
+      "honest-backtesting": 12,
+    };
+    if (diagnosisScores[item.slug]) {
+      score += diagnosisScores[item.slug];
+      reasons.push("fits stock underperformance diagnosis");
+    }
+    if (item.slug === "polymarket-distiller") {
+      score -= 15;
+    }
   }
 
   if (intent.task_type === "backtest" && item.slug.includes("backtest")) {
