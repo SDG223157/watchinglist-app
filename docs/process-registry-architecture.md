@@ -228,6 +228,8 @@ WPR-related migrations:
 006_runner_configs_and_output_schemas.sql
 007_run_policy_and_versions.sql
 008_process_registry_versions.sql
+009_us_portfolio_construction.sql
+010_wpr_asset_catalog.sql
 ```
 
 `001_financials_history.sql` is separate from WPR. It supports financial metric history and Watson as-of revenue calculations.
@@ -316,6 +318,16 @@ erDiagram
     text risk_level
   }
 
+  wpr_asset_catalog {
+    text asset_type PK
+    text name
+    text source_kind
+    text source_ref
+    jsonb freshness_policy
+    jsonb schema_hint
+    text_array tags
+  }
+
   process_audit_events {
     bigserial id PK
     text registry_slug FK
@@ -380,6 +392,7 @@ The app now has:
 - `process_registry_items` seed objects
 - `process_registry_versions` immutable version snapshots
 - `skill_operation_metadata` routing and operation table
+- `wpr_asset_catalog` asset definitions for reusable WatchingList data sources
 - `process_runs`, `process_artifacts`, and `process_audit_events` tables
 - `process_runs.registry_version_id` links each run to an immutable registry version
 - `process_runs.frozen_registry`, `frozen_metadata`, and `frozen_runner` preserve the exact execution contract
@@ -393,6 +406,8 @@ The app now has:
 - Typed input schemas for all imported skills
 - Typed output schemas for artifact validation
 - DB-backed runner config in `skill_operation_metadata.operation_hints.runner_config`
+- Asset-aware skill hints in `skill_operation_metadata.operation_hints.required_assets`, `optional_assets`, and `produced_assets`
+- Asset resolution frozen into `process_runs.state.asset_context`
 - Retry, timeout, backoff, and failure-category policy on every run
 - Safe generic WPR runner for skills without bespoke automation
 - Built-in artifact-producing runners for `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction`
@@ -780,6 +795,53 @@ The intent parser maps this to `task_type=portfolio_construction`, extracts `mar
 
 Current `wpr plan "..." --run` is synchronous and conservative: it executes safe built-in or generic artifact runners, then synthesizes from completed artifacts. The next upgrade is to persist task graphs as first-class records and let workers execute runnable nodes in DAG order while respecting schema validation and approval gates.
 
+## Asset-Aware Skills
+
+`watchinglist-app` is now treated as the asset engine for WPR. Skills do not need to start from a blank prompt. Before a run is created, WPR looks at the skill's asset hints, resolves matching durable app assets, and freezes the context on the run row.
+
+Asset catalog:
+
+```bash
+wpr assets
+wpr assets watchlist
+wpr assets entropy_state
+```
+
+Core asset types:
+
+```text
+watchlist_snapshot   latest watchlist_items rows, by symbol or market universe
+financial_metrics    financial_metrics_asof rows
+entropy_state        entropy_cache rows, with watchlist entropy/HMM fallback
+price_history        runner-fetched OHLCV market data
+portfolio_allocation durable WPR portfolio artifacts
+prior_artifacts      recent process_artifacts for context
+```
+
+Skill metadata declares the contract:
+
+```json
+{
+  "required_assets": ["watchlist_snapshot"],
+  "optional_assets": ["entropy_state", "financial_metrics", "prior_artifacts"],
+  "produced_assets": ["portfolio_allocation"]
+}
+```
+
+Run creation resolves assets without mutating the skill inputs:
+
+```text
+intent/input
+-> skill metadata
+-> required/optional asset hints
+-> DB/app asset resolver
+-> process_runs.state.asset_context
+-> runner execution
+-> process_artifacts
+```
+
+For example, portfolio construction resolves the fresh US watchlist universe before execution. A stock analysis run can resolve price history as a runtime asset, plus the latest watchlist snapshot, financial metrics, entropy state, and prior WPR artifacts when available.
+
 ### Composition Components
 
 ```text
@@ -794,6 +856,9 @@ Plan Builder
 
 Argument Mapper
   Converts user input and upstream artifacts into each skill's input_schema.
+
+Asset Resolver
+  Finds durable app data for each skill's required_assets and optional_assets, records freshness, and freezes the result into process_runs.state.asset_context.
 
 Risk Gate
   Blocks or pauses plan nodes whose risk_level or approval_requirements exceed the current permission.
@@ -947,9 +1012,10 @@ New skills imported into WPR should fit the OS contract immediately:
    - bespoke runner when a real executable workflow exists
    - approval-gated runner for external side effects
 5. Store runner policy in `operation_hints.runner_config`.
-6. Mint or update `process_registry_versions`.
-7. Verify with `wpr audit-skills`.
-8. For executable coverage, run `wpr audit-skills --run-all` and confirm every skill creates at least one artifact.
+6. Store asset hints in `operation_hints.required_assets`, `operation_hints.optional_assets`, and `operation_hints.produced_assets`. Import also infers reasonable defaults from the skill name/body.
+7. Mint or update `process_registry_versions`.
+8. Verify with `wpr audit-skills`.
+9. For executable coverage, run `wpr audit-skills --run-all` and confirm every skill creates at least one artifact.
 
 Recommended command flow:
 

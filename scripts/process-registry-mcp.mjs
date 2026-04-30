@@ -252,6 +252,23 @@ const GENERIC_RUNNER_CONFIG = {
   },
   artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_invocation_packet,
 };
+const DEFAULT_ASSET_HINTS_BY_SLUG = {
+  "price-structure-analysis": {
+    required_assets: ["price_history"],
+    optional_assets: ["watchlist_snapshot", "financial_metrics", "entropy_state", "prior_artifacts"],
+    produced_assets: ["price_structure_verdict"],
+  },
+  "polymarket-distiller": {
+    required_assets: [],
+    optional_assets: ["prior_artifacts"],
+    produced_assets: ["polymarket_distillation"],
+  },
+  "us-portfolio-construction": {
+    required_assets: ["watchlist_snapshot"],
+    optional_assets: ["entropy_state", "financial_metrics", "prior_artifacts"],
+    produced_assets: ["portfolio_allocation"],
+  },
+};
 
 const TOOLS = [
   {
@@ -379,6 +396,20 @@ const TOOLS = [
           enum: ["needs_review", "approved", "published", "archived"],
         },
         limit: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_wpr_asset_catalog",
+    description:
+      "List WPR asset catalog definitions, including source refs, freshness policy, schema hints, and tags.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        asset_type: { type: "string" },
+        tag: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
       },
       additionalProperties: false,
     },
@@ -776,6 +807,11 @@ function buildSkillOperationMetadata(skill, content, frontmatter) {
       type: "object",
       additionalProperties: true,
     };
+  const inferredAssetHints = inferAssetHintsFromText(
+    skill.slug,
+    `${skill.name} ${skill.description} ${content}`
+  );
+  const defaultAssetHints = DEFAULT_ASSET_HINTS_BY_SLUG[skill.slug] ?? {};
 
   return {
     registry_slug: skill.slug,
@@ -796,6 +832,19 @@ function buildSkillOperationMetadata(skill, content, frontmatter) {
       source_slug: skill.config.source_slug,
       description_terms: descriptionWords.slice(0, 50),
       body_terms: bodyWords,
+      required_assets: unique([
+        ...normalizeAssetList(inferredAssetHints.required_assets),
+        ...normalizeAssetList(defaultAssetHints.required_assets),
+      ]),
+      optional_assets: unique([
+        ...normalizeAssetList(inferredAssetHints.optional_assets),
+        ...normalizeAssetList(defaultAssetHints.optional_assets),
+      ]),
+      produced_assets: unique([
+        ...normalizeAssetList(inferredAssetHints.produced_assets),
+        ...normalizeAssetList(defaultAssetHints.produced_assets),
+        ...artifactTypes,
+      ]),
       runner_config: runnerConfig,
     },
     risk_level: inferRiskLevel(sideEffects, approvalRequirements),
@@ -1315,6 +1364,501 @@ function validateArtifactJsonContent(registrySlug, artifactType, jsonContent, me
   );
 }
 
+function normalizeAssetList(value) {
+  return Array.isArray(value) ? unique(value.map(normalizeInput).filter(Boolean)) : [];
+}
+
+function inferAssetHintsFromText(slug, text) {
+  const lower = `${slug} ${text}`.toLowerCase();
+  const required = [];
+  const optional = [];
+  const produced = [];
+
+  if (/\b(price|breakout|support|resistance|trend|hmm|entropy|regime|backtest)\b/.test(lower)) {
+    required.push("price_history");
+  }
+  if (/\b(stock|ticker|watchlist|portfolio|allocation|narrative|meeting|analysis)\b/.test(lower)) {
+    optional.push("watchlist_snapshot", "prior_artifacts");
+  }
+  if (/\b(financial|fundamental|valuation|revenue|earnings|growth|margin)\b/.test(lower)) {
+    optional.push("financial_metrics");
+  }
+  if (/\b(hmm|entropy|regime|shannon)\b/.test(lower)) {
+    optional.push("entropy_state");
+    produced.push("regime_report");
+  }
+  if (/\b(portfolio|allocation|holdings|position sizing)\b/.test(lower)) {
+    required.push("watchlist_snapshot");
+    produced.push("portfolio_allocation");
+  }
+  if (/\b(meeting|memo|report|research|analysis)\b/.test(lower)) {
+    produced.push("decision_memo");
+  }
+
+  return {
+    required_assets: unique(required),
+    optional_assets: unique(optional.filter((asset) => !required.includes(asset))),
+    produced_assets: unique(produced),
+  };
+}
+
+function getSkillAssetHints(item, metadata = null) {
+  const defaultHints = DEFAULT_ASSET_HINTS_BY_SLUG[item.slug] ?? {};
+  const operationHints = metadata?.operation_hints ?? {};
+  const inferred = inferAssetHintsFromText(
+    item.slug,
+    [
+      item.name,
+      item.description,
+      ...(item.tags ?? []),
+      ...(metadata?.trigger_terms ?? []),
+      ...(metadata?.routing_keywords ?? []),
+      ...(metadata?.artifact_types ?? []),
+      operationHints.operation ?? "",
+    ].join(" ")
+  );
+
+  return {
+    required_assets: unique([
+      ...normalizeAssetList(defaultHints.required_assets),
+      ...normalizeAssetList(inferred.required_assets),
+      ...normalizeAssetList(operationHints.required_assets),
+    ]),
+    optional_assets: unique([
+      ...normalizeAssetList(defaultHints.optional_assets),
+      ...normalizeAssetList(inferred.optional_assets),
+      ...normalizeAssetList(operationHints.optional_assets),
+    ]).filter((asset) => {
+      const required = [
+        ...normalizeAssetList(defaultHints.required_assets),
+        ...normalizeAssetList(inferred.required_assets),
+        ...normalizeAssetList(operationHints.required_assets),
+      ];
+      return !required.includes(asset);
+    }),
+    produced_assets: unique([
+      ...normalizeAssetList(defaultHints.produced_assets),
+      ...normalizeAssetList(inferred.produced_assets),
+      ...normalizeAssetList(operationHints.produced_assets),
+      ...(metadata?.artifact_types ?? []),
+    ]),
+  };
+}
+
+function getAssetEntity(inputs = {}, intent = null) {
+  const ticker = normalizeInput(
+    inputs.ticker || inputs.symbol || intent?.entities?.tickers?.[0] || ""
+  ).toUpperCase();
+  const market = normalizeInput(
+    inputs.market || intent?.entities?.portfolio?.market || ""
+  ).toUpperCase();
+  return {
+    ticker: ticker && looksLikeTicker(ticker) ? ticker : null,
+    market: market || null,
+  };
+}
+
+function ageInfo(timestamp) {
+  if (!timestamp) return { age_hours: null, freshness: "unknown" };
+  const ms = Date.now() - new Date(timestamp).getTime();
+  if (!Number.isFinite(ms)) return { age_hours: null, freshness: "unknown" };
+  const ageHours = Math.max(0, ms / 36e5);
+  return {
+    age_hours: Number(ageHours.toFixed(2)),
+    freshness: ageHours <= 24 ? "fresh" : ageHours <= 168 ? "stale" : "old",
+  };
+}
+
+function compactAssetData(row, keys) {
+  const out = {};
+  for (const key of keys) {
+    if (row?.[key] !== undefined) out[key] = row[key];
+  }
+  return out;
+}
+
+async function resolveWatchlistSnapshotAsset(sql, entity) {
+  if (entity.ticker) {
+    const rows = await sql`
+      SELECT DISTINCT ON (symbol)
+        symbol,
+        name,
+        market,
+        sector,
+        industry,
+        price,
+        composite_score,
+        green_walls,
+        yellow_walls,
+        red_walls,
+        extreme_score,
+        trend_signal,
+        action,
+        phase,
+        corporate_stage,
+        hmm_regime,
+        hmm_persistence,
+        entropy_regime,
+        entropy_percentile,
+        created_at::text AS created_at
+      FROM watchlist_items
+      WHERE UPPER(symbol) = ${entity.ticker}
+      ORDER BY symbol, created_at DESC
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      asset_type: "watchlist_snapshot",
+      entity: { symbol: entity.ticker },
+      source_ref: `watchlist_items:${row.symbol}`,
+      status: "available",
+      ...ageInfo(row.created_at),
+      summary: `${row.symbol} ${row.name ?? ""} score=${row.composite_score ?? "n/a"} ${row.green_walls ?? 0}G action=${row.action ?? "n/a"}`,
+      data_preview: compactAssetData(row, [
+        "symbol",
+        "name",
+        "market",
+        "sector",
+        "industry",
+        "price",
+        "composite_score",
+        "green_walls",
+        "yellow_walls",
+        "red_walls",
+        "extreme_score",
+        "trend_signal",
+        "action",
+        "phase",
+        "corporate_stage",
+        "hmm_regime",
+        "hmm_persistence",
+        "entropy_regime",
+        "entropy_percentile",
+        "created_at",
+      ]),
+    };
+  }
+
+  if (entity.market) {
+    const rows = await sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (symbol)
+          symbol,
+          name,
+          market,
+          sector,
+          price,
+          composite_score,
+          green_walls,
+          trend_signal,
+          action,
+          created_at
+        FROM watchlist_items
+        WHERE UPPER(market) = ${entity.market}
+        ORDER BY symbol, created_at DESC
+      )
+      SELECT
+        COUNT(*)::int AS count,
+        MAX(created_at)::text AS latest_created_at,
+        jsonb_agg(
+          jsonb_build_object(
+            'symbol', symbol,
+            'name', name,
+            'score', composite_score,
+            'green_walls', green_walls,
+            'trend_signal', trend_signal,
+            'action', action,
+            'sector', sector,
+            'price', price
+          )
+          ORDER BY composite_score DESC NULLS LAST, green_walls DESC NULLS LAST
+        ) FILTER (WHERE symbol IS NOT NULL) AS top_rows
+      FROM latest
+    `;
+    const row = rows[0];
+    if (!row || Number(row.count ?? 0) === 0) return null;
+    const topRows = Array.isArray(row.top_rows) ? row.top_rows.slice(0, 10) : [];
+    return {
+      asset_type: "watchlist_snapshot",
+      entity: { market: entity.market },
+      source_ref: `watchlist_items:market:${entity.market}`,
+      status: "available",
+      ...ageInfo(row.latest_created_at),
+      summary: `${entity.market} watchlist universe: ${row.count} latest symbols; top=${topRows.map((item) => item.symbol).join(", ")}`,
+      data_preview: {
+        market: entity.market,
+        count: Number(row.count ?? 0),
+        latest_created_at: row.latest_created_at,
+        top_rows: topRows,
+      },
+    };
+  }
+
+  return null;
+}
+
+async function resolveFinancialMetricsAsset(sql, entity) {
+  if (!entity.ticker) return null;
+  const rows = await sql`
+    SELECT DISTINCT ON (symbol)
+      symbol,
+      as_of_date::text AS as_of_date,
+      revenue_growth_recent_q,
+      revenue_growth_ttm,
+      revenue_cagr_3y,
+      revenue_cagr_5y,
+      source_periods_used,
+      computed_at::text AS computed_at
+    FROM financial_metrics_asof
+    WHERE UPPER(symbol) = ${entity.ticker}
+    ORDER BY symbol, as_of_date DESC
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    asset_type: "financial_metrics",
+    entity: { symbol: entity.ticker },
+    source_ref: `financial_metrics_asof:${row.symbol}:${row.as_of_date}`,
+    status: "available",
+    ...ageInfo(row.computed_at),
+    summary: `${row.symbol} financial metrics as of ${row.as_of_date}`,
+    data_preview: compactAssetData(row, [
+      "symbol",
+      "as_of_date",
+      "revenue_growth_recent_q",
+      "revenue_growth_ttm",
+      "revenue_cagr_3y",
+      "revenue_cagr_5y",
+      "computed_at",
+    ]),
+  };
+}
+
+async function resolveEntropyStateAsset(sql, entity) {
+  if (!entity.ticker) return null;
+  try {
+    const rows = await sql`
+      SELECT
+        symbol,
+        data,
+        computed_at::text AS computed_at
+      FROM entropy_cache
+      WHERE UPPER(symbol) = ${entity.ticker}
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (row) {
+      const data = row.data ?? {};
+      return {
+        asset_type: "entropy_state",
+        entity: { symbol: entity.ticker },
+        source_ref: `entropy_cache:${row.symbol}`,
+        status: "available",
+        ...ageInfo(row.computed_at),
+        summary: `${row.symbol} entropy cache computed ${row.computed_at}`,
+        data_preview: {
+          symbol: row.symbol,
+          computed_at: row.computed_at,
+          hmm: data.hmm ?? data.hmmRegime ?? null,
+          entropy: data.entropy ?? data.entropy_regime ?? data.entropyRegime ?? null,
+          regime: data.regime ?? data.crossReference ?? null,
+        },
+      };
+    }
+  } catch {
+    // entropy_cache is optional in some deployments.
+  }
+
+  const rows = await sql`
+    SELECT DISTINCT ON (symbol)
+      symbol,
+      hmm_regime,
+      hmm_persistence,
+      entropy_60d,
+      entropy_120d,
+      entropy_252d,
+      entropy_percentile,
+      entropy_regime,
+      entropy_trend,
+      created_at::text AS created_at
+    FROM watchlist_items
+    WHERE UPPER(symbol) = ${entity.ticker}
+    ORDER BY symbol, created_at DESC
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row || (!row.hmm_regime && !row.entropy_regime)) return null;
+  return {
+    asset_type: "entropy_state",
+    entity: { symbol: entity.ticker },
+    source_ref: `watchlist_items:entropy:${row.symbol}`,
+    status: "available",
+    ...ageInfo(row.created_at),
+    summary: `${row.symbol} HMM=${row.hmm_regime ?? "n/a"} entropy=${row.entropy_regime ?? "n/a"}`,
+    data_preview: compactAssetData(row, [
+      "symbol",
+      "hmm_regime",
+      "hmm_persistence",
+      "entropy_60d",
+      "entropy_120d",
+      "entropy_252d",
+      "entropy_percentile",
+      "entropy_regime",
+      "entropy_trend",
+      "created_at",
+    ]),
+  };
+}
+
+async function resolvePriorArtifactsAsset(sql, entity, limit = 5) {
+  const ticker = entity.ticker;
+  const market = entity.market;
+  const rows = await sql`
+    SELECT
+      id,
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_at::text AS created_at
+    FROM process_artifacts
+    WHERE status <> 'archived'
+      AND (
+        ${ticker ?? null}::text IS NULL
+        OR UPPER(json_content->>'symbol') = ${ticker ?? null}
+        OR UPPER(json_content->>'market') = ${ticker ?? null}
+        OR title ILIKE ${ticker ? `%${ticker}%` : null}
+      )
+      AND (
+        ${market ?? null}::text IS NULL
+        OR UPPER(json_content->>'market') = ${market ?? null}
+        OR artifact_type = 'portfolio_allocation'
+      )
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+  if (!rows.length) return null;
+  return {
+    asset_type: "prior_artifacts",
+    entity: ticker ? { symbol: ticker } : market ? { market } : {},
+    source_ref: "process_artifacts",
+    status: "available",
+    ...ageInfo(rows[0].created_at),
+    summary: `${rows.length} recent WPR artifact(s): ${rows.map((row) => `#${row.id}`).join(", ")}`,
+    data_preview: rows.map((row) => ({
+      id: row.id,
+      run_id: row.run_id,
+      registry_slug: row.registry_slug,
+      artifact_type: row.artifact_type,
+      title: row.title,
+      status: row.status,
+      created_at: row.created_at,
+    })),
+  };
+}
+
+async function resolvePortfolioAllocationAsset(sql, entity) {
+  const rows = await sql`
+    SELECT
+      id,
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_at::text AS created_at
+    FROM process_artifacts
+    WHERE artifact_type = 'portfolio_allocation'
+      AND status <> 'archived'
+      AND (${entity.market ?? null}::text IS NULL OR UPPER(json_content->>'market') = ${entity.market ?? null})
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    asset_type: "portfolio_allocation",
+    entity: entity.market ? { market: entity.market } : {},
+    source_ref: `process_artifacts:${row.id}`,
+    status: "available",
+    ...ageInfo(row.created_at),
+    summary: `${row.title} artifact #${row.id}`,
+    data_preview: {
+      id: row.id,
+      run_id: row.run_id,
+      market: row.json_content?.market ?? null,
+      count: row.json_content?.count ?? null,
+      total_weight_pct: row.json_content?.total_weight_pct ?? null,
+      created_at: row.created_at,
+    },
+  };
+}
+
+async function resolveOneWprAsset(sql, assetType, entity) {
+  if (assetType === "price_history") {
+    return entity.ticker
+      ? {
+          asset_type: "price_history",
+          entity: { symbol: entity.ticker },
+          source_ref: `runner_market_data:${entity.ticker}`,
+          status: "runner_fetch",
+          age_hours: null,
+          freshness: "runtime",
+          summary: `${entity.ticker} price history will be fetched by the runner.`,
+          data_preview: { symbol: entity.ticker, provider: "runner" },
+        }
+      : null;
+  }
+  if (assetType === "watchlist_snapshot") return resolveWatchlistSnapshotAsset(sql, entity);
+  if (assetType === "financial_metrics") return resolveFinancialMetricsAsset(sql, entity);
+  if (assetType === "entropy_state") return resolveEntropyStateAsset(sql, entity);
+  if (assetType === "prior_artifacts") return resolvePriorArtifactsAsset(sql, entity);
+  if (assetType === "portfolio_allocation") return resolvePortfolioAllocationAsset(sql, entity);
+  return null;
+}
+
+async function resolveWprAssets({ item, metadata, inputs = {}, intent = null }) {
+  const hints = getSkillAssetHints(item, metadata);
+  const requested = unique([...hints.required_assets, ...hints.optional_assets]);
+  const entity = getAssetEntity(inputs, intent);
+  const sql = getDb();
+  const available = [];
+  const missing = [];
+
+  for (const assetType of requested) {
+    try {
+      const resolved = await resolveOneWprAsset(sql, assetType, entity);
+      if (resolved) available.push(resolved);
+      else missing.push({
+        asset_type: assetType,
+        required: hints.required_assets.includes(assetType),
+        reason: "No matching durable asset found for resolved entity.",
+      });
+    } catch (err) {
+      missing.push({
+        asset_type: assetType,
+        required: hints.required_assets.includes(assetType),
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    resolved_at: new Date().toISOString(),
+    entity,
+    hints,
+    requested,
+    available,
+    missing,
+    stale: available.filter((asset) => ["stale", "old"].includes(asset.freshness)),
+  };
+}
+
 async function createProcessRun(args = {}) {
   const sql = getDb();
   let item = await getProcessRegistryItem(args);
@@ -1329,6 +1873,7 @@ async function createProcessRun(args = {}) {
   const metadata = await getSkillOperationMetadataOptional(item.slug);
   validateProcessRunInputs(item, inputs, metadata);
   const runner = getRunnerInfo(item, metadata);
+  const assetContext = await resolveWprAssets({ item, metadata, inputs });
   const versionRecord = await ensureProcessRegistryVersion(item, metadata, runner, {
     created_by: SERVER_INFO.name,
   });
@@ -1337,6 +1882,7 @@ async function createProcessRun(args = {}) {
     created_by: SERVER_INFO.name,
     registry_version_id: versionRecord.version.id,
     ...(isPlainObject(args.state) ? args.state : {}),
+    asset_context: assetContext,
   };
 
   const rows = await sql`
@@ -2679,6 +3225,29 @@ async function listProcessArtifacts(args = {}) {
   return { artifacts: rows };
 }
 
+async function listWprAssetCatalog(args = {}) {
+  const sql = getDb();
+  const filter = args.asset_type ?? args.tag ?? null;
+  const rows = await sql`
+    SELECT
+      asset_type,
+      name,
+      description,
+      source_kind,
+      source_ref,
+      freshness_policy,
+      schema_hint,
+      tags,
+      updated_at::text AS updated_at
+    FROM wpr_asset_catalog
+    WHERE (${filter}::text IS NULL OR asset_type = ${filter} OR ${filter} = ANY(tags))
+    ORDER BY asset_type
+    LIMIT ${getLimit(args.limit ?? 20)}
+  `;
+
+  return { assets: rows };
+}
+
 async function getLatestWatchlistStock(symbol) {
   const sql = getDb();
   const rows = await sql`
@@ -3206,6 +3775,7 @@ function compactCandidateForLlm(candidate) {
     artifact_types: candidate.artifact_types,
     approval_requirements: candidate.approval_requirements,
     suggested_inputs: candidate.suggested_inputs,
+    asset_context: candidate.asset_context,
     input_valid: candidate.input_valid,
     why: candidate.why,
   };
@@ -3536,6 +4106,7 @@ async function suggestTaskPlan(args = {}) {
       const runner = getRunnerInfo(item, metadata);
       const scored = scoreTaskSkillCandidate(item, metadata, intent, runner);
       const suggestedInputs = mapIntentToSkillInputs(intent, metadata, runner);
+      const assetHints = getSkillAssetHints(item, metadata);
       let inputValid = true;
       let inputErrors = [];
 
@@ -3557,6 +4128,7 @@ async function suggestTaskPlan(args = {}) {
         artifact_types: metadata.artifact_types,
         approval_requirements: metadata.approval_requirements,
         required_tools: metadata.required_tools,
+        asset_hints: assetHints,
         suggested_inputs: suggestedInputs,
         input_valid: inputValid,
         input_errors: inputErrors,
@@ -3571,7 +4143,56 @@ async function suggestTaskPlan(args = {}) {
         a.slug.localeCompare(b.slug)
     );
 
-  const skillCandidates = candidates.slice(0, limit);
+  const skillCandidates = await Promise.all(
+    candidates.slice(0, limit).map(async (candidate) => {
+      const row = rows.find((candidateRow) => candidateRow.slug === candidate.slug);
+      if (!row) return candidate;
+      const item = {
+        slug: row.slug,
+        object_type: row.object_type,
+        name: row.name,
+        status: row.status,
+        version: row.version,
+        description: row.description,
+        tags: row.tags ?? [],
+        config: row.config ?? {},
+        updated_at: row.updated_at,
+      };
+      const metadata = {
+        trigger_terms: row.trigger_terms ?? [],
+        routing_keywords: row.routing_keywords ?? [],
+        input_schema: row.input_schema ?? {},
+        output_schema: row.output_schema ?? {},
+        required_tools: row.required_tools ?? [],
+        side_effects: row.side_effects ?? [],
+        artifact_types: row.artifact_types ?? [],
+        approval_requirements: row.approval_requirements ?? [],
+        operation_hints: row.operation_hints ?? {},
+        risk_level: row.risk_level ?? "low",
+      };
+      const asset_context = await resolveWprAssets({
+        item,
+        metadata,
+        inputs: candidate.suggested_inputs,
+        intent,
+      });
+      return {
+        ...candidate,
+        asset_context: {
+          entity: asset_context.entity,
+          available: asset_context.available.map((asset) => ({
+            asset_type: asset.asset_type,
+            status: asset.status,
+            freshness: asset.freshness,
+            source_ref: asset.source_ref,
+            summary: asset.summary,
+          })),
+          missing: asset_context.missing,
+          stale: asset_context.stale.map((asset) => asset.asset_type),
+        },
+      };
+    })
+  );
   const plans = buildRecommendedTaskPlans(intent, skillCandidates);
   const llm = args.use_llm === true
     ? await suggestTaskPlanWithLlm({
@@ -3702,6 +4323,21 @@ function buildTaskSynthesisMarkdown({ intent, plan, childRuns, sourceArtifacts }
     lines.push(`- ${run.slug}: ${run.status} run #${run.run_id ?? "n/a"} artifacts ${artifactIds}`);
   }
 
+  const runsWithAssets = childRuns.filter((run) => run.asset_context?.available?.length || run.asset_context?.missing?.length);
+  if (runsWithAssets.length) {
+    lines.push("", "### Resolved Assets", "");
+    for (const run of runsWithAssets) {
+      lines.push(`- ${run.slug}:`);
+      for (const asset of run.asset_context.available ?? []) {
+        lines.push(`  - ${asset.asset_type}: ${asset.summary} (${asset.freshness})`);
+      }
+      const requiredMissing = (run.asset_context.missing ?? []).filter((asset) => asset.required);
+      if (requiredMissing.length) {
+        lines.push(`  - missing required: ${requiredMissing.map((asset) => asset.asset_type).join(", ")}`);
+      }
+    }
+  }
+
   if (sourceArtifacts.length) {
     lines.push("", "### Integrated Artifacts", "");
     for (const artifact of sourceArtifacts) {
@@ -3759,6 +4395,7 @@ async function executeTaskPlan(args = {}) {
       run_id: completedRun.id ?? pendingRun.id,
       status: completedRun.status,
       output: completedRun.outputs ?? completedRun.output ?? {},
+      asset_context: pendingRun.state?.asset_context ?? null,
       artifacts,
       error: triggered.error ?? null,
     });
@@ -4295,6 +4932,7 @@ async function callTool(name, args) {
   if (name === "list_process_runs") return listProcessRuns(args);
   if (name === "list_process_registry_versions") return listProcessRegistryVersions(args);
   if (name === "list_process_artifacts") return listProcessArtifacts(args);
+  if (name === "list_wpr_asset_catalog") return listWprAssetCatalog(args);
   if (name === "suggest_data_operations") return suggestDataOperations(args);
   if (name === "resolve_operation_path") return resolveOperationPath(args);
   if (name === "import_skills_from_directory") return importSkillsFromDirectory(args);
@@ -4408,6 +5046,7 @@ export {
   listProcessRegistry,
   listProcessRegistryVersions,
   listProcessRuns,
+  listWprAssetCatalog,
   operationMatchScore,
   parseTaskIntent,
   resolveOperationPath,

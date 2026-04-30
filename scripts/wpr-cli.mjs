@@ -15,6 +15,7 @@ const COMMANDS = new Set([
   "versions",
   "runs",
   "artifacts",
+  "assets",
   "run",
   "worker",
   "path",
@@ -45,6 +46,7 @@ Other commands:
   wpr versions <slug> [limit]
   wpr runs <slug> [limit]
   wpr artifacts [slug] [limit]
+  wpr assets [asset_type|tag] [limit]
   wpr audit-skills [--run-built-ins|--run-all]
   wpr import-skills [directory] [--dry-run]
   wpr worker --interval 5000
@@ -250,6 +252,17 @@ function printTrigger(result) {
   }
 }
 
+function printAssets(result) {
+  for (const asset of result.assets ?? []) {
+    const tags = asset.tags?.length ? ` tags=${asset.tags.join(",")}` : "";
+    console.log(`- ${asset.asset_type}: ${asset.name} [${asset.source_kind}:${asset.source_ref}]${tags}`);
+    if (asset.description) console.log(`  ${asset.description}`);
+    if (asset.freshness_policy && Object.keys(asset.freshness_policy).length) {
+      console.log(`  freshness: ${JSON.stringify(asset.freshness_policy)}`);
+    }
+  }
+}
+
 function printSkillAudit(result) {
   const summary = result.summary;
   console.log(
@@ -301,6 +314,17 @@ function printTaskPlan(result) {
     );
     if (candidate.why?.length) console.log(`  why: ${candidate.why.join("; ")}`);
     console.log(`  inputs: ${JSON.stringify(candidate.suggested_inputs)}`);
+    if (candidate.asset_context?.available?.length) {
+      console.log(
+        `  assets: ${candidate.asset_context.available
+          .map((asset) => `${asset.asset_type}=${asset.freshness}`)
+          .join(", ")}`
+      );
+    }
+    const missingRequired = (candidate.asset_context?.missing ?? []).filter((asset) => asset.required);
+    if (missingRequired.length) {
+      console.log(`  missing required assets: ${missingRequired.map((asset) => asset.asset_type).join(", ")}`);
+    }
   }
 
   if (result.plans?.length) {
@@ -448,6 +472,13 @@ async function main() {
       limit: isInteger(args[1]) ? Number(args[1]) : args[2] ? Number(args[2]) : undefined,
     });
     printer = printArtifacts;
+  } else if (command === "assets") {
+    result = await callTool("list_wpr_asset_catalog", {
+      asset_type: args[1] && !isInteger(args[1]) ? args[1] : undefined,
+      tag: args[1] && !isInteger(args[1]) ? args[1] : undefined,
+      limit: isInteger(args[1]) ? Number(args[1]) : args[2] ? Number(args[2]) : undefined,
+    });
+    printer = printAssets;
   } else if (command === "run") {
     if (!isInteger(args[1])) throw new Error("run requires a numeric run id");
     result = await triggerProcessRun({ run_id: Number(args[1]) });
