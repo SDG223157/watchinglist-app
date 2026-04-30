@@ -62,6 +62,22 @@ const GENERIC_SKILL_OUTPUT_SCHEMA = {
   },
   required: ["runner", "skill", "inputs", "generated_at"],
 };
+const LLM_SKILL_REPORT_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    summary: { type: "string" },
+    markdown: { type: "string" },
+    findings: { type: "array", items: { type: "object", additionalProperties: true } },
+    limitations: { type: "array", items: { type: "string" } },
+    suggested_next_steps: { type: "array", items: { type: "string" } },
+    inputs: { type: "object", additionalProperties: true },
+    skill: { type: "object", additionalProperties: true },
+    runner: { type: "object", additionalProperties: true },
+    generated_at: { type: "string" },
+  },
+  required: ["summary", "markdown", "inputs", "skill", "runner", "generated_at"],
+};
 const BUILT_IN_INPUT_SCHEMAS = {
   "price-structure-analysis": {
     type: "object",
@@ -174,6 +190,7 @@ const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
     ],
   },
   skill_invocation_packet: GENERIC_SKILL_OUTPUT_SCHEMA,
+  skill_report: LLM_SKILL_REPORT_SCHEMA,
   task_synthesis: {
     type: "object",
     additionalProperties: true,
@@ -251,6 +268,21 @@ const GENERIC_RUNNER_CONFIG = {
     dry_run: true,
   },
   artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_invocation_packet,
+};
+const LLM_READONLY_RUNNER_CONFIG = {
+  runner_kind: "llm_readonly",
+  executor: "llm_readonly_skill_runner",
+  artifact_type: "skill_report",
+  timeout_ms: 120000,
+  max_attempts: 2,
+  retry_backoff_ms: 5000,
+  env_policy: "openai",
+  smoke_inputs: {
+    input: "WPR audit smoke test: summarize the skill purpose and expected artifact.",
+    source: "wpr_audit_smoke_test",
+    dry_run: true,
+  },
+  artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_report,
 };
 const DEFAULT_ASSET_HINTS_BY_SLUG = {
   "price-structure-analysis": {
@@ -491,7 +523,7 @@ const TOOLS = [
   {
     name: "draft_missing_skill",
     description:
-      "Devise and persist a draft WPR skill for a user intent when no relevant skill exists. Safe by default: draft status, generic runner, no execution.",
+      "Devise and persist a draft WPR skill for a user intent when no relevant skill exists. Safe by default: draft status and an LLM read-only runner with no external side effects.",
     inputSchema: {
       type: "object",
       properties: {
@@ -860,7 +892,7 @@ function buildSkillOperationMetadata(skill, content, frontmatter) {
   const artifactTypes = inferArtifactTypes(content);
   const approvalRequirements = inferApprovalRequirements(content, sideEffects);
   const inputSchema = BUILT_IN_INPUT_SCHEMAS[skill.slug] ?? GENERIC_SKILL_INPUT_SCHEMA;
-  const runnerConfig = DEFAULT_RUNNER_CONFIGS[skill.slug] ?? GENERIC_RUNNER_CONFIG;
+  const runnerConfig = DEFAULT_RUNNER_CONFIGS[skill.slug] ?? LLM_READONLY_RUNNER_CONFIG;
   const outputSchema =
     runnerConfig.artifact_contract ?? OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE[runnerConfig.artifact_type] ?? {
       type: "object",
@@ -1406,6 +1438,9 @@ function validateProcessRunInputs(item, inputs, metadata) {
 function getOutputSchema(metadata, runner, artifactType) {
   if (runner?.executor === "generic_skill_invocation_packet") {
     return runner.artifact_contract ?? OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_invocation_packet;
+  }
+  if (runner?.executor === "llm_readonly_skill_runner") {
+    return runner.artifact_contract ?? OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_report;
   }
   const metadataSchema = metadata?.output_schema;
   if (hasConcreteInputSchema(metadataSchema)) return metadataSchema;
@@ -2021,9 +2056,9 @@ function buildDraftSkillSpec(input, args = {}) {
   const baseSlug = slugify(args.slug || usefulTerms.join("-") || "custom-wpr-skill");
   const slug = baseSlug.endsWith("-skill") ? baseSlug : `${baseSlug}-skill`;
   const name = normalizeInput(args.name) || titleizeSlug(slug.replace(/-skill$/, ""));
-  const artifactTypes = inferDraftArtifactTypes(intent);
+  const artifactTypes = unique(["skill_report", ...inferDraftArtifactTypes(intent)]);
   const inputSchema = inferDraftInputSchema(intent);
-  const outputSchema = inferDraftOutputSchema(intent, artifactTypes);
+  const outputSchema = { ...LLM_SKILL_REPORT_SCHEMA, wpr_expected_artifacts: artifactTypes };
   const sideEffects = inferDraftSideEffects(input, intent);
   const approvals = inferApprovalRequirements(input, sideEffects);
   const assetHints = inferAssetHintsFromText(slug, `${name} ${input} ${intent.terms.join(" ")}`);
@@ -2059,15 +2094,15 @@ function buildDraftSkillSpec(input, args = {}) {
         produced_assets: producedAssets,
         draft_reason: "No strong existing WPR skill matched this user intent.",
         implementation_notes: [
-          "Start with the generic WPR runner to create invocation artifacts.",
+          "Start with the LLM read-only WPR runner to create skill_report artifacts.",
           "Promote to a bespoke runner after the desired workflow and artifact contract are stable.",
           "Keep external side effects approval-gated.",
         ],
-        runner_config: GENERIC_RUNNER_CONFIG,
+        runner_config: LLM_READONLY_RUNNER_CONFIG,
       },
       risk_level: riskLevel,
     },
-    runner: normalizeRunnerConfig(slug, GENERIC_RUNNER_CONFIG),
+    runner: normalizeRunnerConfig(slug, LLM_READONLY_RUNNER_CONFIG),
   };
 }
 
@@ -2281,7 +2316,7 @@ async function draftMissingSkill(args = {}) {
     next_steps: [
       "Review and refine the draft schema and asset hints.",
       "Activate the registry row when ready.",
-      "Replace the generic runner with a bespoke runner when the workflow is stable.",
+      "Replace the LLM read-only runner with a bespoke runner when the workflow is stable.",
     ],
   };
 }
@@ -3012,7 +3047,7 @@ function getRunnerInfo(itemOrSlug, metadata = null) {
 
   const objectType = typeof itemOrSlug === "string" ? "skill" : itemOrSlug?.object_type;
   if (objectType === "skill") {
-    return normalizeRunnerConfig(slug, GENERIC_RUNNER_CONFIG);
+    return normalizeRunnerConfig(slug, LLM_READONLY_RUNNER_CONFIG);
   }
 
   return null;
@@ -3126,6 +3161,176 @@ async function executeGenericSkillRun(run, context = null) {
       runner_kind: "generic",
       artifact_id: artifactRows[0].id,
       artifact_type: "skill_invocation_packet",
+      source_path: sourcePath,
+    },
+    artifacts: artifactRows,
+  };
+}
+
+function buildLlmReadonlySkillMessages({ item, metadata, runner, run, sourcePreview }) {
+  const artifactTypes = metadata?.artifact_types ?? [];
+  const assetContext = run.state?.asset_context ?? {};
+  return [
+    {
+      role: "system",
+      content:
+        "You are the WatchingList Process Registry read-only skill runner. Execute the requested skill as a safe analysis/reporting task using only the provided skill instructions, inputs, metadata, and asset context. Do not claim to have called external tools, posted content, uploaded files, created meetings, placed trades, or mutated systems. Do not fabricate numbers, dates, market prices, indicators, signal states, trade history, citations, or computed results. If the skill requires tools or raw data not provided, state the limitation clearly and produce the best useful read-only artifact: a verified summary, execution plan, required inputs, and next WPR runner upgrade. For ticker/market calculations, only report computed values if the raw series or explicit values are present in the provided asset context. Return strict JSON only.",
+    },
+    {
+      role: "user",
+      content: `Skill:\n${JSON.stringify(
+        {
+          slug: item.slug,
+          name: item.name,
+          status: item.status,
+          version: item.version,
+          description: item.description,
+          tags: item.tags ?? [],
+          source_path: metadata?.source_path ?? item.config?.source_path ?? null,
+        },
+        null,
+        2
+      )}\n\nInputs:\n${JSON.stringify(run.inputs ?? {}, null, 2)}\n\nMetadata:\n${JSON.stringify(
+        {
+          risk_level: metadata?.risk_level ?? "low",
+          artifact_types: artifactTypes,
+          approval_requirements: metadata?.approval_requirements ?? [],
+          side_effects: metadata?.side_effects ?? [],
+          required_tools: metadata?.required_tools ?? [],
+          operation_hints: metadata?.operation_hints ?? {},
+        },
+        null,
+        2
+      )}\n\nResolved asset context:\n${JSON.stringify(assetContext, null, 2)}\n\nSkill source preview:\n${sourcePreview ?? "No source preview available."}\n\nTruthfulness requirements:\n- If raw data needed by the skill is absent, do not invent the result.\n- If you cannot compute the skill's final answer from provided context, say so in summary and limitations.\n- A useful artifact may be a runnable work order for a future deterministic/python/browser runner.\n\nReturn JSON with this shape:\n{\n  "summary": "one concise paragraph",\n  "markdown": "complete markdown artifact for the user",\n  "findings": [{"title": "finding", "detail": "evidence or implication"}],\n  "limitations": ["data/tool limitation if any"],\n  "suggested_next_steps": ["next WPR action or runner upgrade"]\n}`,
+    },
+  ];
+}
+
+async function executeLlmReadonlySkillRun(run, context = null) {
+  const { item, metadata, runner } = context ?? (await getRunExecutionContext(run));
+  const config = getLlmPlannerConfig({
+    llm_provider: runner?.llm_provider,
+    llm_model: runner?.llm_model,
+  });
+
+  if (!config.apiKey) {
+    throw new Error("No LLM API key configured. Set WPR_LLM_API_KEY or OPENAI_API_KEY.");
+  }
+
+  const sourcePath = metadata?.source_path ?? item.config?.source_path ?? null;
+  let sourcePreview = null;
+  if (sourcePath) {
+    try {
+      sourcePreview = (await readFile(sourcePath, "utf8")).slice(0, 16000);
+    } catch (err) {
+      sourcePreview = `Unable to read source path ${sourcePath}: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  }
+
+  const messages = buildLlmReadonlySkillMessages({
+    item,
+    metadata,
+    runner,
+    run,
+    sourcePreview,
+  });
+  const json = await fetchJsonWithTimeout(
+    `${config.baseUrl}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }),
+    },
+    run.timeout_ms ?? runner?.timeout_ms ?? config.timeout_ms
+  );
+  const content = json?.choices?.[0]?.message?.content;
+  const parsed = parseLlmJsonContent(content);
+  const artifactContent = {
+    summary: normalizeInput(parsed.summary) || `${item.name} read-only skill report`,
+    markdown:
+      normalizeInput(parsed.markdown) ||
+      `# ${item.name}\n\n${normalizeInput(parsed.summary) || "No report body returned."}`,
+    findings: Array.isArray(parsed.findings) ? parsed.findings.slice(0, 50) : [],
+    limitations: Array.isArray(parsed.limitations)
+      ? parsed.limitations.map(normalizeInput).filter(Boolean).slice(0, 20)
+      : [],
+    suggested_next_steps: Array.isArray(parsed.suggested_next_steps)
+      ? parsed.suggested_next_steps.map(normalizeInput).filter(Boolean).slice(0, 20)
+      : [],
+    inputs: run.inputs ?? {},
+    skill: {
+      slug: item.slug,
+      name: item.name,
+      version: item.version,
+      source_path: sourcePath,
+    },
+    runner: {
+      kind: "llm_readonly_skill_runner",
+      provider: config.provider,
+      model: config.model,
+      note:
+        "Read-only WPR runner. External side effects are not executed; approval-gated actions remain recommendations only.",
+    },
+    generated_at: new Date().toISOString(),
+  };
+
+  validateArtifactJsonContent(
+    run.registry_slug,
+    "skill_report",
+    artifactContent,
+    metadata,
+    runner
+  );
+
+  const sql = getDb();
+  const artifactRows = await sql`
+    INSERT INTO process_artifacts (
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_by_step,
+      visibility
+    )
+    VALUES (
+      ${run.id},
+      ${run.registry_slug},
+      'skill_report',
+      ${`${item.name} WPR Skill Report`},
+      'needs_review',
+      ${JSON.stringify(artifactContent)}::jsonb,
+      'execute_llm_readonly_skill_run',
+      'private'
+    )
+    RETURNING
+      id,
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_at::text AS created_at
+  `;
+
+  return {
+    output: {
+      runner_kind: "llm_readonly",
+      artifact_id: artifactRows[0].id,
+      artifact_type: "skill_report",
+      model: config.model,
       source_path: sourcePath,
     },
     artifacts: artifactRows,
@@ -3278,6 +3483,7 @@ async function auditProcessRegistrySkills(args = {}) {
       ["inferred", "permissive", "missing"].includes(skill.input_schema_status)
     ).length,
     built_in_runners: skills.filter((skill) => skill.runner_status === "built_in").length,
+    llm_readonly_runners: skills.filter((skill) => skill.runner_status === "llm_readonly").length,
     generic_runners: skills.filter((skill) => skill.runner_status === "generic").length,
     missing_runners: skills.filter((skill) => skill.runner_status === "missing").length,
     smoke_runs: smokeRuns.length,
@@ -3367,6 +3573,12 @@ async function executeRunningProcessRun(run) {
     } else if (runner?.executor === "generic_skill_invocation_packet") {
       result = await withTimeout(
         executeGenericSkillRun(run, context),
+        run.timeout_ms ?? runner.timeout_ms,
+        runner.executor
+      );
+    } else if (runner?.executor === "llm_readonly_skill_runner") {
+      result = await withTimeout(
+        executeLlmReadonlySkillRun(run, context),
         run.timeout_ms ?? runner.timeout_ms,
         runner.executor
       );
@@ -3716,8 +3928,10 @@ function buildRunOption(item, input, options = {}) {
         ? `Missing required inputs: ${missingInputs.join(", ")}.`
         : !runner
         ? "No WPR runner exists yet, so this object cannot produce artifacts through WPR."
+        : runner.runner_kind === "llm_readonly"
+        ? "Creates a read-only LLM skill_report artifact. It does not execute external side effects."
         : runner.runner_kind === "generic"
-        ? "Creates a safe generic invocation artifact. It does not execute external side effects."
+        ? "Creates a safe generic invocation packet. It does not execute external side effects."
         : item.status === "active"
         ? "Creates a pending run row. It does not execute the workflow yet."
         : `Unavailable because this registry item is ${item.status}.`,
@@ -4203,9 +4417,12 @@ function scoreTaskSkillCandidate(item, metadata, intent, runner = null) {
   if (runner?.runner_kind === "built_in") {
     score += 10;
     reasons.push("has built-in artifact runner");
+  } else if (runner?.runner_kind === "llm_readonly") {
+    score += 6;
+    reasons.push("has read-only LLM artifact runner");
   } else if (runner?.runner_kind === "generic") {
     score += 3;
-    reasons.push("has safe generic WPR runner");
+    reasons.push("has safe generic WPR fallback runner");
   }
 
   if (item.status === "active") score += 5;

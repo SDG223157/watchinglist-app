@@ -321,7 +321,7 @@ function printSkillDraft(result) {
 function printSkillAudit(result) {
   const summary = result.summary;
   console.log(
-    `Skills: ${summary.total_skills} total, ${summary.active_skills} active, ${summary.built_in_runners} built-in runner(s), ${summary.generic_runners} generic runner(s), ${summary.missing_runners} missing runner(s)`
+    `Skills: ${summary.total_skills} total, ${summary.active_skills} active, ${summary.built_in_runners} built-in runner(s), ${summary.llm_readonly_runners ?? 0} LLM read-only runner(s), ${summary.generic_runners} generic runner(s), ${summary.missing_runners} missing runner(s)`
   );
   console.log(
     `Schemas: ${summary.typed_input_schema} typed, ${summary.inferred_or_permissive_input_schema} inferred/permissive/missing`

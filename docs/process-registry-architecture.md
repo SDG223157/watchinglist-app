@@ -45,18 +45,19 @@ The kernel-like WPR contract is:
 validate args
 check risk
 choose runner
-execute or create invocation packet
+execute built-in, LLM read-only, or generic fallback runner
 persist outputs
 expose artifacts
 record audit events
 ```
 
-That makes the system scalable. Adding the next skill does not require redesigning the app. The new skill needs a registry row, an input schema, and a runner strategy. It can start with a safe generic runner, then graduate to a bespoke runner, then become part of a pipeline while keeping the same registry identity.
+That makes the system scalable. Adding the next skill does not require redesigning the app. The new skill needs a registry row, an input schema, and a runner strategy. It can start with the safe LLM read-only runner, then graduate to a bespoke runner, then become part of a pipeline while keeping the same registry identity.
 
 ```text
-generic runner -> invocation packet
-bespoke runner -> workflow-specific artifact
-pipeline runner -> multi-step operating loop
+generic runner      -> invocation packet fallback
+LLM read-only       -> skill_report artifact without external side effects
+bespoke runner      -> workflow-specific artifact
+pipeline runner     -> multi-step operating loop
 ```
 
 The core idea is to turn skills from loose prompt magic into typed, inspectable, runnable infrastructure. Each new capability should enter the system through the same durable path:
@@ -185,11 +186,11 @@ wpr run <run_id>
 -> created an MSFT Price Structure Verdict artifact
 
 wpr scan_stocks_moat_deterioration --run
--> completed scan-stocks-moat-deterioration-skill via generic runner
--> created a Scan Stocks Moat Deterioration WPR Invocation Packet artifact
+-> completed scan-stocks-moat-deterioration-skill via LLM read-only runner
+-> created a Scan Stocks Moat Deterioration WPR Skill Report artifact
 ```
 
-Generic skills are intentionally safe. They create `skill_invocation_packet` artifacts that capture the skill identity, typed inputs, runner metadata, source path, and source preview. They do not perform external side effects until promoted to a bespoke runner.
+Generic/imported skills are intentionally safe. Most imported skills now run through the LLM read-only runner and create `skill_report` artifacts from the skill source, typed inputs, and asset context. The runner does not perform external side effects, and it must state limitations instead of fabricating missing calculations or tool results. The older generic fallback creates `skill_invocation_packet` artifacts that capture the skill identity, typed inputs, runner metadata, source path, and source preview.
 
 ### Plan From Natural Intent
 
@@ -292,7 +293,7 @@ Verified health shape:
 
 ```text
 wpr audit-skills
--> reports total skills, active skills, built-in runners, generic runners, missing runners, typed schemas
+-> reports total skills, active skills, built-in runners, LLM read-only runners, generic runners, missing runners, typed schemas
 
 wpr worker --once
 -> claims and runs one pending row if present
@@ -305,7 +306,8 @@ Current verified baseline:
 95 active skills
 95 typed schemas
 3 built-in runners
-92 generic runners
+92 LLM read-only runners
+0 generic runners
 0 missing runners
 ```
 
@@ -316,6 +318,9 @@ WPR uses runner kinds to decide what execution is allowed and what artifact cont
 ```text
 read-only analysis runner
   No external side effects. Produces reports, scores, classifications, or decision memos.
+
+LLM read-only skill runner
+  Universal runner for imported skills without bespoke automation. Reads the skill source, typed inputs, and WPR asset context, then produces a skill_report artifact. It must not fabricate missing tool results or execute external side effects.
 
 python script runner
   Calls a declared Python entrypoint with typed args. Captures stdout, JSON, and declared file outputs.
@@ -333,7 +338,7 @@ approval-gated external action runner
   Can post, upload, create, send, trade, or mutate external systems only after approval gates pass.
 
 generic skill runner
-  Safe baseline for imported skills without bespoke automation. Produces a skill_invocation_packet artifact with skill metadata, typed inputs, source path, and source preview. It does not execute external side effects.
+  Safe fallback for request capture only. Produces a skill_invocation_packet artifact with skill metadata, typed inputs, source path, and source preview. It does not execute external side effects.
 ```
 
 The durable design rule:
@@ -616,7 +621,7 @@ The app now has:
 - Asset-aware skill hints in `skill_operation_metadata.operation_hints.required_assets`, `optional_assets`, and `produced_assets`
 - Asset resolution frozen into `process_runs.state.asset_context`
 - Retry, timeout, backoff, and failure-category policy on every run
-- Safe generic WPR runner for skills without bespoke automation
+- Safe LLM read-only WPR runner for skills without bespoke automation
 - Built-in artifact-producing runners for `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction`
 
 Current bespoke executors:
@@ -627,7 +632,7 @@ polymarket-distiller     -> polymarket_distillation artifact
 us-portfolio-construction -> portfolio_allocation artifact
 ```
 
-All other active skills are runnable through the generic safe runner, which creates a `skill_invocation_packet` artifact rather than executing the full external workflow.
+All other active skills are runnable through the LLM read-only runner, which creates a `skill_report` artifact from the skill source, typed inputs, and resolved WPR assets. It does not execute external publish/upload/trade side effects or fabricate missing tool results.
 
 ## WPR Path Syntax
 
@@ -645,7 +650,7 @@ wpr/aapl/hmm entropy
 wpr/tsla/trendwise
 ```
 
-The resolver parses the data input, detects whether it looks like a ticker, checks the latest watchlist row when available, then matches the operation query against `skill_operation_metadata`. If the matched skill is active, WPR can create a pending run. Skills with bespoke runners produce workflow-specific artifacts. Skills without bespoke automation use the safe generic runner and produce `skill_invocation_packet` artifacts.
+The resolver parses the data input, detects whether it looks like a ticker, checks the latest watchlist row when available, then matches the operation query against `skill_operation_metadata`. If the matched skill is active, WPR can create a pending run. Skills with bespoke runners produce workflow-specific artifacts. Imported skills without bespoke automation usually use the safe LLM read-only runner and produce `skill_report` artifacts. The generic invocation-packet runner remains as a fallback for skills that should only record the request envelope.
 
 ## WPR CLI
 
@@ -922,7 +927,7 @@ execute_task_plan  -> plan, execute safe blocks, collect artifacts, synthesize f
 
 `suggest_task_plan` parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs.
 
-`execute_task_plan` selects the executable plan, creates child `process_runs`, triggers each safe built-in or generic runner, collects the child `process_artifacts`, and writes one durable `task_synthesis` artifact. It does not perform external publish/upload/trade side effects.
+`execute_task_plan` selects the executable plan, creates child `process_runs`, triggers each safe built-in, LLM read-only, or generic fallback runner, collects the child `process_artifacts`, and writes one durable `task_synthesis` artifact. It does not perform external publish/upload/trade side effects.
 
 ### Missing Skill Drafting
 
@@ -1027,7 +1032,7 @@ wpr AAPL analysis to meeting --create
 wpr worker
 ```
 
-Only skills with real executors produce true domain artifacts. `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction` have built-in runners. Other active skills currently use the generic WPR runner, which creates a durable `skill_invocation_packet` artifact that records the selected skill, typed inputs, metadata, and source preview.
+Skills with bespoke executors produce true domain artifacts. `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction` have built-in runners. Other active skills use the LLM read-only runner, which creates a durable `skill_report` artifact and states limitations when exact tools or raw data are unavailable.
 
 Portfolio construction is now a first-class WPR block:
 
@@ -1253,7 +1258,7 @@ New skills imported into WPR should fit the OS contract immediately:
 2. Import the skill into `process_registry_items`.
 3. Store `skill_operation_metadata` with concrete `input_schema` and `output_schema`.
 4. Assign a runner strategy:
-   - generic runner by default
+   - LLM read-only runner by default
    - bespoke runner when a real executable workflow exists
    - approval-gated runner for external side effects
 5. Store runner policy in `operation_hints.runner_config`.
