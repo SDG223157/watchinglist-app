@@ -456,6 +456,42 @@ async function createAndMaybeTrigger(path, shouldCreate, shouldRun) {
   };
 }
 
+async function createAndMaybeTriggerTopSuggestion(input, shouldRun, options = {}) {
+  const suggestions = await callTool("suggest_data_operations", {
+    input,
+    include_all: options.includeAll,
+    limit: options.limit,
+  });
+  const option = (suggestions.options ?? []).find(
+    (entry) => entry.enabled && entry.kind === "mcp_tool" && entry.tool === "create_process_run"
+  );
+
+  if (!option) {
+    throw new Error(`No enabled WPR run option found for input: ${input}`);
+  }
+
+  const created = await callTool("create_process_run", option.arguments ?? {});
+  if (!shouldRun) {
+    return { suggestions, option, created, triggered: null };
+  }
+
+  return {
+    suggestions,
+    option,
+    created,
+    triggered: await triggerProcessRun({ run_id: Number(created.id) }),
+  };
+}
+
+function printSuggestionExecution(result) {
+  console.log(`selected: ${result.option.label}`);
+  console.log(`pending run: #${result.created.id} [${result.created.status}]`);
+  if (result.triggered) {
+    console.log("");
+    printTrigger(result.triggered);
+  }
+}
+
 function pathFromArgs(args) {
   if (args.length === 1 && args[0].includes("/")) return args[0];
   if (args[0]?.includes("/")) return `${args[0]}/${args.slice(1).join(" ")}`;
@@ -587,12 +623,20 @@ async function main() {
   } else if (COMMANDS.has(command)) {
     throw new Error(`Unhandled command: ${command}`);
   } else if (args.length === 1 && !args[0].includes("/")) {
-    result = await callTool("suggest_data_operations", {
-      input: args[0],
-      include_all: flags.has("all"),
-      limit: values.limit ? Number(values.limit) : undefined,
-    });
-    printer = printSuggestions;
+    if (flags.has("create") || flags.has("run")) {
+      result = await createAndMaybeTriggerTopSuggestion(args[0], flags.has("run"), {
+        includeAll: flags.has("all"),
+        limit: values.limit ? Number(values.limit) : undefined,
+      });
+      printer = printSuggestionExecution;
+    } else {
+      result = await callTool("suggest_data_operations", {
+        input: args[0],
+        include_all: flags.has("all"),
+        limit: values.limit ? Number(values.limit) : undefined,
+      });
+      printer = printSuggestions;
+    }
   } else if (args.length === 1 && args[0].includes("/")) {
     const parsedPath = parseSinglePathArg(args[0]);
     if (!parsedPath.operationQuery && !flags.has("create") && !flags.has("run")) {

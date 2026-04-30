@@ -1404,6 +1404,9 @@ function validateProcessRunInputs(item, inputs, metadata) {
 }
 
 function getOutputSchema(metadata, runner, artifactType) {
+  if (runner?.executor === "generic_skill_invocation_packet") {
+    return runner.artifact_contract ?? OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.skill_invocation_packet;
+  }
   const metadataSchema = metadata?.output_schema;
   if (hasConcreteInputSchema(metadataSchema)) return metadataSchema;
   if (runner?.artifact_contract) return runner.artifact_contract;
@@ -1939,6 +1942,10 @@ function inferDraftInputSchema(intent) {
     input: { type: "string", minLength: 1 },
     query: { type: "string" },
     context: { type: "string" },
+    source: { type: "string" },
+    operation_query: { type: "string" },
+    dry_run: { type: "boolean" },
+    args: { type: "array" },
     options: { type: "object", additionalProperties: true },
   };
   const required = ["input"];
