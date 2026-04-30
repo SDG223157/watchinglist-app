@@ -102,6 +102,213 @@ wpr runs price-structure-analysis 5
 wpr artifacts price-structure-analysis 5
 ```
 
+## Verified WPR Asking Examples
+
+WPR supports three everyday modes:
+
+```text
+ask      -> suggest relevant operations
+plan     -> compose relevant skill blocks
+run      -> create process_runs rows and persist process_artifacts
+```
+
+### Ask For Suggestions
+
+Use a ticker, free text, or a shorthand skill phrase.
+
+```bash
+wpr AAPL
+wpr AAPL --json
+wpr BSX
+wpr BSX --all
+wpr scan_stocks_moat_deterioration
+```
+
+Expected behavior:
+
+```text
+wpr AAPL
+-> detects ticker AAPL
+-> shows app routes such as /stock/AAPL and /api/analyze
+-> suggests relevant active skills such as price-structure-analysis, hmm-entropy-analysis, analysis-to-meeting, stock-analysis, market-dynamics-geometry
+
+wpr scan_stocks_moat_deterioration
+-> detects text input
+-> top enabled run option is scan-stocks-moat-deterioration-skill
+```
+
+Use `--all` when you want the full registry list instead of concise suggestions.
+
+### Resolve A Skill Operation
+
+Use natural operation words after the data input, or use an explicit slash path.
+
+```bash
+wpr AAPL price structure
+wpr path "wpr/aapl/price structure"
+wpr "scan US stocks for moat deterioration" "scan stocks moat deterioration"
+```
+
+Expected behavior:
+
+```text
+wpr AAPL price structure
+-> resolves to price-structure-analysis
+-> does not create a run unless --create or --run is present
+
+wpr path "wpr/aapl/price structure"
+-> same resolver, useful for MCP-style slash paths
+```
+
+### Create And Run
+
+Use `--create` to create a pending run, then `wpr run <id>` to execute it. Use `--run` to do both immediately.
+
+```bash
+wpr MSFT price structure --create
+wpr run <run_id>
+
+wpr AAPL price structure --run
+wpr scan_stocks_moat_deterioration --run
+```
+
+Verified examples:
+
+```text
+wpr AAPL price structure --run
+-> completed price-structure-analysis run
+-> created an AAPL Price Structure Verdict artifact
+
+wpr MSFT price structure --create
+wpr run <run_id>
+-> completed price-structure-analysis run
+-> created an MSFT Price Structure Verdict artifact
+
+wpr scan_stocks_moat_deterioration --run
+-> completed scan-stocks-moat-deterioration-skill via generic runner
+-> created a Scan Stocks Moat Deterioration WPR Invocation Packet artifact
+```
+
+Generic skills are intentionally safe. They create `skill_invocation_packet` artifacts that capture the skill identity, typed inputs, runner metadata, source path, and source preview. They do not perform external side effects until promoted to a bespoke runner.
+
+### Plan From Natural Intent
+
+Use `wpr plan` when the user gives an intent rather than a known operation.
+
+```bash
+wpr plan "why bsx underperform lately"
+wpr plan "scan US stocks for moat deterioration"
+wpr plan "Build a 25 stocks portfolio from US"
+wpr plan "Analyze AAPL and create a meeting"
+wpr plan "Analyze AAPL and create a meeting" --llm
+```
+
+Expected behavior:
+
+```text
+wpr plan "why bsx underperform lately"
+-> parses task_type=stock_diagnosis
+-> extracts ticker BSX
+-> recommends stock-analysis, price-structure-analysis, narrative-cycle-analysis, market-dynamics-geometry, honest-backtesting
+
+wpr plan "scan US stocks for moat deterioration"
+-> ranks scan-stocks-moat-deterioration-skill first
+-> shows required/optional assets such as watchlist_snapshot, financial_metrics, prior_artifacts
+
+wpr plan "Build a 25 stocks portfolio from US"
+-> parses task_type=portfolio_construction
+-> recommends us-portfolio-construction with market=US, max_holdings=25
+
+wpr plan "Analyze AAPL and create a meeting" --llm
+-> runs deterministic planning first
+-> asks the configured OpenAI planner to refine the plan
+```
+
+### Execute A Plan
+
+Use `--run` with `wpr plan` when the selected plan has executable blocks.
+
+```bash
+wpr plan "Build a 25 stocks portfolio from US" --run
+```
+
+Expected behavior:
+
+```text
+-> executes us-portfolio-construction
+-> creates a portfolio_allocation artifact
+-> creates a task_synthesis artifact that integrates completed child artifacts
+```
+
+For approval-gated plans, WPR should preserve approval requirements in metadata and avoid external side effects until an approval layer authorizes them.
+
+### Inspect Registry, Versions, Runs, Artifacts, And Assets
+
+```bash
+wpr list --type skill --status active
+wpr item price-structure-analysis
+wpr metadata price-structure-analysis
+wpr versions scan-stocks-moat-deterioration-skill 5
+
+wpr runs price-structure-analysis 5
+wpr artifacts price-structure-analysis 5
+wpr runs scan-stocks-moat-deterioration-skill 3
+wpr artifacts scan-stocks-moat-deterioration-skill 3
+
+wpr assets
+wpr assets price_history
+```
+
+Expected behavior:
+
+```text
+wpr item <slug>
+-> shows lifecycle status and version
+
+wpr metadata <slug>
+-> shows risk, trigger terms, routing keywords, required tools, artifact types, approvals, and asset hints
+
+wpr versions <slug>
+-> shows immutable version snapshots and activation timestamps
+
+wpr runs <slug>
+-> shows process_runs state, attempt policy, failure category, and outputs
+
+wpr artifacts <slug>
+-> shows durable artifact rows and artifact status
+
+wpr assets
+-> lists WPR asset catalog entries such as watchlist_snapshot, financial_metrics, entropy_state, price_history, portfolio_allocation, prior_artifacts
+```
+
+### System Health
+
+```bash
+wpr audit-skills
+wpr worker --once
+```
+
+Verified health shape:
+
+```text
+wpr audit-skills
+-> reports total skills, active skills, built-in runners, generic runners, missing runners, typed schemas
+
+wpr worker --once
+-> claims and runs one pending row if present
+-> stops after zero runs when the queue is empty
+```
+
+Current verified baseline:
+
+```text
+95 active skills
+95 typed schemas
+3 built-in runners
+92 generic runners
+0 missing runners
+```
+
 ## Runner Taxonomy
 
 WPR uses runner kinds to decide what execution is allowed and what artifact contract to expect.
