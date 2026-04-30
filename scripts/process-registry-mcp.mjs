@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import dotenv from "dotenv";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -476,6 +476,42 @@ const TOOLS = [
     },
   },
   {
+    name: "draft_missing_skill",
+    description:
+      "Devise and persist a draft WPR skill for a user intent when no relevant skill exists. Safe by default: draft status, generic runner, no execution.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        input: {
+          type: "string",
+          description: "Natural-language user request or missing capability intent.",
+        },
+        slug: {
+          type: "string",
+          description: "Optional explicit slug for the draft skill.",
+        },
+        name: {
+          type: "string",
+          description: "Optional explicit display name for the draft skill.",
+        },
+        create_file: {
+          type: "boolean",
+          default: false,
+          description:
+            "When true, also create a SKILL.md scaffold under ~/.cursor/skills/<slug>/SKILL.md.",
+        },
+        activate: {
+          type: "boolean",
+          default: false,
+          description:
+            "When true, create the DB row as active. Default is draft and recommended.",
+        },
+      },
+      required: ["input"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "audit_process_registry_skills",
     description:
       "Audit all DB skills for metadata, input schemas, built-in runner coverage, and optional artifact-producing runner smoke tests.",
@@ -624,6 +660,14 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function titleizeSlug(slug) {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function parseFrontmatter(content) {
   if (!content.startsWith("---\n")) return {};
 
@@ -762,6 +806,7 @@ function inferApprovalRequirements(content, sideEffects) {
   if (text.includes("stop") || text.includes("approval")) approvals.push("human_review");
   if (sideEffects.includes("external_post")) approvals.push("before_external_post");
   if (sideEffects.includes("external_upload")) approvals.push("before_external_upload");
+  if (sideEffects.includes("external_action")) approvals.push("before_external_action");
   if (sideEffects.includes("creates_meeting")) approvals.push("before_meeting_creation");
 
   return unique(approvals);
@@ -770,7 +815,8 @@ function inferApprovalRequirements(content, sideEffects) {
 function inferRiskLevel(sideEffects, approvalRequirements) {
   if (
     sideEffects.includes("external_post") ||
-    sideEffects.includes("external_upload")
+    sideEffects.includes("external_upload") ||
+    sideEffects.includes("external_action")
   ) {
     return "high";
   }
@@ -1377,10 +1423,14 @@ function inferAssetHintsFromText(slug, text) {
   if (/\b(price|breakout|support|resistance|trend|hmm|entropy|regime|backtest)\b/.test(lower)) {
     required.push("price_history");
   }
-  if (/\b(stock|ticker|watchlist|portfolio|allocation|narrative|meeting|analysis)\b/.test(lower)) {
+  if (/\b(stock|stocks|ticker|tickers|watchlist|portfolio|allocation|narrative|meeting|analysis)\b/.test(lower)) {
     optional.push("watchlist_snapshot", "prior_artifacts");
   }
-  if (/\b(financial|fundamental|valuation|revenue|earnings|growth|margin)\b/.test(lower)) {
+  if (/\b(scan|screen|scanner)\b/.test(lower) && /\b(stock|stocks|ticker|tickers|watchlist)\b/.test(lower)) {
+    required.push("watchlist_snapshot");
+    produced.push("screening_report");
+  }
+  if (/\b(financial|fundamental|valuation|revenue|earnings|growth|margin|moat|deterioration)\b/.test(lower)) {
     optional.push("financial_metrics");
   }
   if (/\b(hmm|entropy|regime|shannon)\b/.test(lower)) {
@@ -1856,6 +1906,363 @@ async function resolveWprAssets({ item, metadata, inputs = {}, intent = null }) 
     available,
     missing,
     stale: available.filter((asset) => ["stale", "old"].includes(asset.freshness)),
+  };
+}
+
+function inferDraftSideEffects(input, intent) {
+  const text = normalizeInput(input).toLowerCase();
+  const sideEffects = inferSideEffects(text);
+  if (intent.side_effect_tolerance && (text.includes("meeting") || text.includes("会议"))) {
+    sideEffects.push("creates_meeting");
+  }
+  if (/\b(trade|rebalance|order|buy|sell|execute)\b/.test(text)) {
+    sideEffects.push("external_action");
+  }
+  return unique(sideEffects);
+}
+
+function inferDraftInputSchema(intent) {
+  const properties = {
+    input: { type: "string", minLength: 1 },
+    query: { type: "string" },
+    context: { type: "string" },
+    options: { type: "object", additionalProperties: true },
+  };
+  const required = ["input"];
+
+  if (
+    intent.entities?.tickers?.length ||
+    ["stock_analysis", "stock_research_to_meeting"].includes(intent.task_type) ||
+    intent.terms.some((term) => ["stock", "ticker", "price", "portfolio"].includes(term))
+  ) {
+    properties.ticker = { type: "string", minLength: 1 };
+    properties.symbol = { type: "string", minLength: 1 };
+  }
+
+  if (intent.task_type === "portfolio_construction" || intent.terms.some((term) => ["portfolio", "allocation", "holdings"].includes(term))) {
+    properties.market = { type: "string" };
+    properties.max_holdings = { type: "integer", minimum: 1, maximum: 500 };
+    properties.capital_usd = { type: "number", minimum: 1 };
+  }
+
+  if (intent.entities?.urls?.length || intent.terms.some((term) => ["url", "web", "article"].includes(term))) {
+    properties.url = { type: "string", minLength: 1 };
+  }
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties,
+    required,
+  };
+}
+
+function inferDraftOutputSchema(intent, artifactTypes) {
+  const properties = {
+    summary: { type: "string" },
+    markdown: { type: "string" },
+    findings: { type: "array", items: { type: "object", additionalProperties: true } },
+    artifact_type: { type: "string" },
+    generated_at: { type: "string" },
+  };
+
+  if (intent.entities?.tickers?.length || intent.task_type.includes("stock")) {
+    properties.symbol = { type: "string" };
+  }
+  if (intent.task_type === "portfolio_construction") {
+    properties.holdings = { type: "array", items: { type: "object", additionalProperties: true } };
+  }
+
+  return {
+    type: "object",
+    additionalProperties: true,
+    properties,
+    required: ["summary", "markdown", "generated_at"],
+    wpr_expected_artifacts: artifactTypes,
+  };
+}
+
+function inferDraftArtifactTypes(intent) {
+  const artifacts = [...(intent.desired_artifacts ?? [])];
+  if (!artifacts.length) {
+    if (intent.task_type === "portfolio_construction") artifacts.push("portfolio_allocation");
+    else if (intent.task_type.includes("meeting")) artifacts.push("meeting_topic");
+    else if (intent.task_type.includes("video")) artifacts.push("video");
+    else artifacts.push("decision_memo");
+  }
+  return unique(artifacts);
+}
+
+function buildDraftSkillSpec(input, args = {}) {
+  const intent = parseTaskIntent(input);
+  const usefulTerms = intent.terms
+    .filter((term) => !["skill", "task", "runner", "create", "build", "make"].includes(term))
+    .slice(0, 7);
+  const baseSlug = slugify(args.slug || usefulTerms.join("-") || "custom-wpr-skill");
+  const slug = baseSlug.endsWith("-skill") ? baseSlug : `${baseSlug}-skill`;
+  const name = normalizeInput(args.name) || titleizeSlug(slug.replace(/-skill$/, ""));
+  const artifactTypes = inferDraftArtifactTypes(intent);
+  const inputSchema = inferDraftInputSchema(intent);
+  const outputSchema = inferDraftOutputSchema(intent, artifactTypes);
+  const sideEffects = inferDraftSideEffects(input, intent);
+  const approvals = inferApprovalRequirements(input, sideEffects);
+  const assetHints = inferAssetHintsFromText(slug, `${name} ${input} ${intent.terms.join(" ")}`);
+  const producedAssets = unique([...assetHints.produced_assets, ...artifactTypes]);
+  const riskLevel = inferRiskLevel(sideEffects, approvals);
+
+  return {
+    slug,
+    name,
+    description: `Draft WPR skill proposed for intent: ${input}`,
+    status: args.activate === true ? "active" : "draft",
+    tags: unique(["skill", "draft", "wpr-generated", ...usefulTerms.slice(0, 8)]),
+    intent,
+    metadata: {
+      registry_slug: slug,
+      source_kind: "wpr_skill_draft",
+      source_path: args.create_file ? `/Users/sdg223157/.cursor/skills/${slug}/SKILL.md` : "wpr:draft_missing_skill",
+      trigger_terms: unique([name, ...usefulTerms, ...intent.desired_artifacts]),
+      routing_keywords: unique([slug, name, intent.task_type, ...usefulTerms, ...artifactTypes]),
+      input_schema: inputSchema,
+      output_schema: outputSchema,
+      required_tools: [{ name: "process_registry" }, { name: "wpr_asset_catalog" }],
+      side_effects: sideEffects,
+      artifact_types: artifactTypes,
+      approval_requirements: approvals,
+      operation_hints: {
+        source_name: name,
+        source_slug: slug,
+        operation: input,
+        task_type: intent.task_type,
+        required_assets: assetHints.required_assets,
+        optional_assets: assetHints.optional_assets,
+        produced_assets: producedAssets,
+        draft_reason: "No strong existing WPR skill matched this user intent.",
+        implementation_notes: [
+          "Start with the generic WPR runner to create invocation artifacts.",
+          "Promote to a bespoke runner after the desired workflow and artifact contract are stable.",
+          "Keep external side effects approval-gated.",
+        ],
+        runner_config: GENERIC_RUNNER_CONFIG,
+      },
+      risk_level: riskLevel,
+    },
+    runner: normalizeRunnerConfig(slug, GENERIC_RUNNER_CONFIG),
+  };
+}
+
+async function makeUniqueDraftSlug(baseSlug) {
+  const sql = getDb();
+  let slug = slugify(baseSlug) || "custom-wpr-skill";
+  for (let i = 2; i < 100; i += 1) {
+    const rows = await sql`
+      SELECT slug
+      FROM process_registry_items
+      WHERE slug = ${slug}
+      LIMIT 1
+    `;
+    if (!rows[0]) return slug;
+    slug = `${baseSlug.replace(/-\d+$/, "")}-${i}`;
+  }
+  throw new Error(`Unable to find available slug for ${baseSlug}`);
+}
+
+function buildSkillMarkdownScaffold(spec) {
+  const metadata = spec.metadata;
+  return `---
+name: ${spec.name}
+description: ${spec.description}
+---
+
+# ${spec.name}
+
+## Purpose
+
+${spec.description}
+
+## WPR Contract
+
+- Registry slug: \`${spec.slug}\`
+- Status: \`${spec.status}\`
+- Runner kind: \`generic\`
+- Risk level: \`${metadata.risk_level}\`
+- Required assets: ${metadata.operation_hints.required_assets.length ? metadata.operation_hints.required_assets.map((asset) => `\`${asset}\``).join(", ") : "none"}
+- Optional assets: ${metadata.operation_hints.optional_assets.length ? metadata.operation_hints.optional_assets.map((asset) => `\`${asset}\``).join(", ") : "none"}
+- Produced assets: ${metadata.operation_hints.produced_assets.length ? metadata.operation_hints.produced_assets.map((asset) => `\`${asset}\``).join(", ") : "none"}
+
+## Inputs
+
+\`\`\`json
+${JSON.stringify(metadata.input_schema, null, 2)}
+\`\`\`
+
+## Outputs
+
+\`\`\`json
+${JSON.stringify(metadata.output_schema, null, 2)}
+\`\`\`
+
+## Execution Notes
+
+1. Validate inputs against the WPR schema.
+2. Resolve required and optional WPR assets before execution.
+3. Produce a durable artifact matching the output schema.
+4. Keep external side effects behind approval gates.
+
+## Original Intent
+
+${metadata.operation_hints.operation}
+`;
+}
+
+async function writeDraftSkillFile(spec) {
+  const skillDir = resolve("/Users/sdg223157/.cursor/skills", spec.slug);
+  const skillPath = resolve(skillDir, "SKILL.md");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(skillPath, buildSkillMarkdownScaffold(spec), "utf8");
+  return skillPath;
+}
+
+async function draftMissingSkill(args = {}) {
+  const input = normalizeInput(args.input);
+  if (!input) throw new Error("input is required");
+
+  const initial = buildDraftSkillSpec(input, args);
+  const slug = await makeUniqueDraftSlug(initial.slug);
+  const spec = slug === initial.slug ? initial : buildDraftSkillSpec(input, { ...args, slug });
+  const sql = getDb();
+  const skillPath = args.create_file === true ? await writeDraftSkillFile(spec) : null;
+  if (skillPath) {
+    spec.metadata.source_kind = "cursor_skill_folder";
+    spec.metadata.source_path = skillPath;
+  }
+
+  const itemRows = await sql`
+    INSERT INTO process_registry_items (
+      slug,
+      object_type,
+      name,
+      status,
+      version,
+      description,
+      tags,
+      config
+    )
+    VALUES (
+      ${spec.slug},
+      'skill',
+      ${spec.name},
+      ${spec.status},
+      1,
+      ${spec.description},
+      ${spec.tags},
+      ${JSON.stringify({
+        source: "wpr_skill_draft",
+        source_path: skillPath,
+        source_slug: spec.slug,
+        source_name: spec.name,
+        input_schema: spec.metadata.input_schema,
+        output_schema: spec.metadata.output_schema,
+        artifact_types: spec.metadata.artifact_types,
+      })}::jsonb
+    )
+    RETURNING
+      slug,
+      object_type,
+      name,
+      status,
+      version,
+      description,
+      tags,
+      config,
+      updated_at::text AS updated_at
+  `;
+
+  const metadata = spec.metadata;
+  await sql`
+    INSERT INTO skill_operation_metadata (
+      registry_slug,
+      source_kind,
+      source_path,
+      trigger_terms,
+      routing_keywords,
+      input_schema,
+      output_schema,
+      required_tools,
+      side_effects,
+      artifact_types,
+      approval_requirements,
+      operation_hints,
+      risk_level
+    )
+    VALUES (
+      ${metadata.registry_slug},
+      ${metadata.source_kind},
+      ${metadata.source_path},
+      ${metadata.trigger_terms},
+      ${metadata.routing_keywords},
+      ${JSON.stringify(metadata.input_schema)}::jsonb,
+      ${JSON.stringify(metadata.output_schema)}::jsonb,
+      ${JSON.stringify(metadata.required_tools)}::jsonb,
+      ${metadata.side_effects},
+      ${metadata.artifact_types},
+      ${metadata.approval_requirements},
+      ${JSON.stringify(metadata.operation_hints)}::jsonb,
+      ${metadata.risk_level}
+    )
+    ON CONFLICT (registry_slug) DO UPDATE SET
+      source_kind = EXCLUDED.source_kind,
+      source_path = EXCLUDED.source_path,
+      trigger_terms = EXCLUDED.trigger_terms,
+      routing_keywords = EXCLUDED.routing_keywords,
+      input_schema = EXCLUDED.input_schema,
+      output_schema = EXCLUDED.output_schema,
+      required_tools = EXCLUDED.required_tools,
+      side_effects = EXCLUDED.side_effects,
+      artifact_types = EXCLUDED.artifact_types,
+      approval_requirements = EXCLUDED.approval_requirements,
+      operation_hints = EXCLUDED.operation_hints,
+      risk_level = EXCLUDED.risk_level,
+      updated_at = NOW()
+  `;
+
+  const versionRecord = await ensureProcessRegistryVersion(itemRows[0], metadata, spec.runner, {
+    created_by: "draft_missing_skill",
+  });
+
+  await sql`
+    INSERT INTO process_audit_events (
+      registry_slug,
+      event_type,
+      actor,
+      details
+    )
+    VALUES (
+      ${spec.slug},
+      'missing_skill_drafted',
+      ${SERVER_INFO.name},
+      ${JSON.stringify({
+        input,
+        status: spec.status,
+        create_file: args.create_file === true,
+        skill_path: skillPath,
+        version_id: versionRecord.version.id,
+      })}::jsonb
+    )
+  `;
+
+  return {
+    created: true,
+    item: versionRecord.item,
+    metadata,
+    version: versionRecord.version,
+    runner: spec.runner,
+    skill_path: skillPath,
+    next_steps: [
+      "Review and refine the draft schema and asset hints.",
+      "Activate the registry row when ready.",
+      "Replace the generic runner with a bespoke runner when the workflow is stable.",
+    ],
   };
 }
 
@@ -3453,8 +3860,10 @@ const NON_TICKER_WORDS = new Set(
     "backtest",
     "brief",
     "chart",
+    "color",
     "compare",
     "deck",
+    "deterioration",
     "distill",
     "entropy",
     "event",
@@ -3462,6 +3871,9 @@ const NON_TICKER_WORDS = new Set(
     "market",
     "meeting",
     "memo",
+    "moat",
+    "magnets",
+    "my",
     "portfolio",
     "portfolios",
     "position",
@@ -3472,12 +3884,14 @@ const NON_TICKER_WORDS = new Set(
     "research",
     "risk",
     "run",
+    "scan",
     "shannon",
     "skill",
     "skills",
     "stock",
     "stocks",
     "structure",
+    "summarize",
     "task",
     "ticker",
     "tickers",
@@ -3486,6 +3900,7 @@ const NON_TICKER_WORDS = new Set(
     "u.s.",
     "us",
     "video",
+    "refrigerator",
   ].map((term) => term.toUpperCase())
 );
 
@@ -4044,6 +4459,68 @@ function buildRecommendedTaskPlans(intent, candidates) {
   return plans;
 }
 
+async function buildSkillGapSuggestion(input, intent, candidates) {
+  const best = candidates[0] ?? null;
+  const strongMatch = best && best.score >= 45;
+  if (strongMatch) {
+    return {
+      detected: false,
+      reason: `Best match ${best.slug} scored ${best.score}.`,
+    };
+  }
+
+  const draft = buildDraftSkillSpec(input);
+  const sql = getDb();
+  const existingRows = await sql`
+    SELECT
+      slug,
+      object_type,
+      name,
+      status,
+      version,
+      description,
+      tags,
+      config,
+      updated_at::text AS updated_at
+    FROM process_registry_items
+    WHERE slug = ${draft.slug}
+    LIMIT 1
+  `;
+  const existingDraft = existingRows[0] ?? null;
+  return {
+    detected: true,
+    reason: best
+      ? `Best match ${best.slug} scored only ${best.score}; a purpose-built skill may fit better.`
+      : "No active WPR skill matched this intent.",
+    best_candidate: best
+      ? {
+          slug: best.slug,
+          score: best.score,
+          runner_kind: best.runner_kind,
+          why: best.why,
+        }
+      : null,
+    proposed_skill: {
+      slug: draft.slug,
+      name: draft.name,
+      status: draft.status,
+      description: draft.description,
+      input_schema: draft.metadata.input_schema,
+      output_schema: draft.metadata.output_schema,
+      required_assets: draft.metadata.operation_hints.required_assets,
+      optional_assets: draft.metadata.operation_hints.optional_assets,
+      produced_assets: draft.metadata.operation_hints.produced_assets,
+      artifact_types: draft.metadata.artifact_types,
+      risk_level: draft.metadata.risk_level,
+      runner_kind: draft.runner.runner_kind,
+    },
+    existing_draft: existingDraft,
+    create_command: existingDraft
+      ? `wpr item ${existingDraft.slug}`
+      : `wpr skill-draft ${JSON.stringify(input)}`,
+  };
+}
+
 async function suggestTaskPlan(args = {}) {
   const input = normalizeInput(args.input);
   if (!input) throw new Error("input is required");
@@ -4194,6 +4671,7 @@ async function suggestTaskPlan(args = {}) {
     })
   );
   const plans = buildRecommendedTaskPlans(intent, skillCandidates);
+  const skillGap = await buildSkillGapSuggestion(input, intent, skillCandidates);
   const llm = args.use_llm === true
     ? await suggestTaskPlanWithLlm({
         input,
@@ -4209,6 +4687,7 @@ async function suggestTaskPlan(args = {}) {
     intent,
     skill_candidates: skillCandidates,
     plans,
+    skill_gap: skillGap,
     llm,
   };
 }
@@ -4936,6 +5415,7 @@ async function callTool(name, args) {
   if (name === "suggest_data_operations") return suggestDataOperations(args);
   if (name === "resolve_operation_path") return resolveOperationPath(args);
   if (name === "import_skills_from_directory") return importSkillsFromDirectory(args);
+  if (name === "draft_missing_skill") return draftMissingSkill(args);
   if (name === "audit_process_registry_skills") return auditProcessRegistrySkills(args);
   if (name === "suggest_task_plan") return suggestTaskPlan(args);
   if (name === "execute_task_plan") return executeTaskPlan(args);
@@ -5033,8 +5513,10 @@ export {
   claimPendingProcessRun,
   compareOperationMatches,
   createProcessRun,
+  draftMissingSkill,
   executeRunningProcessRun,
   executeTaskPlan,
+  ensureProcessRegistryVersion,
   getBuiltInRunnerInfo,
   getRunnerInfo,
   getMissingRequiredInputs,

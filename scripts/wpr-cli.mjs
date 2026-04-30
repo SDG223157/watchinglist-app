@@ -20,6 +20,7 @@ const COMMANDS = new Set([
   "worker",
   "path",
   "plan",
+  "skill-draft",
   "audit-skills",
   "import-skills",
 ]);
@@ -36,6 +37,7 @@ Usage:
   wpr plan "analyze AAPL and create a meeting" Suggest skill building blocks
   wpr plan "analyze AAPL and create a meeting" --run Execute plan blocks and synthesize artifacts
   wpr plan "analyze AAPL and create a meeting" --llm Refine plan with configured LLM
+  wpr skill-draft "scan US stocks for moat deterioration" Create a draft skill for a missing capability
   wpr run <run_id>                    Trigger a pending run
   wpr worker [--once]                 Run the Postgres-backed worker
 
@@ -56,6 +58,8 @@ Options:
   --run      Create then immediately trigger the pending run
              With plan, execute selected blocks and create a task_synthesis artifact
   --llm      Use configured LLM support for planning
+  --create-file Also create ~/.cursor/skills/<slug>/SKILL.md for skill-draft
+  --activate Create a skill-draft as active instead of draft
   --model    Override WPR_LLM_MODEL for one LLM planning call
   --json     Print raw JSON
 `;
@@ -80,7 +84,7 @@ function parseArgv(argv) {
       continue;
     }
 
-    if (["type", "status", "limit", "model", "provider"].includes(rawKey)) {
+    if (["type", "status", "limit", "model", "provider", "slug", "name"].includes(rawKey)) {
       values[key] = argv[i + 1];
       i += 1;
       continue;
@@ -144,6 +148,10 @@ function printMetadata(meta) {
   if (meta.approval_requirements?.length) {
     console.log(`approvals: ${meta.approval_requirements.join(", ")}`);
   }
+  const hints = meta.operation_hints ?? {};
+  if (hints.required_assets?.length) console.log(`required assets: ${hints.required_assets.join(", ")}`);
+  if (hints.optional_assets?.length) console.log(`optional assets: ${hints.optional_assets.join(", ")}`);
+  if (hints.produced_assets?.length) console.log(`produced assets: ${hints.produced_assets.join(", ")}`);
 }
 
 function printRuns(result) {
@@ -263,6 +271,27 @@ function printAssets(result) {
   }
 }
 
+function printSkillDraft(result) {
+  const item = result.item;
+  console.log(`${item.slug} [${item.status}] ${item.name}`);
+  console.log(item.description);
+  console.log(`version: #${result.version.id} v${result.version.version}`);
+  console.log(`runner: ${result.runner.runner_kind}/${result.runner.executor}`);
+  console.log(`risk: ${result.metadata.risk_level}`);
+  if (result.metadata.artifact_types?.length) {
+    console.log(`artifacts: ${result.metadata.artifact_types.join(", ")}`);
+  }
+  const hints = result.metadata.operation_hints ?? {};
+  if (hints.required_assets?.length) console.log(`required assets: ${hints.required_assets.join(", ")}`);
+  if (hints.optional_assets?.length) console.log(`optional assets: ${hints.optional_assets.join(", ")}`);
+  if (hints.produced_assets?.length) console.log(`produced assets: ${hints.produced_assets.join(", ")}`);
+  if (result.skill_path) console.log(`skill file: ${result.skill_path}`);
+  if (result.next_steps?.length) {
+    console.log("next:");
+    for (const step of result.next_steps) console.log(`- ${step}`);
+  }
+}
+
 function printSkillAudit(result) {
   const summary = result.summary;
   console.log(
@@ -338,6 +367,24 @@ function printTaskPlan(result) {
         const deps = node.depends_on?.length ? ` after=${node.depends_on.join(",")}` : "";
         console.log(`  - ${node.id}: ${node.slug} (${node.runner_kind})${deps}`);
       }
+    }
+  }
+
+  if (result.skill_gap?.detected) {
+    const proposal = result.skill_gap.proposed_skill;
+    console.log("");
+    console.log("Missing skill proposal:");
+    console.log(`- ${proposal.slug} [${proposal.status}] ${proposal.name}`);
+    console.log(`  reason: ${result.skill_gap.reason}`);
+    console.log(`  runner: ${proposal.runner_kind}, risk=${proposal.risk_level}`);
+    if (proposal.required_assets?.length) console.log(`  required assets: ${proposal.required_assets.join(", ")}`);
+    if (proposal.optional_assets?.length) console.log(`  optional assets: ${proposal.optional_assets.join(", ")}`);
+    if (proposal.produced_assets?.length) console.log(`  produced assets: ${proposal.produced_assets.join(", ")}`);
+    if (result.skill_gap.existing_draft) {
+      console.log(`  existing draft: ${result.skill_gap.existing_draft.slug} [${result.skill_gap.existing_draft.status}]`);
+      console.log(`  inspect: ${result.skill_gap.create_command}`);
+    } else {
+      console.log(`  create: ${result.skill_gap.create_command}`);
     }
   }
 
@@ -511,6 +558,16 @@ async function main() {
       llm_model: values.model,
     });
     printer = flags.has("run") ? printTaskExecution : printTaskPlan;
+  } else if (command === "skill-draft") {
+    if (!args[1]) throw new Error("skill-draft requires a user intent");
+    result = await callTool("draft_missing_skill", {
+      input: args.slice(1).join(" "),
+      slug: values.slug,
+      name: values.name,
+      create_file: flags.has("createFile"),
+      activate: flags.has("activate"),
+    });
+    printer = printSkillDraft;
   } else if (command === "audit-skills") {
     result = await callTool("audit_process_registry_skills", {
       run_built_ins: flags.has("runBuiltIns"),

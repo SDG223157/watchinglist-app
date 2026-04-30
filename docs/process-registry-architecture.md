@@ -490,9 +490,11 @@ create_process_run
 trigger_process_run
 list_process_runs
 list_process_artifacts
+list_wpr_asset_catalog
 suggest_data_operations
 resolve_operation_path
 suggest_task_plan
+draft_missing_skill
 import_skills_from_directory
 audit_process_registry_skills
 ```
@@ -705,6 +707,33 @@ execute_task_plan  -> plan, execute safe blocks, collect artifacts, synthesize f
 `suggest_task_plan` parses intent, ranks active skill rows from Postgres, maps inputs against each skill schema, validates the proposed inputs, summarizes risk and approval gates, and returns recommended skill graphs.
 
 `execute_task_plan` selects the executable plan, creates child `process_runs`, triggers each safe built-in or generic runner, collects the child `process_artifacts`, and writes one durable `task_synthesis` artifact. It does not perform external publish/upload/trade side effects.
+
+### Missing Skill Drafting
+
+If the planner cannot find a strong active skill match, it returns a `skill_gap` proposal. This does not create anything by itself; it tells the operator what WPR would draft:
+
+```bash
+wpr plan "scan US stocks for moat deterioration"
+```
+
+When the operator agrees, WPR can persist the missing block:
+
+```bash
+wpr skill-draft "scan US stocks for moat deterioration"
+wpr skill-draft "scan US stocks for moat deterioration" --create-file
+```
+
+The default is safe:
+
+```text
+process_registry_items.status = draft
+runner_kind = generic
+external side effects = approval-gated
+input_schema/output_schema = inferred from intent
+required_assets/optional_assets/produced_assets = inferred from intent
+```
+
+If a matching draft already exists, `wpr plan` points to the existing draft instead of creating duplicates. This turns “WPR cannot do this yet” into a durable API proposal inside the OS.
 
 ### Optional LLM Planner
 
@@ -1021,6 +1050,7 @@ Recommended command flow:
 
 ```bash
 wpr import-skills ~/.codex/skills
+wpr skill-draft "new missing capability"
 wpr metadata <skill-slug>
 wpr versions <skill-slug> 5
 wpr audit-skills
