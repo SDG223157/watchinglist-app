@@ -28,6 +28,11 @@ const POLYMARKET_DISTILLER_PYTHON =
 const POLYMARKET_DISTILLER_SCRIPT =
   "/Users/sdg223157/.cursor/skills/polymarket-distiller/scripts/distill.py";
 const BOTBOARD_PRIVATE_DIR = "/Users/sdg223157/botboard-private";
+const US_PORTFOLIO_PYTHON = process.env.WPR_US_PORTFOLIO_PYTHON || "python3";
+const US_PORTFOLIO_SCRIPT = resolve(
+  BOTBOARD_PRIVATE_DIR,
+  "scripts/build_us_portfolio_from_watchlist.py"
+);
 const GENERIC_SKILL_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: true,
@@ -96,6 +101,18 @@ const BUILT_IN_INPUT_SCHEMAS = {
       { required: ["symbol"] },
     ],
   },
+  "us-portfolio-construction": {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      market: { type: "string", enum: ["US"] },
+      max_holdings: { type: "integer", minimum: 1, maximum: 100 },
+      capital_usd: { type: "number", minimum: 1 },
+      source: { type: "string" },
+      fetch: { type: "boolean" },
+    },
+    required: ["market", "max_holdings", "capital_usd"],
+  },
 };
 const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
   price_structure_verdict: {
@@ -128,6 +145,33 @@ const OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE = {
       runner: { type: "object", additionalProperties: true },
     },
     required: ["event", "markets", "mappings", "summary_md", "brief_md", "generated_at"],
+  },
+  portfolio_allocation: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      market: { type: "string" },
+      capital_usd: { type: "number" },
+      max_holdings: { type: "integer" },
+      count: { type: "integer" },
+      total_weight_pct: { type: "number" },
+      total_amount_usd: { type: "number" },
+      holdings: { type: "array", items: { type: "object", additionalProperties: true } },
+      markdown: { type: "string" },
+      disclaimer: { type: "string" },
+      generated_at: { type: "string" },
+      source: { type: "string" },
+      runner: { type: "object", additionalProperties: true },
+    },
+    required: [
+      "market",
+      "capital_usd",
+      "max_holdings",
+      "count",
+      "holdings",
+      "markdown",
+      "generated_at",
+    ],
   },
   skill_invocation_packet: GENERIC_SKILL_OUTPUT_SCHEMA,
   task_synthesis: {
@@ -173,6 +217,24 @@ const DEFAULT_RUNNER_CONFIGS = {
       source: "wpr_audit_smoke_test",
     },
     artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.polymarket_distillation,
+  },
+  "us-portfolio-construction": {
+    runner_kind: "built_in",
+    executor: "us_portfolio_construction",
+    entrypoint: US_PORTFOLIO_SCRIPT,
+    artifact_type: "portfolio_allocation",
+    timeout_ms: 180000,
+    max_attempts: 2,
+    retry_backoff_ms: 10000,
+    env_policy: "process",
+    smoke_inputs: {
+      market: "US",
+      max_holdings: 25,
+      capital_usd: 10000000,
+      source: "wpr_audit_smoke_test",
+      fetch: true,
+    },
+    artifact_contract: OUTPUT_SCHEMAS_BY_ARTIFACT_TYPE.portfolio_allocation,
   },
 };
 const GENERIC_RUNNER_CONFIG = {
@@ -1742,6 +1804,202 @@ async function executePolymarketDistillerRun(run, context = null) {
   };
 }
 
+function buildUSPortfolioConstructionArgs(inputs = {}) {
+  const market = normalizeInput(inputs.market || "US").toUpperCase();
+  if (market !== "US") {
+    throw new Error("us-portfolio-construction currently supports market=US only");
+  }
+  const maxHoldings = Math.trunc(Number(inputs.max_holdings ?? 25));
+  const capitalUsd = Number(inputs.capital_usd ?? 10000000);
+  if (!Number.isInteger(maxHoldings) || maxHoldings < 1 || maxHoldings > 100) {
+    throw new Error("us-portfolio-construction requires max_holdings between 1 and 100");
+  }
+  if (!Number.isFinite(capitalUsd) || capitalUsd <= 0) {
+    throw new Error("us-portfolio-construction requires positive capital_usd");
+  }
+
+  return [
+    US_PORTFOLIO_SCRIPT,
+    "--capital",
+    String(capitalUsd),
+    "--max-holdings",
+    String(maxHoldings),
+    "--fetch",
+  ];
+}
+
+function parseUSPortfolioOutput(stdout) {
+  const text = String(stdout ?? "").trim();
+  if (!text) throw new Error("us-portfolio-construction returned empty output");
+
+  try {
+    const allocation = JSON.parse(text);
+    if (!Array.isArray(allocation)) {
+      throw new Error("expected a JSON array");
+    }
+    return allocation;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `us-portfolio-construction returned invalid JSON (${message}): ${text.slice(0, 500)}`
+    );
+  }
+}
+
+function normalizePortfolioHoldings(holdings, capitalUsd) {
+  const rawTotal = holdings.reduce((sum, holding) => sum + Number(holding.weight_pct ?? 0), 0);
+  if (!Number.isFinite(rawTotal) || rawTotal <= 0) return holdings;
+
+  return holdings.map((holding) => {
+    const rawWeight = Number(holding.weight_pct ?? 0);
+    const normalizedWeight = (rawWeight / rawTotal) * 100;
+    const amountUsd = capitalUsd * (normalizedWeight / 100);
+    const price = Number(holding.price ?? 0);
+    return {
+      ...holding,
+      raw_formula_weight_pct: Number(rawWeight.toFixed(4)),
+      raw_formula_amount_usd: Number(holding.amount_usd ?? 0),
+      weight_pct: Number(normalizedWeight.toFixed(4)),
+      amount_usd: Number(amountUsd.toFixed(2)),
+      shares: price > 0 ? Math.floor(amountUsd / price) : 0,
+      normalization_note: `Raw model weight ${rawWeight}% normalized from total raw weight ${rawTotal.toFixed(2)}%.`,
+    };
+  });
+}
+
+function buildPortfolioMarkdown(artifact) {
+  const lines = [
+    "## WPR US Portfolio Construction",
+    "",
+    `Market: ${artifact.market}`,
+    `Capital base: $${Math.round(artifact.capital_usd).toLocaleString("en-US")}`,
+    `Holdings: ${artifact.count}/${artifact.max_holdings}`,
+    `Total target weight: ${artifact.total_weight_pct.toFixed(2)}%`,
+    "",
+    "| # | Symbol | Name | Weight | Raw | Amount | Shares | Price | Notes |",
+    "|---:|---|---|---:|---:|---:|---:|---:|---|",
+  ];
+
+  artifact.holdings.forEach((holding, index) => {
+    lines.push(
+      `| ${index + 1} | ${holding.symbol ?? ""} | ${String(holding.name ?? "").replace(/\|/g, "/")} | ${Number(holding.weight_pct ?? 0).toFixed(2)}% | ${Number(holding.raw_formula_weight_pct ?? holding.weight_pct ?? 0).toFixed(2)}% | $${Number(holding.amount_usd ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} | ${holding.shares ?? 0} | $${Number(holding.price ?? 0).toFixed(2)} | ${String(holding.notes ?? "").replace(/\|/g, "/")} |`
+    );
+  });
+
+  lines.push(
+    "",
+    "This is a WPR-generated model allocation artifact from the BotBoard US watchlist rules. It is not personal financial advice or an order ticket."
+  );
+  return lines.join("\n");
+}
+
+async function executeUSPortfolioConstructionRun(run, context = null) {
+  const inputs = run.inputs ?? {};
+  const args = buildUSPortfolioConstructionArgs(inputs);
+  const { metadata, runner } = context ?? (await getRunExecutionContext(run));
+  let stdout = "";
+  let stderr = "";
+
+  try {
+    const result = await execFileAsync(US_PORTFOLIO_PYTHON, args, {
+      cwd: BOTBOARD_PRIVATE_DIR,
+      env: process.env,
+      maxBuffer: 20 * 1024 * 1024,
+      timeout: runner?.timeout_ms ?? 180000,
+    });
+    stdout = result.stdout;
+    stderr = result.stderr;
+  } catch (err) {
+    stdout = err?.stdout ?? "";
+    stderr = err?.stderr ?? "";
+    const detail = stderr || stdout || (err instanceof Error ? err.message : String(err));
+    throw new Error(`us-portfolio-construction failed: ${String(detail).trim().slice(0, 1000)}`);
+  }
+
+  const capitalUsd = Number(inputs.capital_usd ?? 10000000);
+  const rawHoldings = parseUSPortfolioOutput(stdout);
+  const holdings = normalizePortfolioHoldings(rawHoldings, capitalUsd);
+  const maxHoldings = Math.trunc(Number(inputs.max_holdings ?? 25));
+  const totalWeightPct = holdings.reduce((sum, holding) => sum + Number(holding.weight_pct ?? 0), 0);
+  const totalAmountUsd = holdings.reduce((sum, holding) => sum + Number(holding.amount_usd ?? 0), 0);
+  const rawTotalWeightPct = rawHoldings.reduce((sum, holding) => sum + Number(holding.weight_pct ?? 0), 0);
+  const artifactContent = {
+    market: "US",
+    capital_usd: capitalUsd,
+    max_holdings: maxHoldings,
+    count: holdings.length,
+    total_weight_pct: Number(totalWeightPct.toFixed(4)),
+    total_amount_usd: Number(totalAmountUsd.toFixed(2)),
+    raw_total_weight_pct: Number(rawTotalWeightPct.toFixed(4)),
+    weighting_method:
+      "BotBoard raw formula weights normalized to 100% so target amounts fit the capital base.",
+    holdings,
+    disclaimer:
+      "WPR-generated model allocation from BotBoard watchlist rules. Not personal financial advice or an order ticket.",
+    generated_at: new Date().toISOString(),
+    source: inputs.source ?? "wpr_us_portfolio_construction",
+    runner: {
+      command: US_PORTFOLIO_PYTHON,
+      args,
+      stderr: stderr.trim() || null,
+    },
+  };
+  artifactContent.markdown = buildPortfolioMarkdown(artifactContent);
+
+  validateArtifactJsonContent(
+    run.registry_slug,
+    "portfolio_allocation",
+    artifactContent,
+    metadata,
+    runner
+  );
+
+  const sql = getDb();
+  const artifactRows = await sql`
+    INSERT INTO process_artifacts (
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_by_step,
+      visibility
+    )
+    VALUES (
+      ${run.id},
+      ${run.registry_slug},
+      'portfolio_allocation',
+      ${`US ${holdings.length}-Stock Portfolio Allocation`},
+      'needs_review',
+      ${JSON.stringify(artifactContent)}::jsonb,
+      'execute_us_portfolio_construction_run',
+      'private'
+    )
+    RETURNING
+      id,
+      run_id,
+      registry_slug,
+      artifact_type,
+      title,
+      status,
+      json_content,
+      created_at::text AS created_at
+  `;
+
+  return {
+    output: {
+      market: "US",
+      max_holdings: maxHoldings,
+      count: holdings.length,
+      total_weight_pct: artifactContent.total_weight_pct,
+      total_amount_usd: artifactContent.total_amount_usd,
+      artifact_id: artifactRows[0].id,
+    },
+    artifacts: artifactRows,
+  };
+}
+
 function getBuiltInRunnerInfo(slug) {
   return normalizeRunnerConfig(slug, DEFAULT_RUNNER_CONFIGS[slug]);
 }
@@ -2124,6 +2382,12 @@ async function executeRunningProcessRun(run) {
     } else if (runner?.executor === "polymarket_distiller") {
       result = await withTimeout(
         executePolymarketDistillerRun(run, context),
+        run.timeout_ms ?? runner.timeout_ms,
+        runner.executor
+      );
+    } else if (runner?.executor === "us_portfolio_construction") {
+      result = await withTimeout(
+        executeUSPortfolioConstructionRun(run, context),
         run.timeout_ms ?? runner.timeout_ms,
         runner.executor
       );
@@ -2629,6 +2893,10 @@ const NON_TICKER_WORDS = new Set(
     "market",
     "meeting",
     "memo",
+    "portfolio",
+    "portfolios",
+    "position",
+    "positions",
     "polymarket",
     "price",
     "report",
@@ -2639,10 +2907,15 @@ const NON_TICKER_WORDS = new Set(
     "skill",
     "skills",
     "stock",
+    "stocks",
     "structure",
     "task",
     "ticker",
     "tickers",
+    "united",
+    "usa",
+    "u.s.",
+    "us",
     "video",
   ].map((term) => term.toUpperCase())
 );
@@ -2660,6 +2933,7 @@ function extractTickerCandidates(input) {
         if (!part) return false;
         const upper = part.toUpperCase();
         if (NON_TICKER_WORDS.has(upper)) return false;
+        if (/^\d+(?:\.\d+)?$/.test(upper)) return false;
         if (!looksLikeTicker(upper)) return false;
         if (/\d/.test(upper) || /[.-]/.test(upper)) return true;
         if (part !== upper && part !== part.toLowerCase()) return false;
@@ -2669,8 +2943,34 @@ function extractTickerCandidates(input) {
   );
 }
 
+function parsePortfolioIntentFields(input) {
+  const text = normalizeInput(input);
+  const lower = text.toLowerCase();
+  const countMatch =
+    lower.match(/\b(\d{1,3})\s*(?:stocks?|holdings?|positions?)\b/) ??
+    lower.match(/\b(?:portfolio|allocation)\s+(?:of|with)?\s*(\d{1,3})\b/);
+  const capitalMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)\s*(m|mm|million|k|thousand)?\b/);
+  let capitalUsd = null;
+
+  if (capitalMatch && !countMatch?.[1]?.startsWith(capitalMatch[1])) {
+    capitalUsd = Number(capitalMatch[1]);
+    const unit = capitalMatch[2];
+    if (unit === "m" || unit === "mm" || unit === "million") capitalUsd *= 1000000;
+    if (unit === "k" || unit === "thousand") capitalUsd *= 1000;
+  }
+
+  return {
+    market: /\b(us|usa|u\.s\.|united states|america|american)\b/i.test(text) ? "US" : null,
+    max_holdings: countMatch ? Number(countMatch[1]) : null,
+    capital_usd: Number.isFinite(capitalUsd) && capitalUsd > 0 ? capitalUsd : null,
+  };
+}
+
 function detectTaskType(input, terms, entities) {
   const text = input.toLowerCase();
+  if (terms.some((term) => ["portfolio", "allocation", "holdings", "positions"].includes(term))) {
+    return "portfolio_construction";
+  }
   if (text.includes("meeting") || text.includes("开会") || text.includes("会议")) {
     return entities.tickers.length ? "stock_research_to_meeting" : "meeting_creation";
   }
@@ -2696,6 +2996,9 @@ function detectDesiredArtifacts(input, terms) {
   if (text.includes("audio") || text.includes("podcast")) artifacts.push("audio");
   if (text.includes("slide") || text.includes("deck") || text.includes("ppt")) artifacts.push("slides");
   if (text.includes("chart") || text.includes("graph")) artifacts.push("chart");
+  if (terms.some((term) => ["portfolio", "allocation", "holdings", "positions"].includes(term))) {
+    artifacts.push("portfolio_allocation", "decision_memo");
+  }
   if (text.includes("report") || text.includes("analysis") || text.includes("analyze")) {
     artifacts.push("report", "decision_memo");
   }
@@ -2718,7 +3021,8 @@ function parseTaskIntent(input) {
   const tickers = extractTickerCandidates(normalized);
   const terms = getTaskTerms(normalized);
   const desiredArtifacts = detectDesiredArtifacts(normalized, terms);
-  const entities = { tickers, urls };
+  const portfolio = parsePortfolioIntentFields(normalized);
+  const entities = { tickers, urls, portfolio };
 
   return {
     input: normalized,
@@ -2788,6 +3092,11 @@ function scoreTaskSkillCandidate(item, metadata, intent, runner = null) {
     }
   }
 
+  if (intent.task_type === "portfolio_construction" && item.slug === "us-portfolio-construction") {
+    score += 60;
+    reasons.push("direct US portfolio construction match");
+  }
+
   if (intent.task_type === "polymarket_distillation" && item.slug === "polymarket-distiller") {
     score += 40;
     reasons.push("direct Polymarket distillation match");
@@ -2823,6 +3132,14 @@ function mapIntentToSkillInputs(intent, metadata, runner) {
   const inputs = {};
   const ticker = intent.entities.tickers[0];
   const url = intent.entities.urls[0];
+  const portfolio = intent.entities.portfolio ?? {};
+
+  if (intent.task_type === "portfolio_construction") {
+    if (properties.market) inputs.market = portfolio.market ?? "US";
+    if (properties.max_holdings) inputs.max_holdings = portfolio.max_holdings ?? 25;
+    if (properties.capital_usd) inputs.capital_usd = portfolio.capital_usd ?? 10000000;
+    if (properties.fetch) inputs.fetch = true;
+  }
 
   if (ticker && properties.ticker) inputs.ticker = ticker;
   else if (ticker && properties.symbol) inputs.symbol = ticker;
@@ -3127,6 +3444,11 @@ function buildRecommendedTaskPlans(intent, candidates) {
     if (plan) plans.push(plan);
   }
 
+  if (intent.task_type === "portfolio_construction") {
+    const plan = makePlan("US portfolio construction", ["us-portfolio-construction"]);
+    if (plan) plans.push(plan);
+  }
+
   if (intent.task_type === "polymarket_distillation") {
     const plan = makePlan("Polymarket event distillation", ["polymarket-distiller"]);
     if (plan) plans.push(plan);
@@ -3319,6 +3641,18 @@ function summarizeArtifactForSynthesis(artifact) {
       title: artifact.title,
       summary: json.event?.title ?? json.event?.slug ?? artifact.title,
       markdown: json.brief_md ?? json.summary_md ?? null,
+      json_content: json,
+    };
+  }
+  if (artifact.artifact_type === "portfolio_allocation") {
+    return {
+      id: artifact.id,
+      run_id: artifact.run_id,
+      registry_slug: artifact.registry_slug,
+      artifact_type: artifact.artifact_type,
+      title: artifact.title,
+      summary: `${json.market ?? "US"} model portfolio: ${json.count ?? 0}/${json.max_holdings ?? "?"} holdings, ${json.total_weight_pct ?? "n/a"}% target weight`,
+      markdown: json.markdown ?? null,
       json_content: json,
     };
   }

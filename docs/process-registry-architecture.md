@@ -395,13 +395,14 @@ The app now has:
 - DB-backed runner config in `skill_operation_metadata.operation_hints.runner_config`
 - Retry, timeout, backoff, and failure-category policy on every run
 - Safe generic WPR runner for skills without bespoke automation
-- Built-in artifact-producing runners for `price-structure-analysis` and `polymarket-distiller`
+- Built-in artifact-producing runners for `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction`
 
 Current bespoke executors:
 
 ```text
 price-structure-analysis -> price_structure_verdict artifact
 polymarket-distiller     -> polymarket_distillation artifact
+us-portfolio-construction -> portfolio_allocation artifact
 ```
 
 All other active skills are runnable through the generic safe runner, which creates a `skill_invocation_packet` artifact rather than executing the full external workflow.
@@ -766,7 +767,16 @@ wpr AAPL analysis to meeting --create
 wpr worker
 ```
 
-Only skills with real executors produce true domain artifacts. `price-structure-analysis` and `polymarket-distiller` have built-in runners. Other active skills currently use the generic WPR runner, which creates a durable `skill_invocation_packet` artifact that records the selected skill, typed inputs, metadata, and source preview.
+Only skills with real executors produce true domain artifacts. `price-structure-analysis`, `polymarket-distiller`, and `us-portfolio-construction` have built-in runners. Other active skills currently use the generic WPR runner, which creates a durable `skill_invocation_packet` artifact that records the selected skill, typed inputs, metadata, and source preview.
+
+Portfolio construction is now a first-class WPR block:
+
+```bash
+wpr plan "Build a 25 stocks portfolio from US"
+wpr plan "Build a 25 stocks portfolio from US" --run
+```
+
+The intent parser maps this to `task_type=portfolio_construction`, extracts `market=US` and `max_holdings=25`, validates the arguments against the skill schema, runs the BotBoard US watchlist allocator, normalizes raw model weights to 100% of the selected capital base, and writes a durable `portfolio_allocation` artifact. The artifact is a model allocation for review, not a trade order or personal financial advice.
 
 Current `wpr plan "..." --run` is synchronous and conservative: it executes safe built-in or generic artifact runners, then synthesizes from completed artifacts. The next upgrade is to persist task graphs as first-class records and let workers execute runnable nodes in DAG order while respecting schema validation and approval gates.
 
