@@ -13,7 +13,7 @@ interface Props {
 export function FuturesAnalysisView({ report, analysisDate, varietyCode }: Props) {
   const [analyzing, setAnalyzing] = useState(false);
 
-  async function runAnalysis(mode: "analysis" | "strategy" = "analysis") {
+  async function runAnalysis(mode: string = "analysis") {
     setAnalyzing(true);
     try {
       const res = await fetch("/api/futures/analysis", {
@@ -38,23 +38,25 @@ export function FuturesAnalysisView({ report, analysisDate, varietyCode }: Props
     return (
       <div className="text-center py-16" style={{ color: "var(--muted)" }}>
         <p className="text-lg mb-4">No analysis yet for {varietyCode}</p>
-        <div className="flex items-center justify-center gap-4">
-          <button
-            onClick={() => runAnalysis("analysis")}
-            disabled={analyzing}
-            className="px-6 py-3 text-sm font-semibold rounded-lg transition-colors"
-            style={{ background: analyzing ? "#555" : "#d97706", color: "#fff", cursor: analyzing ? "wait" : "pointer" }}
-          >
-            {analyzing ? "GPT-5.4 Analyzing... (30-60s)" : `Analyze ${varietyCode}`}
-          </button>
-          <button
-            onClick={() => runAnalysis("strategy")}
-            disabled={analyzing}
-            className="px-6 py-3 text-sm font-semibold rounded-lg transition-colors"
-            style={{ background: analyzing ? "#555" : "#2563eb", color: "#fff", cursor: analyzing ? "wait" : "pointer" }}
-          >
-            {analyzing ? "Generating..." : `Trading Strategy`}
-          </button>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          {[
+            { mode: "analysis" as const, label: `Analyze ${varietyCode}`, bg: "#d97706" },
+            { mode: "strategy" as const, label: "Strategy", bg: "#2563eb" },
+            { mode: "table" as const, label: "Table", bg: "#7c3aed" },
+            { mode: "intraday" as const, label: "Intraday", bg: "#059669" },
+            { mode: "swing" as const, label: "Swing", bg: "#0891b2" },
+            { mode: "orders" as const, label: "Orders", bg: "#be185d" },
+          ].map((b) => (
+            <button
+              key={b.mode}
+              onClick={() => runAnalysis(b.mode)}
+              disabled={analyzing}
+              className="px-5 py-2.5 text-sm font-semibold rounded-lg transition-colors"
+              style={{ background: analyzing ? "#555" : b.bg, color: "#fff", cursor: analyzing ? "wait" : "pointer" }}
+            >
+              {analyzing ? "..." : b.label}
+            </button>
+          ))}
         </div>
         {analyzing && (
           <p className="mt-4 text-xs" style={{ color: "#888" }}>
@@ -67,28 +69,30 @@ export function FuturesAnalysisView({ report, analysisDate, varietyCode }: Props
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         {analysisDate && (
-          <p className="text-xs" style={{ color: "var(--muted)" }}>
-            Last analyzed: {new Date(analysisDate).toLocaleString()}
+          <p className="text-xs mr-2" style={{ color: "var(--muted)" }}>
+            Last: {new Date(analysisDate).toLocaleString()}
           </p>
         )}
-        <button
-          onClick={() => runAnalysis("analysis")}
-          disabled={analyzing}
-          className="text-xs px-3 py-1.5 rounded transition-colors"
-          style={{ background: analyzing ? "#555" : "#d97706", color: "#fff", cursor: analyzing ? "wait" : "pointer" }}
-        >
-          {analyzing ? "Re-analyzing..." : "Re-analyze"}
-        </button>
-        <button
-          onClick={() => runAnalysis("strategy")}
-          disabled={analyzing}
-          className="text-xs px-3 py-1.5 rounded transition-colors"
-          style={{ background: analyzing ? "#555" : "#2563eb", color: "#fff", cursor: analyzing ? "wait" : "pointer" }}
-        >
-          {analyzing ? "Generating..." : "Trading Strategy"}
-        </button>
+        {[
+          { mode: "analysis" as const, label: "Analyze", bg: "#d97706" },
+          { mode: "strategy" as const, label: "Strategy", bg: "#2563eb" },
+          { mode: "table" as const, label: "Table", bg: "#7c3aed" },
+          { mode: "intraday" as const, label: "Intraday", bg: "#059669" },
+          { mode: "swing" as const, label: "Swing", bg: "#0891b2" },
+          { mode: "orders" as const, label: "Orders", bg: "#be185d" },
+        ].map((b) => (
+          <button
+            key={b.mode}
+            onClick={() => runAnalysis(b.mode)}
+            disabled={analyzing}
+            className="text-xs px-3 py-1.5 rounded transition-colors"
+            style={{ background: analyzing ? "#555" : b.bg, color: "#fff", cursor: analyzing ? "wait" : "pointer" }}
+          >
+            {analyzing ? "..." : b.label}
+          </button>
+        ))}
       </div>
       <article
         className="prose prose-invert prose-sm max-w-none"
