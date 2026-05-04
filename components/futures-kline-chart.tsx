@@ -101,7 +101,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
   const [suggestions, setSuggestions] = useState<Variety[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [sugIdx, setSugIdx] = useState(-1);
-  const [analyzeCopied, setAnalyzeCopied] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   /* ---------- refs ---------- */
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -573,22 +573,35 @@ export function FuturesKlineChart({ initialCode }: Props) {
           ))}
         </div>
 
-        {/* Analyze button */}
+        {/* Analyze button — calls GPT-5.4 via API */}
         <button
-          onClick={() => {
-            if (!code) return;
+          onClick={async () => {
+            if (!code || analyzing) return;
             const upper = code.toUpperCase();
-            const cmd = `/futures-price-structure-analysis ${upper}`;
-            navigator.clipboard.writeText(cmd).then(() => {
-              setAnalyzeCopied(true);
-              setTimeout(() => setAnalyzeCopied(false), 2000);
-            });
+            setAnalyzing(true);
+            try {
+              const res = await fetch("/api/futures/analysis", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code: upper }),
+              });
+              const result = await res.json();
+              if (result.ok) {
+                window.location.href = `/futures/${upper}/analysis`;
+              } else {
+                alert("Analysis failed: " + (result.error || "Unknown error"));
+              }
+            } catch (err) {
+              alert("Analysis failed: " + String(err));
+            } finally {
+              setAnalyzing(false);
+            }
           }}
+          disabled={analyzing}
           className="px-3 py-1.5 text-xs font-semibold rounded transition-colors"
-          style={{ background: analyzeCopied ? "#16a34a" : "#d97706", color: "#fff", border: "none" }}
-          title="Copy analysis command for Claude Code"
+          style={{ background: analyzing ? "#555" : "#d97706", color: "#fff", border: "none", cursor: analyzing ? "wait" : "pointer" }}
         >
-          {analyzeCopied ? "Copied!" : "Analyze"}
+          {analyzing ? "Analyzing..." : "Analyze"}
         </button>
         {code && (
           <a

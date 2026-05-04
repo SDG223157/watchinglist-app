@@ -113,10 +113,29 @@ export function FuturesWatchlistTable({ items }: { items: Item[] }) {
                     Chart
                   </Link>
                   <button
-                    onClick={() => {
-                      const cmd = `/futures-price-structure-analysis ${item.variety_code}`;
-                      navigator.clipboard.writeText(cmd);
-                      alert(`Copied to clipboard:\n\n${cmd}\n\nPaste into Claude Code to analyze ${item.variety_code}.`);
+                    onClick={async (e) => {
+                      const btn = e.currentTarget;
+                      btn.textContent = "Analyzing...";
+                      btn.disabled = true;
+                      try {
+                        const res = await fetch("/api/futures/analysis", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ code: item.variety_code }),
+                        });
+                        const result = await res.json();
+                        if (result.ok) {
+                          window.location.href = `/futures/${item.variety_code}/analysis`;
+                        } else {
+                          alert("Analysis failed: " + (result.error || "Unknown error"));
+                          btn.textContent = "Analyze";
+                          btn.disabled = false;
+                        }
+                      } catch (err) {
+                        alert("Analysis failed: " + String(err));
+                        btn.textContent = "Analyze";
+                        btn.disabled = false;
+                      }
                     }}
                     className="text-xs px-2 py-1 rounded"
                     style={{ background: "#d97706", color: "#fff" }}
