@@ -114,6 +114,13 @@ export default async function Dashboard() {
             >
               Portfolio
             </Link>
+            <Link
+              href="/futures"
+              className="text-xs px-3 py-1.5 rounded-md transition-colors hover:brightness-125"
+              style={{ background: "#d97706", border: "1px solid #d97706", color: "#fff" }}
+            >
+              Futures
+            </Link>
             <RefreshAllButton stockCount={stocks.length} symbols={stocks.map(s => s.symbol)} />
             <AddStock />
             {session.user.image && (
