@@ -573,7 +573,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
           ))}
         </div>
 
-        {/* Analyze button — calls GPT-5.4 via API */}
+        {/* Analyze + Strategy buttons — call GPT-5.4 via API */}
         <button
           onClick={async () => {
             if (!code || analyzing) return;
@@ -583,7 +583,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
               const res = await fetch("/api/futures/analysis", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code: upper }),
+                body: JSON.stringify({ code: upper, mode: "analysis" }),
               });
               const result = await res.json();
               if (result.ok) {
@@ -602,6 +602,35 @@ export function FuturesKlineChart({ initialCode }: Props) {
           style={{ background: analyzing ? "#555" : "#d97706", color: "#fff", border: "none", cursor: analyzing ? "wait" : "pointer" }}
         >
           {analyzing ? "Analyzing..." : "Analyze"}
+        </button>
+        <button
+          onClick={async () => {
+            if (!code || analyzing) return;
+            const upper = code.toUpperCase();
+            setAnalyzing(true);
+            try {
+              const res = await fetch("/api/futures/analysis", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code: upper, mode: "strategy" }),
+              });
+              const result = await res.json();
+              if (result.ok) {
+                window.location.href = `/futures/${upper}/analysis`;
+              } else {
+                alert("Strategy failed: " + (result.error || "Unknown error"));
+              }
+            } catch (err) {
+              alert("Strategy failed: " + String(err));
+            } finally {
+              setAnalyzing(false);
+            }
+          }}
+          disabled={analyzing}
+          className="px-3 py-1.5 text-xs font-semibold rounded transition-colors"
+          style={{ background: analyzing ? "#555" : "#2563eb", color: "#fff", border: "none", cursor: analyzing ? "wait" : "pointer" }}
+        >
+          {analyzing ? "Generating..." : "Strategy"}
         </button>
         {code && (
           <a

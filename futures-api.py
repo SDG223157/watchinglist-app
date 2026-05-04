@@ -362,24 +362,102 @@ ATH: {data.get('ath', 'N/A')}  距ATH: {data.get('ath_distance', 0):.1f}%
     return prompt
 
 
+def build_strategy_prompt(variety_code: str, data: dict) -> str:
+    """Build trading strategy prompt from gathered data."""
+    contract = data.get("contract", {})
+    name = contract.get("name", variety_code)
+    h = data.get("history", {})
+    inv = data.get("inventory", {})
+    basis = data.get("basis", {})
+    mas = data.get("moving_averages", {})
+    perf = data.get("performance", {})
+
+    prompt = f"""基于以下{variety_code.upper()}（{name}）的价格结构数据，生成完整的交易策略报告：
+
+核心数据：
+- 当前价格：{h.get('latest_price', 'N/A')}（主力合约）
+- 现货价格：{basis.get('spot_price', 'N/A')}
+- 库存：{inv.get('current', 'N/A')}，20日变化：{inv.get('change_pct', 0):+.1f}%（{inv.get('trend', 'N/A')}）
+- 期限结构："""
+
+    if "term_structure" in data:
+        ts = data["term_structure"]
+        if len(ts) >= 2:
+            first_p = ts[0].get("price", 0) or 0
+            last_p = ts[-1].get("price", 0) or 0
+            if last_p < first_p:
+                prompt += "远端贴水（反向市场为主）"
+            elif last_p > first_p:
+                prompt += "远端升水（正向市场）"
+            else:
+                prompt += "平坦"
+
+    prompt += f"""
+- 均线：{' | '.join(f'{k}:{v:.0f}' for k, v in mas.items())}
+- RSI(14): {data.get('rsi14', 'N/A')}
+- ATH: {data.get('ath', 'N/A')}（距ATH: {data.get('ath_distance', 0):.1f}%）
+- 历史百分位: {h.get('percentile', 0):.1f}%
+- 近期表现: {' | '.join(f'{k}:{v:+.2f}%' for k, v in perf.items())}
+"""
+
+    if "term_structure" in data:
+        prompt += "\n各合约价格：\n"
+        for t in data["term_structure"]:
+            prompt += f"  {t['symbol']}: {t['price']}  持仓量={t['oi']}\n"
+
+    if "recent_bars" in data:
+        prompt += "\n近10日走势：\n"
+        for b in data["recent_bars"]:
+            prompt += f"  {b['date']} O:{b['O']} H:{b['H']} L:{b['L']} C:{b['C']} V:{b['V']}\n"
+
+    prompt += """
+请输出完整中文交易策略报告（Markdown格式），包含：
+
+## 一、多空情景分析
+### 情景A：偏多情景（概率评估%、触发条件、驱动逻辑、目标区）
+### 情景B：偏空情景（概率评估%、触发条件、驱动逻辑、目标区）
+### 情景C：中性震荡（概率评估%、预期区间）
+
+## 二、方向性交易策略
+### 策略1：趋势多单（入场条件与价位、止损位与逻辑、第一/第二/第三目标位、仓位建议、盈亏比计算）
+### 策略2：回调做多（入场区间、止损位、目标位、仓位、盈亏比）
+### 策略3：高位做空短线（入场区间、止损位、目标位、仓位、风险警告）
+
+## 三、跨期套利策略
+### 策略4：正套/反套（合约组合、入场价差、目标价差、止损价差、逻辑）
+
+## 四、风险管理
+### 仓位管理原则
+### 关键止损纪律
+### 需要立即平仓的极端信号
+
+## 五、每日跟踪清单（关键价位、指标、信号）
+
+## 六、策略优先级排序（当前最优策略到最低优先级）
+
+报告应实操性强，所有价位精确到整数，盈亏比清晰，每个策略的入场/止损/目标必须有明确数字。
+"""
+    return prompt
+
+
 @app.get("/api/analyze")
 async def analyze_futures(
     code: str = Query(..., description="Variety code, e.g. CU, AU, RB"),
+    mode: str = Query("analysis", description="analysis or strategy"),
 ):
-    """Gather data + call GPT-5.4 to generate futures analysis report."""
+    """Gather data + call GPT-5.4 to generate futures report."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         return {"error": "OPENAI_API_KEY not configured", "status": 500}
 
     upper = code.strip().upper()
-
-    # Gather all data
     data = gather_futures_data(upper)
 
-    # Build prompt
-    prompt = build_futures_prompt(upper, data)
+    if mode == "strategy":
+        prompt = build_strategy_prompt(upper, data)
+    else:
+        prompt = build_futures_prompt(upper, data)
 
-    # Call GPT-5.4
     async with httpx.AsyncClient(timeout=120) as client:
         try:
             resp = await client.post(
@@ -395,13 +473,7 @@ async def analyze_futures(
             resp.raise_for_status()
             result = resp.json()
             report = result["choices"][0]["message"]["content"]
-            return {"ok": True, "code": upper, "report": report, "data_summary": {
-                "contracts": len(data.get("contracts_list", [])),
-                "term_structure": len(data.get("term_structure", [])),
-                "has_basis": "basis" in data,
-                "has_inventory": "inventory" in data,
-                "has_history": "history" in data,
-            }}
+            return {"ok": True, "code": upper, "mode": mode, "report": report}
         except Exception as e:
             return {"error": str(e), "status": 500}
 

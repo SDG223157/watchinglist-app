@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
 
   // Otherwise, trigger GPT-5.4 analysis via the FastAPI backend
   try {
-    const res = await fetch(`${AKTOOLS_BASE}/api/analyze?code=${code}`, {
+    const mode = body.mode || "analysis";
+    const res = await fetch(`${AKTOOLS_BASE}/api/analyze?code=${code}&mode=${mode}`, {
       signal: AbortSignal.timeout(115_000),
     });
     if (!res.ok) {
