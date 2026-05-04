@@ -32,6 +32,7 @@ interface Props {
 /* ------------------------------------------------------------------ */
 
 const PERIODS = [
+  { key: "15", label: "15m" },
   { key: "30", label: "30m" },
   { key: "60", label: "1H" },
   { key: "daily", label: "D" },
@@ -232,7 +233,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
         try { (chartRef.current as { remove: () => void }).remove(); } catch { /* */ }
       }
 
-      const isIntraday = period === "30" || period === "60";
+      const isIntraday = period === "15" || period === "30" || period === "60";
       const el = chartContainerRef.current!;
 
       const chart = LWC.createChart(el, {
