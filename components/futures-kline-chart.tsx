@@ -102,7 +102,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
   const [showSug, setShowSug] = useState(false);
   const [sugIdx, setSugIdx] = useState(-1);
   const [analyzing, setAnalyzing] = useState(false);
-  const [showRt, setShowRt] = useState(false);
+  const [showRt, setShowRt] = useState(true);
   const [rtData, setRtData] = useState<{ symbol: string; name: string; price: number | null; change_pct: number; volume: number; oi: number }[]>([]);
 
   /* ---------- refs ---------- */
