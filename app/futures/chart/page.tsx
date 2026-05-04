@@ -4,15 +4,9 @@ import { FuturesKlineChart } from "@/components/futures-kline-chart";
 
 export const dynamic = "force-dynamic";
 
-export default async function FuturesChartPage({
-  params,
-}: {
-  params: Promise<{ code: string }>;
-}) {
+export default async function FuturesChartFullPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const { code } = await params;
-
-  return <FuturesKlineChart initialCode={code.toUpperCase()} />;
+  return <FuturesKlineChart />;
 }

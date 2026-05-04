@@ -20,6 +20,13 @@ export default async function FuturesPage() {
           <Link href="/" className="text-sm hover:underline" style={{ color: "var(--blue)" }}>
             ← Dashboard
           </Link>
+          <Link
+            href="/futures/chart"
+            className="text-sm px-3 py-1 rounded-md"
+            style={{ background: "#d97706", color: "#fff" }}
+          >
+            K-Line Chart
+          </Link>
         </div>
         <h1 className="text-3xl font-bold tracking-tight mt-2">Futures</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
