@@ -46,6 +46,8 @@ export function FuturesAnalysisView({ report, analysisDate, varietyCode }: Props
             { mode: "intraday" as const, label: "Intraday", bg: "#059669" },
             { mode: "swing" as const, label: "Swing", bg: "#0891b2" },
             { mode: "orders" as const, label: "Orders", bg: "#be185d" },
+            { mode: "risk" as const, label: "Risk", bg: "#dc2626" },
+            { mode: "checklist" as const, label: "Checklist", bg: "#ea580c" },
           ].map((b) => (
             <button
               key={b.mode}
