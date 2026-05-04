@@ -173,13 +173,11 @@ export function FuturesKlineChart({ initialCode }: Props) {
   /* ---------- realtime quotes ---------- */
   useEffect(() => {
     if (!showRt || !code) return;
-    const list = varieties[exchange] || [];
-    const variety = list.find((v: Variety) => v.code === code);
-    const cn = variety?.name || code;
     let active = true;
     const fetchRt = async () => {
       try {
-        const res = await fetch(`/api/futures/realtime?code=${encodeURIComponent(cn)}`);
+        // Send variety code directly — API resolves it via _CODE_TO_CN map
+        const res = await fetch(`/api/futures/realtime?code=${encodeURIComponent(code)}`);
         if (res.ok) {
           const d = await res.json();
           if (active && Array.isArray(d)) setRtData(d);
@@ -189,7 +187,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
     fetchRt();
     const iv = setInterval(fetchRt, 10000);
     return () => { active = false; clearInterval(iv); };
-  }, [showRt, code, exchange, varieties]);
+  }, [showRt, code]);
 
   /* ---------- search ---------- */
   useEffect(() => {
