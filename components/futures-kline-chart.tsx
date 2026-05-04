@@ -89,7 +89,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
   const [code, setCode] = useState(initialCode?.toUpperCase() || "");
   const [period, setPeriod] = useState("daily");
   const [startDate, setStartDate] = useState("2024-01-01");
-  const [endDate, setEndDate] = useState("2026-12-31");
+  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [data, setData] = useState<KlineBar[]>([]);
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState<KlineBar | null>(null);
