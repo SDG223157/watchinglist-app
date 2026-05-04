@@ -294,6 +294,49 @@ export function FuturesKlineChart({ initialCode }: Props) {
     };
   }, [data, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ---------- live candle updater (poll every 5s) ---------- */
+  useEffect(() => {
+    if (!code || !data.length || !candleRef.current || !volRef.current) return;
+    const sym = code.toUpperCase() + "0";
+    const iv = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/futures/tick?symbol=${sym}`);
+        if (!res.ok) return;
+        const tick = await res.json();
+        if (!tick.price || tick.error) return;
+
+        const lastBar = rawDataRef.current[rawDataRef.current.length - 1];
+        if (!lastBar) return;
+
+        if (period === "daily") {
+          const todayStr = new Date().toISOString().slice(0, 10);
+          if (lastBar.time === todayStr) {
+            lastBar.high = Math.max(lastBar.high, tick.price);
+            lastBar.low = Math.min(lastBar.low, tick.price);
+            lastBar.close = tick.price;
+            lastBar.volume = tick.volume || lastBar.volume;
+          } else {
+            rawDataRef.current.push({ time: todayStr, open: tick.price, high: tick.price, low: tick.price, close: tick.price, volume: tick.volume || 0 });
+          }
+        } else {
+          lastBar.high = Math.max(lastBar.high, tick.price);
+          lastBar.low = Math.min(lastBar.low, tick.price);
+          lastBar.close = tick.price;
+          lastBar.volume = tick.volume || lastBar.volume;
+        }
+
+        const bar = rawDataRef.current[rawDataRef.current.length - 1];
+        (candleRef.current as { update: (b: unknown) => void }).update(bar);
+        (volRef.current as { update: (b: unknown) => void }).update({
+          time: bar.time, value: bar.volume,
+          color: bar.close >= bar.open ? "#ef535044" : "#26a69a44",
+        });
+        setInfo(bar);
+      } catch { /* next tick */ }
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [code, data.length, period]);
+
   /* ---------- drawing canvas helpers ---------- */
   function resizeDrawCanvas() {
     const canvas = drawCanvasRef.current;
