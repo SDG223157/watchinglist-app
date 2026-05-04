@@ -112,6 +112,17 @@ export function FuturesWatchlistTable({ items }: { items: Item[] }) {
                   >
                     Chart
                   </Link>
+                  <button
+                    onClick={() => {
+                      const cmd = `/futures-price-structure-analysis ${item.variety_code}`;
+                      navigator.clipboard.writeText(cmd);
+                      alert(`Copied to clipboard:\n\n${cmd}\n\nPaste into Claude Code to analyze ${item.variety_code}.`);
+                    }}
+                    className="text-xs px-2 py-1 rounded"
+                    style={{ background: "#d97706", color: "#fff" }}
+                  >
+                    Analyze
+                  </button>
                   <Link
                     href={`/futures/${item.variety_code}/analysis`}
                     className="text-xs px-2 py-1 rounded"

@@ -101,6 +101,7 @@ export function FuturesKlineChart({ initialCode }: Props) {
   const [suggestions, setSuggestions] = useState<Variety[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [sugIdx, setSugIdx] = useState(-1);
+  const [analyzeCopied, setAnalyzeCopied] = useState(false);
 
   /* ---------- refs ---------- */
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -571,6 +572,33 @@ export function FuturesKlineChart({ initialCode }: Props) {
             >{p.label}</button>
           ))}
         </div>
+
+        {/* Analyze button */}
+        <button
+          onClick={() => {
+            if (!code) return;
+            const upper = code.toUpperCase();
+            const cmd = `/futures-price-structure-analysis ${upper}`;
+            navigator.clipboard.writeText(cmd).then(() => {
+              setAnalyzeCopied(true);
+              setTimeout(() => setAnalyzeCopied(false), 2000);
+            });
+          }}
+          className="px-3 py-1.5 text-xs font-semibold rounded transition-colors"
+          style={{ background: analyzeCopied ? "#16a34a" : "#d97706", color: "#fff", border: "none" }}
+          title="Copy analysis command for Claude Code"
+        >
+          {analyzeCopied ? "Copied!" : "Analyze"}
+        </button>
+        {code && (
+          <a
+            href={`/futures/${code.toUpperCase()}/analysis`}
+            className="px-2.5 py-1.5 text-xs rounded transition-colors"
+            style={{ background: "#1a1a28", border: "1px solid #2a2a3a", color: "#888" }}
+          >
+            View Report
+          </a>
+        )}
 
         <span className="ml-auto text-[10px]" style={{ color: "#555" }}>Powered by AKShare</span>
       </div>
