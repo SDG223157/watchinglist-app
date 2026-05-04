@@ -197,7 +197,7 @@ export async function removeFromFuturesWatchlist(
   const sql = getDb();
   await sql`
     DELETE FROM futures_watchlist
-    WHERE user_email = ${userEmail} AND variety_code = ${varietyCode}
+    WHERE user_email = ${userEmail} AND UPPER(variety_code) = ${varietyCode.toUpperCase()}
   `;
 }
 
@@ -207,10 +207,18 @@ export async function updateFuturesAnalysis(
   report: string
 ): Promise<void> {
   const sql = getDb();
+  const upper = varietyCode.toUpperCase();
+  // Update any existing row (case-insensitive)
   await sql`
     UPDATE futures_watchlist
     SET analysis_report = ${report}, analysis_date = NOW(), updated_at = NOW()
-    WHERE user_email = ${userEmail} AND variety_code = ${varietyCode}
+    WHERE user_email = ${userEmail} AND UPPER(variety_code) = ${upper}
+  `;
+  // If no row matched, insert one
+  await sql`
+    INSERT INTO futures_watchlist (user_email, variety_code, variety_name, exchange, analysis_report, analysis_date)
+    VALUES (${userEmail}, ${upper}, ${upper}, '', ${report}, NOW())
+    ON CONFLICT (user_email, variety_code) DO NOTHING
   `;
 }
 
@@ -221,7 +229,7 @@ export async function getFuturesAnalysis(
   const sql = getDb();
   const rows = await sql`
     SELECT * FROM futures_watchlist
-    WHERE user_email = ${userEmail} AND variety_code = ${varietyCode}
+    WHERE user_email = ${userEmail} AND UPPER(variety_code) = ${varietyCode.toUpperCase()}
     LIMIT 1
   `;
   return (rows[0] as unknown as FuturesWatchlistItem) ?? null;
