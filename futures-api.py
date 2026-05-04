@@ -98,6 +98,44 @@ def get_kline(
     return records
 
 
+# ===================== REALTIME =====================
+
+@app.get("/api/realtime")
+def get_realtime(code: str = Query(..., description="Chinese name e.g. 沪铜, 黄金")):
+    """Return real-time quotes for all contracts of a variety."""
+    cn_name = code
+    if not any('\u4e00' <= c <= '\u9fff' for c in code):
+        try:
+            df_map = ak.futures_symbol_mark()
+            for _, r in df_map.iterrows():
+                if code.lower() in r["mark"] or code.lower() == r["symbol"].lower():
+                    cn_name = r["symbol"]
+                    break
+        except:
+            pass
+    try:
+        df = ak.futures_zh_realtime(symbol=cn_name)
+        records = []
+        for _, r in df.iterrows():
+            prev = float(r.get("presettlement") or r.get("prevsettlement", 0)) if pd.notna(r.get("presettlement", r.get("prevsettlement"))) else None
+            price = float(r["trade"]) if pd.notna(r.get("trade")) else None
+            records.append({
+                "symbol": r.get("symbol", ""), "name": r.get("name", ""),
+                "price": price,
+                "open": float(r["open"]) if pd.notna(r.get("open")) else None,
+                "high": float(r["high"]) if pd.notna(r.get("high")) else None,
+                "low": float(r["low"]) if pd.notna(r.get("low")) else None,
+                "volume": int(r["volume"]) if pd.notna(r.get("volume")) else 0,
+                "oi": int(r["position"]) if pd.notna(r.get("position")) else 0,
+                "settlement": float(r["settlement"]) if pd.notna(r.get("settlement")) else None,
+                "prev_settlement": prev,
+                "change_pct": round((price - prev) / prev * 100, 2) if price and prev else 0,
+            })
+        return records
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ===================== ANALYZE =====================
 
 def gather_futures_data(variety_code: str) -> dict:

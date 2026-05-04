@@ -102,6 +102,8 @@ export function FuturesKlineChart({ initialCode }: Props) {
   const [showSug, setShowSug] = useState(false);
   const [sugIdx, setSugIdx] = useState(-1);
   const [analyzing, setAnalyzing] = useState(false);
+  const [showRt, setShowRt] = useState(false);
+  const [rtData, setRtData] = useState<{ symbol: string; name: string; price: number | null; change_pct: number; volume: number; oi: number }[]>([]);
 
   /* ---------- refs ---------- */
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -166,6 +168,27 @@ export function FuturesKlineChart({ initialCode }: Props) {
   }, [code, period, startDate, endDate]);
 
   useEffect(() => { loadChart(); }, [loadChart]);
+
+  /* ---------- realtime quotes ---------- */
+  useEffect(() => {
+    if (!showRt || !code) return;
+    const list = varieties[exchange] || [];
+    const variety = list.find((v: Variety) => v.code === code);
+    const cn = variety?.name || code;
+    let active = true;
+    const fetchRt = async () => {
+      try {
+        const res = await fetch(`/api/futures/realtime?code=${encodeURIComponent(cn)}`);
+        if (res.ok) {
+          const d = await res.json();
+          if (active && Array.isArray(d)) setRtData(d);
+        }
+      } catch { /* offline */ }
+    };
+    fetchRt();
+    const iv = setInterval(fetchRt, 10000);
+    return () => { active = false; clearInterval(iv); };
+  }, [showRt, code, exchange, varieties]);
 
   /* ---------- search ---------- */
   useEffect(() => {
@@ -659,7 +682,34 @@ export function FuturesKlineChart({ initialCode }: Props) {
           <span style={{ color: "#888" }}>Vol<span className="ml-1" style={{ color: "#e0e0e0" }}>{fmtVol(info.volume)}</span></span>
           <span style={{ color: "#888" }}>Bars<span className="ml-1" style={{ color: "#e0e0e0" }}>{data.length}</span></span>
         </>}
+        <button
+          onClick={() => setShowRt(!showRt)}
+          className="ml-auto text-[11px] px-2 py-0.5 rounded"
+          style={{ background: showRt ? "#ffd700" : "#1a1a28", color: showRt ? "#0a0a0f" : "#888", border: "1px solid #2a2a3a" }}
+        >
+          Live Quotes
+        </button>
       </div>
+
+      {/* ===== REALTIME QUOTES ===== */}
+      {showRt && rtData.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-1.5 overflow-x-auto" style={{ background: "#0e0e16", borderBottom: "1px solid #1e1e2e" }}>
+          {rtData.map((r) => (
+            <div key={r.symbol} className="flex flex-col items-center flex-shrink-0 px-2.5 py-1 rounded" style={{ background: "#12121a", border: "1px solid #1e1e2e", minWidth: 85 }}>
+              <span className="text-[11px] font-bold" style={{ color: "#ffd700" }}>{r.symbol}</span>
+              <span className="text-sm font-bold" style={{ color: r.change_pct > 0 ? "#ef5350" : r.change_pct < 0 ? "#26a69a" : "#888" }}>
+                {r.price?.toLocaleString() ?? "—"}
+              </span>
+              <span className="text-[10px]" style={{ color: r.change_pct > 0 ? "#ef5350" : r.change_pct < 0 ? "#26a69a" : "#888" }}>
+                {r.change_pct > 0 ? "+" : ""}{r.change_pct}%
+              </span>
+              <span className="text-[9px]" style={{ color: "#555" }}>
+                V:{r.volume >= 1000 ? (r.volume / 1000).toFixed(0) + "K" : r.volume} OI:{r.oi >= 1000 ? (r.oi / 1000).toFixed(0) + "K" : r.oi}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ===== MAIN AREA ===== */}
       <div className="flex flex-1 min-h-0">
